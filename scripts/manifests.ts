@@ -59,8 +59,8 @@ export function manifests(version: string, sums: Record<string, string>): Manife
 
   // winget: the installer, which keeps C:\Program Files\wkhtmltopdf.
   const setup = file('windows-x64', '-setup.exe');
-  const id = 'Jamalofski.pdfkiln';
-  const dir = `winget/manifests/j/Jamalofski/pdfkiln/${version}`;
+  const id = 'PDFKiln.PDFKiln';
+  const dir = `winget/manifests/p/PDFKiln/PDFKiln/${version}`;
   const head = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.{type}.1.6.0.schema.json\n\nPackageIdentifier: ${id}\nPackageVersion: ${version}\n`;
   out[`${dir}/${id}.yaml`] = `${head.replace('{type}', 'version')}DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.6.0\n`;
   out[`${dir}/${id}.installer.yaml`] = `${head.replace('{type}', 'installer')}InstallerType: inno
@@ -78,14 +78,15 @@ ManifestType: installer
 ManifestVersion: 1.6.0
 `;
   out[`${dir}/${id}.locale.en-US.yaml`] = `${head.replace('{type}', 'defaultLocale')}PackageLocale: en-US
-Publisher: Jamalofski
-PublisherUrl: https://github.com/Jamalofski
-PackageName: pdfkiln
+Publisher: PDFKiln
+PublisherUrl: ${SITE}
+PackageName: PDFKiln
 PackageUrl: ${SITE}
 License: MIT
 LicenseUrl: ${REPO}/blob/main/LICENSE
 ShortDescription: ${DESCRIPTION}
-Description: Called as wkhtmltopdf or wkhtmltoimage, pdfkiln accepts the command lines of wkhtmltopdf and wkhtmltoimage 0.12.6 and renders with Chromium. Not affiliated with the wkhtmltopdf project.
+Description: Called as wkhtmltopdf or wkhtmltoimage, PDFKiln accepts the command lines of wkhtmltopdf and wkhtmltoimage 0.12.6 and renders with Chromium. Not affiliated with the wkhtmltopdf project.
+Moniker: pdfkiln
 Tags:
 - wkhtmltopdf
 - pdf

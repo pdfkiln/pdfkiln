@@ -719,7 +719,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $dir = (Get-ChildItem manifests\winget\manifests\j\Jamalofski\pdfkiln -Directory | Select-Object -First 1).FullName
+          $dir = (Get-ChildItem manifests\winget\manifests\p\PDFKiln\PDFKiln -Directory | Select-Object -First 1).FullName
           winget --version
           winget validate --manifest $dir
           if ($LASTEXITCODE) { exit 1 }

@@ -13,7 +13,7 @@ test('Scoop, winget, Homebrew and Composer point at the release, with its sums',
   assert.equal(scoop.architecture['64bit'].url, `${REPO}/releases/download/1.2.3/pdfkiln-1.2.3-windows-x64.zip`);
   assert.equal(scoop.architecture['64bit'].hash, '4'.repeat(64));
   assert.deepEqual(scoop.bin, ['bin\\wkhtmltopdf.exe', 'bin\\wkhtmltoimage.exe', 'bin\\pdfkiln.exe']);
-  const installer = m['winget/manifests/j/Jamalofski/pdfkiln/1.2.3/Jamalofski.pdfkiln.installer.yaml']!;
+  const installer = m['winget/manifests/p/PDFKiln/PDFKiln/1.2.3/PDFKiln.PDFKiln.installer.yaml']!;
   assert.match(installer, /InstallerUrl: \S+\/1\.2\.3\/pdfkiln-1\.2\.3-windows-x64-setup\.exe\n  InstallerSha256: 5{64}\n/);
   assert.match(installer, /InstallerType: inno/);
   const formula = m['homebrew/Formula/pdfkiln.rb']!;
@@ -47,7 +47,7 @@ test('the formula has the macOS archives there are', () => {
 test('the site is the home page; GitHub keeps the downloads, the issues and the source', () => {
   const m = manifests('1.2.3', sums);
   assert.equal(JSON.parse(m['scoop/pdfkiln.json']!).homepage, SITE);
-  assert.match(m['winget/manifests/j/Jamalofski/pdfkiln/1.2.3/Jamalofski.pdfkiln.locale.en-US.yaml']!, /PackageUrl: https:\/\/pdfkiln\.org\n/);
+  assert.match(m['winget/manifests/p/PDFKiln/PDFKiln/1.2.3/PDFKiln.PDFKiln.locale.en-US.yaml']!, /PackageUrl: https:\/\/pdfkiln\.org\n/);
   assert.match(m['homebrew/Formula/pdfkiln.rb']!, /homepage "https:\/\/pdfkiln\.org"/);
   const composer = JSON.parse(m['composer/composer.json']!);
   assert.equal(composer.homepage, SITE);
