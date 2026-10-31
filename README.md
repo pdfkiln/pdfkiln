@@ -67,7 +67,20 @@ npx @pdfkiln/pdfkiln wkhtmltopdf page.html page.pdf
 npm install -g @pdfkiln/pdfkiln    # pdfkiln, wkhtmltopdf and wkhtmltoimage
 ```
 
-Coming later: Scoop, winget and Homebrew (the manifests are ready: `scripts/manifests.ts`, tested by CI).
+**Scoop** (Windows), the zip with its programs on the `PATH`:
+
+```sh
+scoop bucket add pdfkiln https://github.com/pdfkiln/scoop
+scoop install pdfkiln/pdfkiln
+```
+
+**Homebrew** (macOS ARM64):
+
+```sh
+brew install pdfkiln/tap/pdfkiln
+```
+
+**winget**: submitted to winget-pkgs, under review; once accepted, `winget install pdfkiln`.
 
 Chromium's sandbox stays on: run as an unprivileged user, not root.
 
