@@ -67,10 +67,14 @@ export function qtErrorForChromium(errorText: string): number {
 }
 
 // What QNetworkReply::errorString said, for the "Failed to load" lines.
+// Qt names the host it did not find for http only: over https, the socket
+// has no peer name yet and the message reads "Host  not found" (measured on
+// wkhtmltopdf 0.12.6, Linux and Windows).
 export function qtErrorString(code: number, url: string, status: number, statusText: string): string {
   const host = (() => {
     try {
-      return new URL(url).hostname;
+      const u = new URL(url);
+      return u.protocol === 'https:' ? '' : u.hostname;
     } catch {
       return '';
     }

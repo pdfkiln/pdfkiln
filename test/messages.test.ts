@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { explain, parseLdd } from '../src/engine/browser.js';
 import { Feedback } from '../src/wk/feedback.js';
-import { handleError, qtErrorForHttpStatus } from '../src/wk/qtnet.js';
+import { handleError, qtErrorForHttpStatus, qtErrorString } from '../src/wk/qtnet.js';
 
 test('exit codes, measured on wkhtmltopdf 0.12.6', () => {
   // An HTTP 404 reaches wkhtmltopdf as Qt's ContentNotFoundError: exit 1.
@@ -14,6 +14,13 @@ test('exit codes, measured on wkhtmltopdf 0.12.6', () => {
   assert.deepEqual(handleError(true, 0), { code: 0 });
   // What the code of wkhtmltopdf would do with a bare HTTP status.
   assert.deepEqual(handleError(true, 404), { code: 2, line: 'Exit with code 2 due to http error: 404 Page not found' });
+});
+
+test('a host not found: named over http, not over https, as Qt 4.8 does', () => {
+  // wkhtmltopdf 0.12.6, Linux and Windows (31/10/2026).
+  assert.equal(qtErrorString(3, 'http://pdfkiln-nonexistent.invalid/', 0, ''), 'Host pdfkiln-nonexistent.invalid not found');
+  assert.equal(qtErrorString(3, 'https://pdfkiln-nonexistent.invalid/', 0, ''), 'Host  not found');
+  assert.equal(qtErrorString(3, 'https://codebeat.co/badges/a6bb7f66', 0, ''), 'Host  not found');
 });
 
 test('Chromium that does not start: the reason, with the fix', () => {
