@@ -2,7 +2,7 @@
 // temporary folder, the sandbox on, DevTools over a pipe, and a deadline
 // after which the whole process group is killed.
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import puppeteer, { type Browser } from 'puppeteer-core';
 import { ensureChromium } from '../chromium.js';
@@ -51,8 +51,40 @@ export function parseLdd(out: string): string[] {
   return [...new Set([...out.matchAll(/^\s*(\S+) => not found\s*$/gm)].map((m) => m[1]!))];
 }
 
+// The cap on the address space (RLIMIT_AS, `ulimit -v`), in bytes, Infinity
+// when there is none: from /proc/self/limits, or from `limits` when given.
+// Null off Linux.
+export interface AddressSpace { soft: number; hard: number }
+
+export function addressSpace(limits?: string): AddressSpace | null {
+  if (limits === undefined) {
+    if (process.platform !== 'linux') return null;
+    try {
+      limits = readFileSync('/proc/self/limits', 'utf8');
+    } catch {
+      return null;
+    }
+  }
+  const m = /^Max address space\s+(\S+)\s+(\S+)/m.exec(limits);
+  if (!m) return null;
+  const bytes = (v: string) => (v === 'unlimited' ? Infinity : Number(v));
+  return { soft: bytes(m[1]!), hard: bytes(m[2]!) };
+}
+
+// Odoo caps the address space of the programs it starts, wkhtmltopdf
+// included: RLIMIT_AS at its limit_memory_hard, 2560 MiB by default, in
+// every server mode of Odoo 16 to 20. Chromium reserves far more address
+// space than it uses and does not start under any such cap, even 16 GiB,
+// where wkhtmltopdf 0.12.6 runs in 2560 MiB (measured 01/11/2026). A soft
+// cap is raised to the hard one, which Odoo leaves unlimited, by a shell
+// that then becomes Chromium: Node cannot change its own limits.
+export function chromiumCommand(exe: string, args: string[], space: AddressSpace | null = addressSpace()): [string, string[]] {
+  if (!space || space.soft === Infinity) return [exe, args];
+  return ['/bin/sh', ['-c', 'ulimit -S -v "$(ulimit -H -v)"; exec "$0" "$@"', exe, ...args]];
+}
+
 // Explains the usual reasons Chromium cannot start, with the fix.
-export function explain(message: string, serverCore: () => boolean = windowsServerCore, missing: () => string[] = () => []): string {
+export function explain(message: string, serverCore: () => boolean = windowsServerCore, missing: () => string[] = () => [], space: () => AddressSpace | null = () => null): string {
   if (serverCore()) {
     return 'Chromium does not run on Windows Server Core: it stops at start, for want of system libraries. Use Windows Server with the Desktop Experience, or the mcr.microsoft.com/windows/server container image rather than servercore.';
   }
@@ -61,6 +93,11 @@ export function explain(message: string, serverCore: () => boolean = windowsServ
   if (loader && !libs.includes(loader[1]!)) libs.push(loader[1]!);
   if (libs.length) {
     return `Chromium cannot start: the system lacks ${libs.join(', ')}. The Debian package installs Chromium's libraries; with the archive or the Composer package, install them first (README, Installation, Linux and macOS archives).`;
+  }
+  // A soft cap is raised (chromiumCommand), a hard one cannot be.
+  const cap = space();
+  if (cap && cap.hard !== Infinity) {
+    return `Chromium cannot start under a cap on its address space (ulimit -v, RLIMIT_AS) of ${Math.round(cap.hard / 2 ** 20)} MiB: it reserves far more than it uses. Lift the hard cap: LimitAS=infinity in a systemd unit, ulimit -H -v unlimited in the shell that starts the program.`;
   }
   if (/as root without --no-sandbox/i.test(message)) {
     return 'Chromium refuses to run as root with its sandbox on. Run the command as an unprivileged user (or pass --kiln-no-sandbox, not recommended).';
@@ -140,11 +177,15 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   if (opts.proxyBypassList) args.push(`--proxy-bypass-list=${opts.proxyBypassList}`);
   let browser: Browser;
   try {
+    // Puppeteer gets every argument, its defaults included: under a cap on
+    // the address space, the program it starts is a shell.
+    const [file, argv] = chromiumCommand(exe, await puppeteer.defaultArgs({ headless: 'shell', args }));
     browser = await puppeteer.launch({
-      executablePath: exe,
+      executablePath: file,
+      ignoreDefaultArgs: true,
       headless: 'shell',
       pipe: true,
-      args,
+      args: argv,
       env: { ...process.env, ...opts.env },
       defaultViewport: null,
       handleSIGINT: false,
@@ -154,7 +195,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     });
   } catch (e) {
     removeQuietly(profile);
-    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe)));
+    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace));
   }
   const pid = browser.process()?.pid;
   let closed = false;

@@ -1,7 +1,7 @@
 // What wkhtmltopdf writes on stderr and how it exits.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { explain, parseLdd } from '../src/engine/browser.js';
+import { addressSpace, chromiumCommand, explain, parseLdd } from '../src/engine/browser.js';
 import { Feedback } from '../src/wk/feedback.js';
 import { handleError, qtErrorForHttpStatus, qtErrorString } from '../src/wk/qtnet.js';
 
@@ -48,6 +48,25 @@ test('Chromium that lacks a system library: named, from ldd or the loader', () =
   assert.match(explain(loader, () => false), /the system lacks libasound\.so\.2\./);
   assert.match(explain(loader, () => false, () => ['libasound.so.2', 'libgbm.so.1']), /lacks libasound\.so\.2, libgbm\.so\.1\./);
   assert.equal(explain(closed, () => false, () => []), `Chromium did not start: ${closed}`);
+});
+
+test('a cap on the address space: a soft one raised, a hard one explained', () => {
+  // /proc/self/limits of a process Odoo 20 starts (limit_memory_hard, 01/11/2026).
+  const odoo = [
+    'Limit                     Soft Limit           Hard Limit           Units     ',
+    'Max cpu time              unlimited            unlimited            seconds   ',
+    'Max address space         2684354560           unlimited            bytes     ',
+  ].join('\n');
+  assert.deepEqual(addressSpace(odoo), { soft: 2684354560, hard: Infinity });
+  assert.deepEqual(addressSpace('Max address space         unlimited            unlimited            bytes'), { soft: Infinity, hard: Infinity });
+  assert.equal(addressSpace(''), null);
+  const args = ['--headless', '--remote-debugging-pipe'];
+  assert.deepEqual(chromiumCommand('/c/chrome', args, null), ['/c/chrome', args]);
+  assert.deepEqual(chromiumCommand('/c/chrome', args, { soft: Infinity, hard: Infinity }), ['/c/chrome', args]);
+  assert.deepEqual(chromiumCommand('/c/chrome', args, addressSpace(odoo)), ['/bin/sh', ['-c', 'ulimit -S -v "$(ulimit -H -v)"; exec "$0" "$@"', '/c/chrome', ...args]]);
+  const closed = 'Protocol error (Target.setDiscoverTargets): Target closed';
+  assert.equal(explain(closed, () => false, () => [], () => ({ soft: 2684354560, hard: Infinity })), `Chromium did not start: ${closed}`);
+  assert.match(explain(closed, () => false, () => [], () => ({ soft: 2684354560, hard: 2684354560 })), /^Chromium cannot start under a cap on its address space \(ulimit -v, RLIMIT_AS\) of 2560 MiB: .* LimitAS=infinity/);
 });
 
 test('phases, padded over the progress bar', () => {

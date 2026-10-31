@@ -39,12 +39,16 @@ const hasPyMuPDF = (() => {
 
 interface Run { code: number | null; stdout: Buffer; stderr: string; ms: number }
 
-function run(args: string[], opts: { stdin?: string | Buffer; cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<Run> {
+// opts.sh: shell commands run first, by a shell that then becomes the command.
+function run(args: string[], opts: { stdin?: string | Buffer; cwd?: string; env?: NodeJS.ProcessEnv; sh?: string } = {}): Promise<Run> {
   return new Promise((ok) => {
     const t0 = performance.now();
     const env = { ...process.env, ...opts.env };
     delete env.NODE_EXTRA_CA_CERTS;
-    const child = spawn(...command(process.env.PDFKILN_TEST_WKHTMLTOPDF, cli, args), { cwd: opts.cwd ?? dir, env });
+    const [exe, argv] = command(process.env.PDFKILN_TEST_WKHTMLTOPDF, cli, args);
+    const child = opts.sh
+      ? spawn('/bin/sh', ['-c', `${opts.sh}; exec "$0" "$@"`, exe, ...argv], { cwd: opts.cwd ?? dir, env })
+      : spawn(exe, argv, { cwd: opts.cwd ?? dir, env });
     const out: Buffer[] = [];
     let err = '';
     child.stdout.on('data', (d: Buffer) => out.push(d));
@@ -203,6 +207,21 @@ describe('interface', () => {
     const r = await run(['-q', 'http://pdfkiln-nonexistent.invalid/', join(dir, 'none.pdf')]);
     assert.equal(r.code, 1);
     assert.equal(lastLine(r.stderr), 'Exit with code 1 due to network error: HostNotFoundError');
+  });
+
+  // Odoo starts wkhtmltopdf under a soft cap on the address space, 2560 MiB
+  // (limit_memory_hard), where wkhtmltopdf 0.12.6 runs and Chromium does not
+  // start. A hard cap cannot be lifted: the message says so.
+  test('under a cap on the address space, as Odoo sets it', async (t) => {
+    if (process.platform !== 'linux') return t.skip('RLIMIT_AS: Linux');
+    const out = join(dir, 'capped.pdf');
+    let r = await run(['-q', `${base}/ok`, out], { sh: 'ulimit -S -v 2621440' });
+    assert.equal(r.stderr, '');
+    assert.equal(r.code, 0);
+    assert.equal(readFileSync(out).subarray(0, 5).toString(), '%PDF-');
+    r = await run(['-q', `${base}/ok`, out], { sh: 'ulimit -v 2621440' });
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^Error: Chromium cannot start under a cap on its address space \(ulimit -v, RLIMIT_AS\) of 2560 MiB: /);
   });
 
   test('--custom-header goes to the page only, unless propagated', async () => {

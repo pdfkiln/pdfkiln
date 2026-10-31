@@ -16,7 +16,7 @@ import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type ConnectionTransport } from 'puppeteer-core';
 import { ensureChromium, userCacheDir } from '../chromium.js';
-import { explain, killTree, LaunchError, missingLibraries, removeWhenFree, windowsServerCore } from './browser.js';
+import { addressSpace, chromiumCommand, explain, killTree, LaunchError, missingLibraries, removeWhenFree, windowsServerCore } from './browser.js';
 
 // PDFKILN_SERVER: the socket, or "off" not to look for a server.
 export function socketPath(): string | null {
@@ -302,7 +302,7 @@ export async function serve(opts: ServeOptions): Promise<number> {
         '--remote-debugging-pipe',
       ],
     });
-    const child = spawn(exe, args, { env: { ...process.env, ...opts.env(dir) }, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const child = spawn(...chromiumCommand(exe, args), { env: { ...process.env, ...opts.env(dir) }, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     chromium = child;
     let stderr = '';
     child.stderr!.on('data', (d) => (stderr += d));
@@ -323,7 +323,7 @@ export async function serve(opts: ServeOptions): Promise<number> {
       }
     }));
     await new Promise<void>((ok, fail) => {
-      const onExit = () => fail(new LaunchError(explain(stderr || 'Chromium exited', windowsServerCore, () => missingLibraries(exe))));
+      const onExit = () => fail(new LaunchError(explain(stderr || 'Chromium exited', windowsServerCore, () => missingLibraries(exe), addressSpace)));
       child.once('exit', onExit);
       answered = () => {
         child.off('exit', onExit);
