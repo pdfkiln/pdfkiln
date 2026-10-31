@@ -17,6 +17,8 @@ test('Scoop, winget, Homebrew and Composer point at the release, with its sums',
   const installer = m['winget/manifests/p/PDFKiln/PDFKiln/1.2.3/PDFKiln.PDFKiln.installer.yaml']!;
   assert.match(installer, /InstallerUrl: \S+\/1\.2\.3\/pdfkiln-1\.2\.3-windows-x64-setup\.exe\n  InstallerSha256: 5{64}\n/);
   assert.match(installer, /InstallerType: inno/);
+  // The installer's AppId, which never changes: a new one would be another app.
+  assert.match(installer, /\nProductCode: '\{6F3C2B4E-8D1A-4C5B-9E7F-2A1D3B4C5E6F\}_is1'\n/);
   const formula = m['homebrew/Formula/pdfkiln.rb']!;
   assert.match(formula, /url "\S+pdfkiln-1\.2\.3-macos-arm64\.tar\.gz"\n\s+sha256 "3{64}"/);
   assert.match(formula, /url "\S+pdfkiln-1\.2\.3-macos-x64\.tar\.gz"\n\s+sha256 "2{64}"/);

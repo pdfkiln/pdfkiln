@@ -61,6 +61,11 @@ export function manifests(version: string, sums: Record<string, string>): Manife
 
   // winget: the installer, which keeps C:\Program Files\wkhtmltopdf.
   const setup = file('windows-x64', '-setup.exe');
+  // {AppId}_is1, the key of the installed app in Windows: by it winget knows
+  // an installed PDFKiln whatever its name and publisher there (1.1.0 gave
+  // pdfkiln and Jamalofski).
+  const appId = /^AppId=\{(\{[0-9A-F-]+\})\s*$/m.exec(readFileSync(join(repoRoot, 'packaging', 'windows', 'pdfkiln.iss'), 'utf8'))?.[1];
+  if (!appId) throw new Error('no AppId in packaging/windows/pdfkiln.iss');
   const id = 'PDFKiln.PDFKiln';
   const dir = `winget/manifests/p/PDFKiln/PDFKiln/${version}`;
   const head = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.{type}.1.12.0.schema.json\n\nPackageIdentifier: ${id}\nPackageVersion: ${version}\n`;
@@ -68,6 +73,7 @@ export function manifests(version: string, sums: Record<string, string>): Manife
   out[`${dir}/${id}.installer.yaml`] = `${head.replace('{type}', 'installer')}InstallerType: inno
 Scope: machine
 UpgradeBehavior: install
+ProductCode: '${appId}_is1'
 Commands:
 - wkhtmltopdf
 - wkhtmltoimage
