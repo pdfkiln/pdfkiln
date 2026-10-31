@@ -1,5 +1,5 @@
 name: Rendering difference
-description: A page that pdfkiln renders differently from wkhtmltopdf 0.12.6
+description: A page that PDFKiln renders differently from wkhtmltopdf 0.12.6
 labels: [rendering]
 body:
   - type: markdown
@@ -17,7 +17,7 @@ body:
     id: files
     attributes:
       label: Files
-      description: Attach the HTML (with its CSS, images and fonts, or a zip), the PDF from wkhtmltopdf 0.12.6 and the PDF from pdfkiln.
+      description: Attach the HTML (with its CSS, images and fonts, or a zip), the PDF from wkhtmltopdf 0.12.6 and the PDF from PDFKiln.
     validations:
       required: true
   - type: textarea

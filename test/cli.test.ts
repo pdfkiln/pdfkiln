@@ -165,7 +165,7 @@ describe('interface', () => {
     assert.equal(doc.getTitle(), 'T');
     assert.ok(doc.catalog.get(PDFName.of('Outlines')), 'outline');
     // No version: they would tell who receives the PDF which flaws the server has.
-    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['pdfkiln', 'pdfkiln.org']);
+    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['PDFKiln', 'pdfkiln.org']);
   });
 
   test('a 404 page: the PDF, and exit 1 as wkhtmltopdf 0.12.6', async () => {
@@ -636,7 +636,7 @@ describe('native interface', () => {
     const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
     const { width, height } = doc.getPage(0).getSize();
     assert.ok(Math.abs(width - 595.3) < 1 && Math.abs(height - 419.5) < 1, `${width} x ${height}`);
-    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['pdfkiln', 'pdfkiln.org']);
+    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['PDFKiln', 'pdfkiln.org']);
   });
 
   test('standard input and output, several inputs merged', async () => {
@@ -857,6 +857,16 @@ describe('native interface', () => {
   test('pdfkiln wkhtmltopdf switches to the compatible mode', async () => {
     const r = await native(['wkhtmltopdf', '--version']);
     assert.match(r.stdout.toString(), /^wkhtmltopdf 0\.12\.6/);
+  });
+
+  test('--help and --version: the name PDFKiln, the command pdfkiln', async () => {
+    let r = await native(['--help']);
+    assert.equal(r.code, 0);
+    assert.match(r.stdout.toString(), /^Usage: pdfkiln \[options\] <input>\.\.\. <output>\n/);
+    assert.match(r.stdout.toString(), /<options>", PDFKiln is compatible with wkhtmltopdf\n/);
+    r = await native(['--version']);
+    assert.equal(r.code, 0);
+    assert.match(r.stdout.toString(), /^PDFKiln \d+\.\d+\.\d+, Chromium \d+(\.\d+){3}\n$/);
   });
 
   test('an input is a file unless it is a URL: a missing one is not looked for on the web', async () => {

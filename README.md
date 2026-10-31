@@ -1,22 +1,22 @@
-# pdfkiln
+# PDFKiln
 
 Drop-in replacement for wkhtmltopdf, powered by Chromium.
 
 Site, documentation and migration guides: [pdfkiln.org](https://pdfkiln.org)
 
-wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt WebKit that gets no security fixes. Yet pdfkit, knp-snappy, laravel-snappy, phpwkhtmltopdf, wicked_pdf, Rotativa, Odoo and ERPNext still call it. pdfkiln takes its place without a line of your code changing: the same command line, a current Chromium underneath.
+wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt WebKit that gets no security fixes. Yet pdfkit, knp-snappy, laravel-snappy, phpwkhtmltopdf, wicked_pdf, Rotativa, Odoo and ERPNext still call it. PDFKiln takes its place without a line of your code changing: the same command line, a current Chromium underneath.
 
 - **Same command line**: the 122 options of wkhtmltopdf 0.12.6, its defaults, messages and exit codes.
 - **Same pages**: on 32 real templates (Odoo, ERPNext, Sylius, pandoc), the same page count as wkhtmltopdf on all 32, and 99.1 % of the words on the same page (Linux).
-- **Tested by the libraries themselves**: the own test suites of pdfkit, knp-snappy, phpwkhtmltopdf and wicked_pdf pass with pdfkiln in place of wkhtmltopdf.
+- **Tested by the libraries themselves**: the own test suites of pdfkit, knp-snappy, phpwkhtmltopdf and wicked_pdf pass with PDFKiln in place of wkhtmltopdf.
 - **Kept current**: each release ships the latest stable Chromium, sandboxed; on Debian and Ubuntu, `apt upgrade` brings it.
 
-pdfkiln is one program that answers to two names:
+PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
 - called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`); `pdfkiln --help` lists them all. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0, and the version's notes (`CHANGELOG.md`) say so first.
 
-pdfkiln is not affiliated with the original wkhtmltopdf project.
+PDFKiln is not affiliated with the original wkhtmltopdf project.
 
 ## Installation
 
@@ -31,9 +31,9 @@ sudo apt update && sudo apt install pdfkiln
 
 It installs `/usr/bin/pdfkiln` and `/usr/bin/wkhtmltopdf`, replaces the official `wkhtmltox` package, and loads an AppArmor profile so that Chromium's sandbox works on Ubuntu 24.04 and later. The `.deb` of a [release](https://github.com/Jamalofski/pdfkiln/releases/latest), installed by hand, sets the repository up itself.
 
-**Windows** (x64; ARM runs it in emulation; Windows Server with the Desktop Experience, IIS included, not Server Core, where Chromium stops at start and pdfkiln says so): from the [latest release](https://github.com/Jamalofski/pdfkiln/releases/latest), the installer `pdfkiln-<version>-windows-x64-setup.exe`, or the zip, which holds `wkhtmltopdf\bin\wkhtmltopdf.exe` as the old installer did. Both install in `C:\Program Files\wkhtmltopdf`, the path pdfkit and most guides use: uninstall wkhtmltopdf first. The programs are not signed yet: SmartScreen warns about the installer; check it against the release's `SHA256SUMS`.
+**Windows** (x64; ARM runs it in emulation; Windows Server with the Desktop Experience, IIS included, not Server Core, where Chromium stops at start and PDFKiln says so): from the [latest release](https://github.com/Jamalofski/pdfkiln/releases/latest), the installer `pdfkiln-<version>-windows-x64-setup.exe`, or the zip, which holds `wkhtmltopdf\bin\wkhtmltopdf.exe` as the old installer did. Both install in `C:\Program Files\wkhtmltopdf`, the path pdfkit and most guides use: uninstall wkhtmltopdf first. The programs are not signed yet: SmartScreen warns about the installer; check it against the release's `SHA256SUMS`.
 
-**Linux and macOS archives** (Linux x64 and ARM64, macOS ARM64): the program, its Chromium, and `wkhtmltopdf` and `wkhtmltoimage` beside it. Unpack anywhere and put the folder in the `PATH`. On Linux, Chromium needs system libraries the archive does not hold, the ones the Debian package depends on; pdfkiln names those missing when Chromium cannot start. On Debian 13 and Ubuntu 24.04 and 26.04 (on Debian 12 and Ubuntu 22.04, the same names without `t64`):
+**Linux and macOS archives** (Linux x64 and ARM64, macOS ARM64): the program, its Chromium, and `wkhtmltopdf` and `wkhtmltoimage` beside it. Unpack anywhere and put the folder in the `PATH`. On Linux, Chromium needs system libraries the archive does not hold, the ones the Debian package depends on; PDFKiln names those missing when Chromium cannot start. On Debian 13 and Ubuntu 24.04 and 26.04 (on Debian 12 and Ubuntu 22.04, the same names without `t64`):
 
 ```sh
 sudo apt install libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libdbus-1-3 libexpat1 libgbm1 \
@@ -88,13 +88,13 @@ Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`.
 
-The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, phpwkhtmltopdf 2.5.0 and wicked_pdf 2.7.0 pass with pdfkiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
+The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, phpwkhtmltopdf 2.5.0 and wicked_pdf 2.7.0 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
 Each release is built and tested by CI, then published by hand from two green runs (`.github/workflows/release.yml`, `apt.yml`, `npm.yml`, `docker.yml`), with SHA-256 sums and build provenance attestations (`gh attestation verify <file> --repo Jamalofski/pdfkiln`).
 
 ## Migrating
 
-Point the library at pdfkiln's `wkhtmltopdf` or `wkhtmltoimage`, never at `pdfkiln`: called by that name, it switches to its own interface. A step-by-step guide for each library is on the site: [pdfkiln.org/migrate](https://pdfkiln.org/migrate/).
+Point the library at PDFKiln's `wkhtmltopdf` or `wkhtmltoimage`, never at `pdfkiln`: called by that name, it switches to its own interface. A step-by-step guide for each library is on the site: [pdfkiln.org/migrate](https://pdfkiln.org/migrate/).
 
 | Library | Setting |
 | --- | --- |
@@ -113,10 +113,10 @@ With the Debian package, `/usr/bin/wkhtmltopdf` is already in the `PATH`. Librar
 
 - The page is rendered by Chromium, text is sharper. In the compatible mode, what templates tuned for wkhtmltopdf rely on is emulated, so that they keep their page count and page breaks (corpus below): the 0.8 shrinking, media queries seen through a 0 x 0 window, `@page` ignored, font sizes rounded to the pixel, the top margin dropped, table headers repeated, table rows moved whole to the next page rather than split, the margins computed from `--header-html`, no widow or orphan control by default, and the CSS that wkhtmltopdf's WebKit does not parse ignored (`display: flex` and `grid`, `calc()`, `var()`), so that the fallbacks written for it apply. Called as `pdfkiln`, the page gets current CSS without these emulations.
 - The table of contents (`toc`) follows wkhtmltopdf's outline: same entries, page numbers and anchor names, its default style sheet byte for byte (`--dump-default-toc-xsl`). A style sheet given with `--xsl-style-sheet` runs on Chromium's XSLT 1.0, where wkhtmltopdf had XSLT 2.0.
-- Links between objects become internal, as in wkhtmltopdf: to the element the fragment names, or dropped when there is none. Chromium writes the targets of internal links without the print scale and margins; pdfkiln puts them back where the page shows them.
-- `wkhtmltoimage` is provided too: the same 63 options, Chromium's capture at the screen width (smart width included) and the height of the content; formats jpg, png, bmp, ppm, xpm, xbm and svg (the SVG embeds a PNG). Under a page whose body hides its overflow (Odoo reports), wkhtmltoimage added thousands of blank pixels; pdfkiln stops at the content.
+- Links between objects become internal, as in wkhtmltopdf: to the element the fragment names, or dropped when there is none. Chromium writes the targets of internal links without the print scale and margins; PDFKiln puts them back where the page shows them.
+- `wkhtmltoimage` is provided too: the same 63 options, Chromium's capture at the screen width (smart width included) and the height of the content; formats jpg, png, bmp, ppm, xpm, xbm and svg (the SVG embeds a PNG). Under a page whose body hides its overflow (Odoo reports), wkhtmltoimage added thousands of blank pixels; PDFKiln stops at the content.
 - `pdfkiln serve` keeps Chromium open: `wkhtmltopdf` and `wkhtmltoimage` connect to it by themselves (a socket only the same user can open, never a TCP port), each conversion in a browser context of its own. It saves Chromium's start-up and shutdown only, on the two-page Odoo invoice: 0.17 s on Ubuntu, 0.44 s on Windows Server 2025, 0.06 s on macOS (GitHub Actions), 0.31 s on a Windows 11 PC (`node dist/bench/call.js --server --delay 200`). The Debian package has a `pdfkiln@.service` unit, not enabled: `systemctl enable --now pdfkiln@odoo`.
-- On Windows, wkhtmltopdf's Qt takes font metrics from GDI, rounded to whole pixels: lines of `line-height: normal` are mostly 1 to 2 px taller between 10 and 16 px, and the glyphs are drawn larger (Arial at 12 px drawn at 13.4 px; `node dist/bench/gdi.js`). pdfkiln renders the same page on every system, the one wkhtmltopdf gives on Linux.
+- On Windows, wkhtmltopdf's Qt takes font metrics from GDI, rounded to whole pixels: lines of `line-height: normal` are mostly 1 to 2 px taller between 10 and 16 px, and the glyphs are drawn larger (Arial at 12 px drawn at 13.4 px; `node dist/bench/gdi.js`). PDFKiln renders the same page on every system, the one wkhtmltopdf gives on Linux.
 - Not provided: the C library `libwkhtmltox`.
 
 ## Known issues in 1.0
@@ -139,7 +139,7 @@ On the corpus of 32 real templates (Odoo 17, ERPNext 15, Sylius, pandoc; `corpus
 
 A complete call on the two-page Odoo invoice of the corpus, median of the runs (`npm run bundle && node dist/bench/call.js --delay 200`, then without `--delay`: Odoo's own 1000 ms):
 
-| | Delay | wkhtmltopdf 0.12.6 | pdfkiln (bundled command) | Difference |
+| | Delay | wkhtmltopdf 0.12.6 | PDFKiln (bundled command) | Difference |
 | --- | --- | --- | --- | --- |
 | Ubuntu 24.04, GitHub Actions | 200 ms | 0.52 s | 1.11 s | +0.59 s |
 | Ubuntu 24.04, GitHub Actions | 1000 ms | 2.13 s | 1.14 s | −0.99 s |
@@ -149,7 +149,7 @@ A complete call on the two-page Odoo invoice of the corpus, median of the runs (
 | Windows 11 PC, 20 threads | 200 ms | 1.36 s | 1.80 s | +0.44 s |
 | Windows 11 PC, 20 threads | 1000 ms | 2.91 s | 1.85 s | −1.06 s |
 
-CI run of 24 October 2026 (commit 6ec9c08), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs, after Chromium's close on Windows lost a needless `taskkill` (0.85 s on that PC, 0.1 s on GitHub's); GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; pdfkiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
+CI run of 24 October 2026 (commit 6ec9c08), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs, after Chromium's close on Windows lost a needless `taskkill` (0.85 s on that PC, 0.1 s on GitHub's); GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
 
 ## Development
 
@@ -182,7 +182,7 @@ Tests and benches:
 npm test                               # unit and command tests (PyMuPDF for the text checks)
 npm run fetch:wkhtmltopdf              # the official wkhtmltopdf 0.12.6, for the benches
 pip install -r bench/requirements.txt
-npm run bench:compat                   # the corpus, pdfkiln against wkhtmltopdf
+npm run bench:compat                   # the corpus, PDFKiln against wkhtmltopdf
 npm run bench:image                    # the corpus as images, against wkhtmltoimage
 npm run bench:call                     # time of a complete call
 test/libraries/run.sh /tmp/libs        # the libraries' own test suites
@@ -190,6 +190,6 @@ test/libraries/run.sh /tmp/libs        # the libraries' own test suites
 
 ## Licenses
 
-pdfkiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0).
+PDFKiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0).
 
 The templates of the test corpus (`corpus/`) are not covered by the MIT license: each keeps its own (LGPL-3.0 for Odoo, GPL-3.0 for parts of ERPNext, MIT for Sylius...), noted in its `SOURCE.md` and `manifest.json`. They are test data and are never part of the packages.

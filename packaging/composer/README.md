@@ -1,6 +1,6 @@
-# pdfkiln for Composer
+# PDFKiln for Composer
 
-`vendor/bin/wkhtmltopdf` and `vendor/bin/wkhtmltoimage`: [pdfkiln](https://pdfkiln.org), a drop-in replacement for wkhtmltopdf 0.12.6 rendered by Chromium.
+`vendor/bin/wkhtmltopdf` and `vendor/bin/wkhtmltoimage`: [PDFKiln](https://pdfkiln.org), a drop-in replacement for wkhtmltopdf 0.12.6 rendered by Chromium.
 
 ```
 composer require pdfkiln/pdfkiln
@@ -18,4 +18,4 @@ On Linux, Chromium needs its system libraries (`libnss3`, `libgbm1` and others) 
 
 PHP 7.4 or later; `tar` (Linux, macOS, Windows 10 and later).
 
-pdfkiln is not affiliated with the wkhtmltopdf project. MIT license.
+PDFKiln is not affiliated with the wkhtmltopdf project. MIT license.

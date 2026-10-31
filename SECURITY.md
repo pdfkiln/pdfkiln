@@ -16,8 +16,8 @@ command line, and a page that reproduces the problem.
 
 ## Scope
 
-pdfkiln renders HTML that may come from third parties. In scope: a page
+PDFKiln renders HTML that may come from third parties. In scope: a page
 that reaches what the command line did not allow (local files, the private
 network, other hosts), escapes Chromium's sandbox, or runs code on the
 machine. A flaw in Chromium itself goes to the Chromium project; tell us if
-a pdfkiln release still ships an affected version.
+a PDFKiln release still ships an affected version.

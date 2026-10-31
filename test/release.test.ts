@@ -93,7 +93,7 @@ test('notes: what changed first, Chromium ahead of the changelog\'s lines', () =
   assert.match(text, /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73 \(chrome-headless-shell, Chrome for Testing\), from 156\.0\.8078\.47\.\n- Fixed this\.\n\n## Files\n/);
   assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- Fixed this.', origin, []), /^## Changes in 1\.2\.3\n\n- Chromium unchanged: 156\.0\.8078\.73 /);
   assert.match(notes('1.2.3', '156.0.8078.73', '', '- Fixed this.', origin, []), /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73 \(chrome-headless-shell, Chrome for Testing\)\.\n/);
-  assert.ok(text.indexOf('## Files') < text.indexOf('drop-in replacement for wkhtmltopdf'));
+  assert.ok(text.indexOf('## Files') < text.indexOf('PDFKiln is a drop-in replacement for wkhtmltopdf'));
 });
 
 test('notes: the files, the runs and commit they come from, provenance once attested', () => {

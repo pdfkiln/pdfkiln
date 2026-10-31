@@ -112,7 +112,7 @@ The files as CI built and tested them, from commit [${origin.commit.slice(0, 7)}
 
 - Checksums: \`sha256sum -c SHA256SUMS --ignore-missing\`
 ${origin.attested ? `- Provenance: \`gh attestation verify <file> --repo ${origin.repo}\`\n` : ''}
-pdfkiln is a drop-in replacement for wkhtmltopdf, powered by Chromium: called as \`wkhtmltopdf\` or \`wkhtmltoimage\`, it accepts the command line of wkhtmltopdf 0.12.6. Installation and migration: [README](${url}/blob/${origin.commit}/README.md). Not affiliated with the wkhtmltopdf project.
+PDFKiln is a drop-in replacement for wkhtmltopdf, powered by Chromium: called as \`wkhtmltopdf\` or \`wkhtmltoimage\`, it accepts the command line of wkhtmltopdf 0.12.6. Installation and migration: [README](${url}/blob/${origin.commit}/README.md). Not affiliated with the wkhtmltopdf project.
 `;
 }
 

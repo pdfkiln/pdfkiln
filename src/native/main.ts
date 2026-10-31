@@ -65,7 +65,7 @@ Options:
   -h, --help                Show this help
 
 Called as wkhtmltopdf or wkhtmltoimage, or as "pdfkiln wkhtmltopdf <options>"
-or "pdfkiln wkhtmltoimage <options>", pdfkiln is compatible with wkhtmltopdf
+or "pdfkiln wkhtmltoimage <options>", PDFKiln is compatible with wkhtmltopdf
 and wkhtmltoimage 0.12.6 instead. "pdfkiln serve" keeps Chromium open for
 their conversions (pdfkiln serve --help).
 `;
@@ -164,7 +164,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     return 0;
   }
   if (v.version) {
-    writeSync(1, `pdfkiln ${version}, Chromium ${chromiumVersion}\n`);
+    writeSync(1, `PDFKiln ${version}, Chromium ${chromiumVersion}\n`);
     return 0;
   }
   if (positionals.length < 2) {
@@ -322,7 +322,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         .map((it) => ({ title: it.title, dest: moveDest(merged.doc, it.dest!, merged.pages[merged.offsets[k]! + it.page]!), children: toFinal(it.children, k) }));
       writeOutline(merged.doc, parts.flatMap((p, k) => toFinal(p.outline, k)));
     }
-    merged.doc.setCreator('pdfkiln');
+    merged.doc.setCreator('PDFKiln');
     merged.doc.setProducer('pdfkiln.org');
     const bytes = await merged.doc.save();
     if (output === '-') writeAll(1, bytes);

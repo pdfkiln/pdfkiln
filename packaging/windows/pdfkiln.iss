@@ -20,9 +20,9 @@
 
 [Setup]
 AppId={{6F3C2B4E-8D1A-4C5B-9E7F-2A1D3B4C5E6F}
-AppName=pdfkiln
+AppName=PDFKiln
 AppVersion={#Version}
-AppVerName=pdfkiln {#Version}
+AppVerName=PDFKiln {#Version}
 AppPublisher=Jamalofski
 AppPublisherURL=https://pdfkiln.org
 AppSupportURL=https://github.com/Jamalofski/pdfkiln/issues
@@ -38,7 +38,7 @@ PrivilegesRequired=admin
 Compression=lzma2/max
 SolidCompression=yes
 ChangesEnvironment=yes
-UninstallDisplayName=pdfkiln {#Version} (wkhtmltopdf)
+UninstallDisplayName=PDFKiln {#Version} (wkhtmltopdf)
 
 [Tasks]
 Name: addtopath; Description: "Add {app}\bin to the PATH"; Flags: unchecked

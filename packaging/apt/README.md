@@ -5,8 +5,8 @@ static files in object storage, behind a CDN, no server of ours. Published
 since 25 October 2026; 1.0.1 is the first version to carry
 `https://apt.pdfkiln.org` in its source.
 
-The package version is pdfkiln's and the Debian revision (`1.0.2-1`):
-Chromium only changes with a new pdfkiln version, which names it in the
+The package version is PDFKiln's and the Debian revision (`1.0.2-1`):
+Chromium only changes with a new PDFKiln version, which names it in the
 package's description. Up to 1.0.1, the version also carried Chromium's
 (`1.0.1+chromium156.0.8078.47-1`); `1.0.2-1` is still newer for dpkg. Those
 files' names hold a `+`, which the bucket reads as a space: apt encodes it,

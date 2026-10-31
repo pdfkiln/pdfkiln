@@ -22,7 +22,7 @@ SOFTWARE.
 
 ---
 
-This license covers pdfkiln's own code. The templates of the test corpus
+This license covers PDFKiln's own code. The templates of the test corpus
 under corpus/ are not covered by it: each keeps its own license (LGPL-3.0
 for Odoo, GPL-3.0 for parts of ERPNext, MIT for Sylius...), stated in its
 SOURCE.md and manifest.json. They are test data, never part of the

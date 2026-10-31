@@ -107,7 +107,7 @@ function binary(string $name = 'wkhtmltopdf'): string
 {
     $pins = json_decode((string) file_get_contents(__DIR__ . '/../pins.json'), true);
     $platform = platform();
-    if (!$pins || !$platform) throw new \RuntimeException('pdfkiln: no build of pdfkiln for this system');
+    if (!$pins || !$platform) throw new \RuntimeException('pdfkiln: no build of PDFKiln for this system');
     $dir = cacheDir() . DIRECTORY_SEPARATOR . 'dist' . DIRECTORY_SEPARATOR . "{$pins['version']}-$platform";
     $exe = $platform === 'windows-x64'
         ? "$dir\\wkhtmltopdf\\bin\\$name.exe"

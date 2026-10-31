@@ -73,7 +73,7 @@ Entry copied to a directory without dots, `127.0.0.1:8765` replaced by the port,
 0, no 404, 1 page as in the capture, same extracted text, pages identical pixel for pixel to the capture PDF
 (PyMuPDF, 100 dpi). Requested files: `/web/assets/414e890/web.report_assets_pdf.min.css`, `/web/assets/83cebc9/web.report_assets_common.min.css`, `/web/static/fonts/lato/Lato-Reg-webfont.woff`, `/web/static/fonts/lato/Lato-Lig-webfont.woff`, `/web/static/fonts/lato/Lato-Bol-webfont.woff`, `/web/static/fonts/lato/Lato-Hai-webfont.woff`, `/web/static/fonts/lato/Lato-Bla-webfont.woff`. The wkhtmltopdf run of the bench
 (`node dist/bench/compat.js odoo17-payment-receipt`, its own server and port) gives the same pixels, and neither wkhtmltopdf nor
-pdfkiln requests a file missing from the two directories.
+PDFKiln requests a file missing from the two directories.
 
 ## License
 

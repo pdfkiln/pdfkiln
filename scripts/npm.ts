@@ -30,7 +30,7 @@ const legal = join(repoRoot, 'dist', 'bundle', 'pdfkiln.cjs.LEGAL.txt');
 if (existsSync(legal)) cpSync(legal, join(root, 'licenses', 'bundled-packages.txt'));
 
 const platforms = Object.keys(readPin().archives).join(', ');
-writeFileSync(join(root, 'README.md'), `# pdfkiln
+writeFileSync(join(root, 'README.md'), `# PDFKiln
 
 Drop-in replacement for wkhtmltopdf, powered by Chromium.
 
@@ -45,7 +45,7 @@ The first conversion downloads chrome-headless-shell ${chromiumVersion} (Chrome 
 
 Chromium's sandbox stays on: run as an unprivileged user. On Ubuntu 23.10 and later, AppArmor restricts the user namespaces it needs; an AppArmor profile for the downloaded binary allows them.
 
-pdfkiln is not affiliated with the wkhtmltopdf project. MIT license; Chromium, Node.js and the bundled packages keep theirs (\`licenses/\`).
+PDFKiln is not affiliated with the wkhtmltopdf project. MIT license; Chromium, Node.js and the bundled packages keep theirs (\`licenses/\`).
 `);
 
 writeFileSync(join(root, 'package.json'), `${JSON.stringify({

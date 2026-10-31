@@ -79,7 +79,7 @@ const release = run('apt-ftparchive', [
   '-o', 'APT::FTPArchive::Release::Codename=stable',
   '-o', `APT::FTPArchive::Release::Architectures=${ARCHES.join(' ')}`,
   '-o', 'APT::FTPArchive::Release::Components=main',
-  '-o', 'APT::FTPArchive::Release::Description=pdfkiln, a drop-in replacement for wkhtmltopdf',
+  '-o', 'APT::FTPArchive::Release::Description=PDFKiln, a drop-in replacement for wkhtmltopdf',
   'release', '.',
 ], { cwd: dist });
 writeFileSync(join(dist, 'Release'), release);

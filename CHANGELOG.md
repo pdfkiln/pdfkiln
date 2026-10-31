@@ -5,6 +5,12 @@ open with its section here (scripts/release.ts), after the Chromium it
 carries: no release without one. Up to 1.0.2, see each version's GitHub
 release.
 
+## 1.1.1
+
+In every mode:
+
+- The PDFs' Creator, the Application field of PDF viewers, is `PDFKiln`, the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`.
+
 ## 1.1.0
 
 Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each says what to do.

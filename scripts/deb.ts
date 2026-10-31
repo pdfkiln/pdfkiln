@@ -74,7 +74,7 @@ symlinkSync('../lib/pdfkiln/pdfkiln', join(root, 'usr', 'bin', 'wkhtmltoimage'))
 // systemctl enable --now pdfkiln@odoo
 mkdirSync(join(root, 'lib', 'systemd', 'system'), { recursive: true });
 writeFileSync(join(root, 'lib', 'systemd', 'system', 'pdfkiln@.service'), `[Unit]
-Description=pdfkiln: Chromium kept open for the conversions of %i
+Description=PDFKiln: Chromium kept open for the conversions of %i
 After=network.target
 
 [Service]
@@ -89,10 +89,10 @@ WantedBy=multi-user.target
 // copyright: ours first, then each license of the archive.
 const licenses = readdirSync(join(from, 'licenses')).sort();
 writeFileSync(join(doc, 'copyright'), [
-  `pdfkiln ${version}, with Chromium ${chromiumVersion} (chrome-headless-shell) and Node.js.`,
-  'pdfkiln is not affiliated with the wkhtmltopdf project.',
+  `PDFKiln ${version}, with Chromium ${chromiumVersion} (chrome-headless-shell) and Node.js.`,
+  'PDFKiln is not affiliated with the wkhtmltopdf project.',
   '',
-  '== pdfkiln ==',
+  '== PDFKiln ==',
   '',
   readFileSync(join(from, 'LICENSE'), 'utf8'),
   ...licenses.flatMap((f) => [`== ${f} ==`, '', readFileSync(join(from, 'licenses', f), 'utf8')]),
@@ -139,7 +139,7 @@ Replaces: wkhtmltopdf, wkhtmltox
 Section: text
 Priority: optional
 Description: drop-in replacement for wkhtmltopdf, powered by Chromium
- Called as wkhtmltopdf or wkhtmltoimage, pdfkiln accepts the command line
+ Called as wkhtmltopdf or wkhtmltoimage, PDFKiln accepts the command line
  of wkhtmltopdf or wkhtmltoimage 0.12.6, with the same options, defaults, messages and exit codes; called
  as pdfkiln, it offers its own interface, with modern print defaults.
  It ships its own Chromium (chrome-headless-shell ${chromiumVersion}).

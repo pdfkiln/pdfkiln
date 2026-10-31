@@ -122,7 +122,7 @@ jobs:
             org.opencontainers.image.revision=${{ steps.runs.outputs.sha }}
             org.opencontainers.image.version=${{ steps.image.outputs.version }}
             org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.description=pdfkiln, a drop-in replacement for wkhtmltopdf, powered by Chromium
+            org.opencontainers.image.description=PDFKiln, a drop-in replacement for wkhtmltopdf, powered by Chromium
 
       # GitHub attests in a private repository only with Enterprise Cloud.
       - uses: actions/attest-build-provenance@v4

@@ -516,7 +516,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     }
     repeatPages(outDoc.doc, g.copies, g.collate);
     outDoc.doc.setTitle(title);
-    outDoc.doc.setCreator('pdfkiln');
+    outDoc.doc.setCreator('PDFKiln');
     outDoc.doc.setProducer('pdfkiln.org');
     const bytes = await outDoc.doc.save();
     outDoc.pages.forEach((_, i) => fb.progressChanged(((i + 1) * 100) / outDoc.pages.length, `Page ${i + 1} of ${outDoc.pages.length}`));

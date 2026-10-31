@@ -1,6 +1,6 @@
 # Options of the compatible mode
 
-Called as `wkhtmltopdf`, pdfkiln accepts the 122 options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or `cover`. Generated from `src/wk/options.ts` by `node dist/scripts/options-doc.js`.
+Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or `cover`. Generated from `src/wk/options.ts` by `node dist/scripts/options-doc.js`.
 
 ## Implemented (98)
 
@@ -150,7 +150,7 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 
 ## wkhtmltoimage
 
-Called as `wkhtmltoimage`, pdfkiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 50 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too.
+Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 50 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too.
 
 | Option | Short | Description |
 | --- | --- | --- |

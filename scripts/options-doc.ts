@@ -27,7 +27,7 @@ export function optionsMarkdown(): string {
   const of = (...s: Support[]) => OPTIONS.filter((o) => s.includes(o.support));
   return `# Options of the compatible mode
 
-Called as \`wkhtmltopdf\`, pdfkiln accepts the ${OPTIONS.length} options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or \`cover\`. Generated from \`src/wk/options.ts\` by \`node dist/scripts/options-doc.js\`.
+Called as \`wkhtmltopdf\`, PDFKiln accepts the ${OPTIONS.length} options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or \`cover\`. Generated from \`src/wk/options.ts\` by \`node dist/scripts/options-doc.js\`.
 
 ## Implemented (${of('yes').length})
 
@@ -49,7 +49,7 @@ ${table(KILN_OPTIONS)}
 
 ## wkhtmltoimage
 
-Called as \`wkhtmltoimage\`, pdfkiln accepts the ${IMAGE_OPTIONS.length} options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; ${IMAGE_OPTIONS.filter((o) => o.support === 'yes').length} have an effect, the others are accepted without effect, as in wkhtmltopdf. The \`--kiln-\` options above apply too.
+Called as \`wkhtmltoimage\`, PDFKiln accepts the ${IMAGE_OPTIONS.length} options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; ${IMAGE_OPTIONS.filter((o) => o.support === 'yes').length} have an effect, the others are accepted without effect, as in wkhtmltopdf. The \`--kiln-\` options above apply too.
 
 ${table([...IMAGE_OPTIONS].sort((a, b) => a.name.localeCompare(b.name)), false)}
 `;
