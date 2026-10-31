@@ -7,7 +7,7 @@ release.
 
 ## 1.1.0
 
-Called as `wkhtmltopdf`, two bugs fixed bring pdfkiln back in line with wkhtmltopdf 0.12.6; the first fails a command that passed with 1.0.4, as wkhtmltopdf fails it. Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each says what to do.
+Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each says what to do.
 
 In every mode:
 
@@ -16,7 +16,7 @@ In every mode:
 
 Called as `wkhtmltopdf`, bugs fixed:
 
-- A local file that does not exist, in a folder given to `--allow`, is refused as wkhtmltopdf refuses it: "Blocked access to file", exit 1. 1.0.4 warned and exited 0, except on macOS under `/tmp` or `/var`. Correct the path, or add `--enable-local-file-access`, which leaves a warning only, as with wkhtmltopdf.
+- A local file that does not exist, in a folder given to `--allow`, is refused as wkhtmltopdf refuses it ("Blocked access to file", exit 1): 1.0.4 let it through, except on macOS under `/tmp` or `/var`.
 - On Windows, "Blocked access to file" and "Error opening" write the path with `/`, as wkhtmltopdf does.
 
 Called as `pdfkiln`, what breaks:
