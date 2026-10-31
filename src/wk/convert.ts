@@ -13,6 +13,7 @@ import { relayGet } from '../engine/relay.js';
 import {
   fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline, type FinalItem, type LinkFate, type OutlineItem,
 } from '../pdf/assemble.js';
+import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
 import type { Feedback } from './feedback.js';
 import { hasText, measure, printDocument, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
@@ -516,7 +517,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     }
     repeatPages(outDoc.doc, g.copies, g.collate);
     outDoc.doc.setTitle(title);
-    outDoc.doc.setCreator('PDFKiln');
+    outDoc.doc.setCreator(`PDFKiln ${version}`);
     outDoc.doc.setProducer('pdfkiln.org');
     const bytes = await outDoc.doc.save();
     outDoc.pages.forEach((_, i) => fb.progressChanged(((i + 1) * 100) / outDoc.pages.length, `Page ${i + 1} of ${outDoc.pages.length}`));

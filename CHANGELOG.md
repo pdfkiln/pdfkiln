@@ -9,7 +9,7 @@ release.
 
 In every mode:
 
-- The PDFs' Creator, the Application field of PDF viewers, is `PDFKiln`, the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`.
+- The PDFs' Creator, the Application field of PDF viewers, is PDFKiln and its version (`PDFKiln 1.1.1`), the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`. The version tells whoever receives a PDF which Chromium rendered it, the one of that release: keep PDFKiln up to date.
 - On Windows, the installer and the list of installed apps give PDFKiln as the name and the publisher, where 1.1.0 gave pdfkiln and Jamalofski.
 
 ## 1.1.0

@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument, PDFName } from '@cantoo/pdf-lib';
+import { version } from '../src/version.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
 // PDFKILN_TEST_BUNDLE=1: the bundled command. PDFKILN_TEST_WKHTMLTOPDF,
@@ -164,8 +165,8 @@ describe('interface', () => {
     const doc = await PDFDocument.load(readFileSync(join(dir, 'ok.pdf')), { updateMetadata: false });
     assert.equal(doc.getTitle(), 'T');
     assert.ok(doc.catalog.get(PDFName.of('Outlines')), 'outline');
-    // No version: they would tell who receives the PDF which flaws the server has.
-    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['PDFKiln', 'pdfkiln.org']);
+    // PDFKiln and its version, the Application field of viewers; not Chromium's.
+    assert.deepEqual([doc.getCreator(), doc.getProducer()], [`PDFKiln ${version}`, 'pdfkiln.org']);
   });
 
   test('a 404 page: the PDF, and exit 1 as wkhtmltopdf 0.12.6', async () => {
@@ -636,7 +637,7 @@ describe('native interface', () => {
     const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
     const { width, height } = doc.getPage(0).getSize();
     assert.ok(Math.abs(width - 595.3) < 1 && Math.abs(height - 419.5) < 1, `${width} x ${height}`);
-    assert.deepEqual([doc.getCreator(), doc.getProducer()], ['PDFKiln', 'pdfkiln.org']);
+    assert.deepEqual([doc.getCreator(), doc.getProducer()], [`PDFKiln ${version}`, 'pdfkiln.org']);
   });
 
   test('standard input and output, several inputs merged', async () => {
