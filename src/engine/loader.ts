@@ -12,7 +12,7 @@ import type { BrowserContext, CDPSession, Page } from 'puppeteer-core';
 import type { LoadPage, PostItem, Web } from '../wk/settings.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
-import { canonical, contentType, FileAccess, filePath, readLocal } from './files.js';
+import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
 import { BlockedAddress, relayGet, relayRequest, type ClientCert } from './relay.js';
 
 export interface Reporter {
@@ -122,7 +122,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   const lp = new LoadedPage(page, cdp, spec);
   const { load, web } = spec;
 
-  const access = new FileAccess(load.blockLocalFileAccess);
+  const access = new FileAccess(load.blockLocalFileAccess, Boolean(out.failed));
   for (const a of load.allowed) access.allow(a);
   for (const a of spec.allowFiles ?? []) access.allow(a);
   const own = spec.url.startsWith('file:') ? filePath(spec.url) : null;
@@ -280,14 +280,15 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       if (out.failed) out.failed(request.url, 'net::ERR_ACCESS_DENIED', false);
       else {
         // wkhtmltopdf loads about:blank instead, which Qt cannot load.
-        out.warning(`Blocked access to file ${(path && canonical(path)) ?? ''}`);
+        const c = path && canonical(path);
+        out.warning(`Blocked access to file ${c ? qtPath(c) : ''}`);
         fail('about:blank', 301, 0, 'Protocol "about" is unknown', '');
       }
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'AccessDenied' });
     }
     const data = await readLocal(path);
     if (!data) {
-      fail(request.url, 203, 0, `Error opening ${path}: No such file or directory`, 'net::ERR_FILE_NOT_FOUND', e.resourceType === 'Document' && path === own);
+      fail(request.url, 203, 0, `Error opening ${qtPath(path)}: No such file or directory`, 'net::ERR_FILE_NOT_FOUND', e.resourceType === 'Document' && path === own);
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
     }
     let body = data;

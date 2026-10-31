@@ -6,7 +6,7 @@
 // (bench/requirements.txt) and are skipped without it.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createServer as createTcpServer, type AddressInfo } from 'node:net';
@@ -521,6 +521,35 @@ describe('security', () => {
     assert.equal(r.code, 0);
   });
 
+  // wkhtmltopdf looks for a file's canonical path among the allowed ones:
+  // a missing file has none, and is refused. On Windows, Qt writes paths
+  // with /.
+  test('a missing file is refused, under --allow too', async () => {
+    file('missing/neighbour.png', 'png');
+    const page = file('missing/page.html', '<p>missing</p><img src="neighbour.png"><img src="missing.png">');
+    const blocked = 'Warning: Blocked access to file \nError: Failed to load about:blank, with network status code 301 and http status code 0 - Protocol "about" is unknown\nExit with code 1 due to network error: ProtocolUnknownError\n';
+    let r = await run(['--log-level', 'warn', '--allow', join(dir, 'missing'), page, join(dir, 'm.pdf')]);
+    assert.equal(r.code, 1);
+    assert.equal(r.stderr, blocked);
+    const link = join(dir, 'missing-link');
+    symlinkSync(join(dir, 'missing'), link, 'junction');
+    r = await run(['--log-level', 'warn', '--allow', link, join(link, 'page.html'), join(dir, 'm.pdf')]);
+    assert.equal(r.code, 1);
+    assert.equal(r.stderr, blocked);
+    r = await run(['--log-level', 'warn', '--enable-local-file-access', page, join(dir, 'm.pdf')]);
+    assert.equal(r.code, 0);
+    assert.equal(r.stderr, `Warning: Failed to load ${pathToFileURL(join(dir, 'missing', 'missing.png')).href} (ignore)\n`);
+    const qt = (path: string) => (process.platform === 'win32' ? path.replace(/\\/g, '/') : path);
+    const absent = join(dir, 'missing', 'missing.html');
+    r = await run(['--log-level', 'warn', '--enable-local-file-access', file('missing/frame.html', '<iframe src="missing.html"></iframe>'), join(dir, 'm.pdf')]);
+    assert.equal(r.code, 1);
+    assert.equal(r.stderr, `Error: Failed to load ${pathToFileURL(absent).href}, with network status code 203 and http status code 0 - Error opening ${qt(absent)}: No such file or directory\nExit with code 1 due to network error: ContentNotFoundError\n`);
+    r = await run(['--log-level', 'warn', file('missing/alone.html', '<img src="neighbour.png">'), join(dir, 'm.pdf')]);
+    assert.equal(r.code, 1);
+    const neighbour = qt(realpathSync.native(join(dir, 'missing', 'neighbour.png')));
+    assert.ok(r.stderr.split('\n').includes(`Warning: Blocked access to file ${neighbour}`), r.stderr);
+  });
+
   test('--allow cannot be left by .. or a symbolic link', async () => {
     file('secret/key.png', 'secret');
     const allowed = join(dir, 'jail');
@@ -761,6 +790,13 @@ describe('native interface', () => {
     r = await native(['--allow', join(dir, 'native', 'files'), page, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(r.stderr, `pdfkiln: warning: could not load ${url('missing.png')}: no such file\n`);
+    // Through a link to the folder, as macOS's /var or a Windows short
+    // name: the same.
+    const link = join(dir, 'native', 'files-link');
+    symlinkSync(join(dir, 'native', 'files'), link, 'junction');
+    r = await native(['--allow', link, join(link, 'page.html'), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, `pdfkiln: warning: could not load ${pathToFileURL(join(link, 'missing.png')).href}: no such file\n`);
   });
 
   test('--header and --cookie go with the requests to the input\'s host, and no other', async () => {

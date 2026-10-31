@@ -3,7 +3,7 @@
 // runs outside the renderer, on the real path (links and ".." resolved).
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function canonical(path: string): string | null {
@@ -14,10 +14,25 @@ export function canonical(path: string): string | null {
   }
 }
 
+// Where a file that may not exist would be: its nearest existing folder,
+// resolved, then the rest of its path.
+function whereItWouldBe(path: string): string | null {
+  const rest: string[] = [];
+  for (let p = path; ; p = dirname(p)) {
+    const c = canonical(p);
+    if (c) return join(c, ...rest);
+    if (dirname(p) === p) return null;
+    rest.unshift(basename(p));
+  }
+}
+
 export class FileAccess {
   private readonly allowed = new Set<string>();
 
-  constructor(readonly block: boolean) {}
+  // native: a missing file is checked where it would be. Called as
+  // wkhtmltopdf, it is refused: wkhtmltopdf looks for a file's canonical
+  // path among the allowed ones, and a missing file has none.
+  constructor(readonly block: boolean, readonly native = false) {}
 
   // wkhtmltopdf allows the page itself and each --allow path, with what
   // lies under them (multipageloader.cc createRequest).
@@ -28,17 +43,17 @@ export class FileAccess {
 
   allows(path: string): boolean {
     if (!this.block) return true;
-    let p = canonical(path);
-    if (!p) {
-      // A missing file: check where it would be.
-      p = path;
-    }
+    let p = canonical(path) ?? (this.native ? whereItWouldBe(path) : null);
+    if (!p) return false;
     for (let prev = ''; p !== prev; prev = p, p = dirname(p)) {
       if (this.allowed.has(p)) return true;
     }
     return false;
   }
 }
+
+// A path as Qt writes it: with / on Windows too.
+export const qtPath = (path: string): string => (process.platform === 'win32' ? path.replace(/\\/g, '/') : path);
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.htm': 'text/html', '.xhtml': 'application/xhtml+xml', '.svg': 'image/svg+xml',

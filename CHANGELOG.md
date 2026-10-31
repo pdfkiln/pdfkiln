@@ -7,12 +7,17 @@ release.
 
 ## 1.1.0
 
-Called as `wkhtmltopdf`, nothing breaks. Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each says what to do.
+Called as `wkhtmltopdf`, two bugs fixed bring pdfkiln back in line with wkhtmltopdf 0.12.6; the first fails a command that passed with 1.0.4, as wkhtmltopdf fails it. Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each says what to do.
 
 In every mode:
 
 - Pages that send CSP reports or beacons (https://www.google.fr), or whose responses Chromium blocks (HTML for an image, an API without CORS headers), no longer fail the conversion: called as `wkhtmltopdf`, pdfkiln exited 1 with "network status code 99". An HTTP error on such a response still fails, as with wkhtmltopdf.
 - The PDFs no longer give the versions of pdfkiln and Chromium, which told whoever receives one whether the server runs a Chromium with known flaws: Creator is `pdfkiln`, Producer `pdfkiln.org`.
+
+Called as `wkhtmltopdf`, bugs fixed:
+
+- A local file that does not exist, in a folder given to `--allow`, is refused as wkhtmltopdf refuses it: "Blocked access to file", exit 1. 1.0.4 warned and exited 0, except on macOS under `/tmp` or `/var`. Correct the path, or add `--enable-local-file-access`, which leaves a warning only, as with wkhtmltopdf.
+- On Windows, "Blocked access to file" and "Error opening" write the path with `/`, as wkhtmltopdf does.
 
 Called as `pdfkiln`, what breaks:
 
