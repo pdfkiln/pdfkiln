@@ -82,6 +82,14 @@ brew install pdfkiln/tap/pdfkiln
 
 **winget**: submitted to winget-pkgs, under review; once accepted, `winget install pdfkiln`.
 
+**Chocolatey**: submitted, in moderation; once approved, `choco install pdfkiln`.
+
+**GitHub Actions**: [`pdfkiln/setup`](https://github.com/pdfkiln/setup) installs it on the runner (Linux, macOS, Windows), for the tests of a project that calls wkhtmltopdf:
+
+```yaml
+- uses: pdfkiln/setup@v1
+```
+
 Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 ## Status
