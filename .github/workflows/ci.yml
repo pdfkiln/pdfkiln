@@ -595,6 +595,8 @@ jobs:
         with:
           name: manifests
           path: dist/manifests
+          # The AUR's .SRCINFO, left out otherwise.
+          include-hidden-files: true
           retention-days: 14
 
   # The channels installed as a user installs them, from this run's
