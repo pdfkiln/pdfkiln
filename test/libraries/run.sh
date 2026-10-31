@@ -7,8 +7,9 @@
 #
 # Versions: pdfkit 1.0.0, knp-snappy v1.7.3 (plus snappy-smoke.php, its
 # suite only uses mocks), phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0 (Rails
-# 7.0), imgkit 1.2.3 (Python). Prints one line per library; exits 1 if one
-# fails.
+# 7.0), imgkit 1.2.3 (Python), CakePdf 5.3.0 (plus cakepdf-smoke.php, its
+# tests only build command lines), go-wkhtmltopdf v1.9.3 (Go). Prints one
+# line per library; exits 1 if one fails.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$1"
@@ -54,5 +55,21 @@ clone jarrekk/imgkit imgkit V1.2.3
   && python -m pip install -q six pytest \
   && python -m pytest -q -k "not xvfb and not cmd_not_found and not no_where_which" imgkit_py312_test.py > ../../imgkit.log 2>&1)
 report "imgkit 1.2.3 (own suite)" $? imgkit.log
+
+clone FriendsOfCake/CakePdf cakepdf 5.3.0
+(cd cakepdf && composer install -q --no-interaction --no-progress && vendor/bin/phpunit --filter WkHtmlToPdf > ../cakepdf.log 2>&1)
+report "CakePdf 5.3.0 (own suite, WkHtmlToPdf engine)" $? cakepdf.log
+php "$here/cakepdf-smoke.php" cakepdf/vendor/autoload.php /usr/local/bin/wkhtmltopdf > cakepdf-smoke.log 2>&1
+report "CakePdf 5.3.0 (cakepdf-smoke.php)" $? cakepdf-smoke.log
+
+# Its tests load third-party pages, and wkhtmltopdf 0.12.6 exits 1, as
+# pdfkiln does, on a resource that fails (31 October 2026): two test pages
+# load images from loremflickr.com, which answered 500, local images instead
+# keep those tests on what they check; ExampleNewPDFGenerator converts a
+# page of pkg.go.dev with a badge from codebeat.co, a host gone, left out.
+clone SebastiaanKlippert/go-wkhtmltopdf go-wkhtmltopdf v1.9.3
+(cd go-wkhtmltopdf && sed -i 's#https://loremflickr.com/[0-9/]*#data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==#g' testdata/*.html \
+  && go test -count=1 -v -skip '^ExampleNewPDFGenerator$' . > ../go-wkhtmltopdf.log 2>&1)
+report "go-wkhtmltopdf v1.9.3 (own suite)" $? go-wkhtmltopdf.log
 
 exit $failed

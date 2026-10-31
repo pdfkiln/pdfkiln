@@ -8,7 +8,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 
 - **Same command line**: the 122 options of wkhtmltopdf 0.12.6, its defaults, messages and exit codes.
 - **Same pages**: on 32 real templates (Odoo, ERPNext, Sylius, pandoc), the same page count as wkhtmltopdf on all 32, and 99.1 % of the words on the same page (Linux).
-- **Tested by the libraries themselves**: the own test suites of pdfkit, knp-snappy, phpwkhtmltopdf and wicked_pdf pass with PDFKiln in place of wkhtmltopdf.
+- **Tested by the libraries themselves**: the own test suites of pdfkit, knp-snappy, phpwkhtmltopdf, wicked_pdf, CakePdf and go-wkhtmltopdf pass with PDFKiln in place of wkhtmltopdf.
 - **Kept current**: each release ships the latest stable Chromium, sandboxed; on Debian and Ubuntu, `apt upgrade` brings it.
 
 PDFKiln is one program that answers to two names:
@@ -88,7 +88,7 @@ Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`.
 
-The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, phpwkhtmltopdf 2.5.0 and wicked_pdf 2.7.0 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
+The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0, CakePdf 5.3.0 and go-wkhtmltopdf 1.9.3 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`); go-wkhtmltopdf's with local images in place of those its test pages load from loremflickr.com, which answered 500 on 31 October 2026, and without its example that converts a page of pkg.go.dev, whose badge from codebeat.co no longer loads: wkhtmltopdf 0.12.6 fails on both, as PDFKiln does. knp-snappy's and CakePdf's suites only build command lines: a script for each also drives the program for real (`snappy-smoke.php`, `cakepdf-smoke.php`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
 Each release is built and tested by CI, then published by hand from two green runs (`.github/workflows/release.yml`, `apt.yml`, `npm.yml`, `docker.yml`), with SHA-256 sums and build provenance attestations (`gh attestation verify <file> --repo pdfkiln/pdfkiln`; up to 1.1.0, before the move to the pdfkiln organization, `--owner Jamalofski`).
 

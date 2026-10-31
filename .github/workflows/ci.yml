@@ -212,6 +212,11 @@ jobs:
         with:
           ruby-version: '3.3'
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+
       - name: Fonts and wkhtmltopdf libraries
         run: |
           sudo apt-get update
