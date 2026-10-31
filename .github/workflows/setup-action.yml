@@ -1,0 +1,44 @@
+# The setup-pdfkiln action (packaging/setup-pdfkiln), on each platform it
+# supports, with a published release: the latest, then a given one from the
+# tool cache's point of view, and a conversion through the PATH it sets.
+name: setup-pdfkiln
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A published release, besides latest
+        default: 1.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  action:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: latest
+        uses: ./packaging/setup-pdfkiln
+
+      - id: given
+        uses: ./packaging/setup-pdfkiln
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Outputs, and a conversion through the PATH
+        shell: bash
+        run: |
+          echo "latest: ${{ steps.latest.outputs.version }} in ${{ steps.latest.outputs.path }}"
+          echo "given: ${{ steps.given.outputs.version }} in ${{ steps.given.outputs.path }}"
+          [ "${{ steps.given.outputs.version }}" = "${{ inputs.version }}" ]
+          wkhtmltopdf --version
+          wkhtmltoimage --version
+          echo '<h1>setup-pdfkiln</h1>' | wkhtmltopdf -q - action.pdf
+          [ "$(head -c 5 action.pdf)" = %PDF- ] || { echo 'action.pdf is not a PDF'; exit 1; }
