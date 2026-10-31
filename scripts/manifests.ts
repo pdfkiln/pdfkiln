@@ -63,8 +63,8 @@ export function manifests(version: string, sums: Record<string, string>): Manife
   const setup = file('windows-x64', '-setup.exe');
   const id = 'PDFKiln.PDFKiln';
   const dir = `winget/manifests/p/PDFKiln/PDFKiln/${version}`;
-  const head = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.{type}.1.6.0.schema.json\n\nPackageIdentifier: ${id}\nPackageVersion: ${version}\n`;
-  out[`${dir}/${id}.yaml`] = `${head.replace('{type}', 'version')}DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.6.0\n`;
+  const head = `# yaml-language-server: $schema=https://aka.ms/winget-manifest.{type}.1.12.0.schema.json\n\nPackageIdentifier: ${id}\nPackageVersion: ${version}\n`;
+  out[`${dir}/${id}.yaml`] = `${head.replace('{type}', 'version')}DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n`;
   out[`${dir}/${id}.installer.yaml`] = `${head.replace('{type}', 'installer')}InstallerType: inno
 Scope: machine
 UpgradeBehavior: install
@@ -77,7 +77,7 @@ Installers:
   InstallerUrl: ${url}/${setup}
   InstallerSha256: ${sum(setup).toUpperCase()}
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
 `;
   out[`${dir}/${id}.locale.en-US.yaml`] = `${head.replace('{type}', 'defaultLocale')}PackageLocale: en-US
 Publisher: PDFKiln
@@ -95,7 +95,7 @@ Tags:
 - html-to-pdf
 - chromium
 ManifestType: defaultLocale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
 `;
 
   // Homebrew: a formula for a tap of ours, from the macOS archives built
