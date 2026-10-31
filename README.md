@@ -29,9 +29,9 @@ printf 'Types: deb\nURIs: https://apt.pdfkiln.org\nSuites: stable\nComponents: m
 sudo apt update && sudo apt install pdfkiln
 ```
 
-It installs `/usr/bin/pdfkiln` and `/usr/bin/wkhtmltopdf`, replaces the official `wkhtmltox` package, and loads an AppArmor profile so that Chromium's sandbox works on Ubuntu 24.04 and later. The `.deb` of a [release](https://github.com/Jamalofski/pdfkiln/releases/latest), installed by hand, sets the repository up itself.
+It installs `/usr/bin/pdfkiln` and `/usr/bin/wkhtmltopdf`, replaces the official `wkhtmltox` package, and loads an AppArmor profile so that Chromium's sandbox works on Ubuntu 24.04 and later. The `.deb` of a [release](https://github.com/pdfkiln/pdfkiln/releases/latest), installed by hand, sets the repository up itself.
 
-**Windows** (x64; ARM runs it in emulation; Windows Server with the Desktop Experience, IIS included, not Server Core, where Chromium stops at start and PDFKiln says so): from the [latest release](https://github.com/Jamalofski/pdfkiln/releases/latest), the installer `pdfkiln-<version>-windows-x64-setup.exe`, or the zip, which holds `wkhtmltopdf\bin\wkhtmltopdf.exe` as the old installer did. Both install in `C:\Program Files\wkhtmltopdf`, the path pdfkit and most guides use: uninstall wkhtmltopdf first. The programs are not signed yet: SmartScreen warns about the installer; check it against the release's `SHA256SUMS`.
+**Windows** (x64; ARM runs it in emulation; Windows Server with the Desktop Experience, IIS included, not Server Core, where Chromium stops at start and PDFKiln says so): from the [latest release](https://github.com/pdfkiln/pdfkiln/releases/latest), the installer `pdfkiln-<version>-windows-x64-setup.exe`, or the zip, which holds `wkhtmltopdf\bin\wkhtmltopdf.exe` as the old installer did. Both install in `C:\Program Files\wkhtmltopdf`, the path pdfkit and most guides use: uninstall wkhtmltopdf first. The programs are not signed yet: SmartScreen warns about the installer; check it against the release's `SHA256SUMS`.
 
 **Linux and macOS archives** (Linux x64 and ARM64, macOS ARM64): the program, its Chromium, and `wkhtmltopdf` and `wkhtmltoimage` beside it. Unpack anywhere and put the folder in the `PATH`. On Linux, Chromium needs system libraries the archive does not hold, the ones the Debian package depends on; PDFKiln names those missing when Chromium cannot start. On Debian 13 and Ubuntu 24.04 and 26.04 (on Debian 12 and Ubuntu 22.04, the same names without `t64`):
 
@@ -44,8 +44,8 @@ sudo apt install libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-
 **Docker** (amd64 and arm64), on Debian 13 slim, as an unprivileged user. Docker's default seccomp profile stops Chromium's sandbox; [`docker/seccomp.json`](docker/seccomp.json) is that profile plus the namespaces the sandbox needs:
 
 ```sh
-curl -fsSO https://raw.githubusercontent.com/Jamalofski/pdfkiln/main/docker/seccomp.json
-docker run --rm -i --security-opt seccomp=seccomp.json ghcr.io/jamalofski/pdfkiln wkhtmltopdf - - < page.html > page.pdf
+curl -fsSO https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json
+docker run --rm -i --security-opt seccomp=seccomp.json ghcr.io/pdfkiln/pdfkiln wkhtmltopdf - - < page.html > page.pdf
 ```
 
 `--security-opt seccomp=unconfined` and `--cap-add SYS_ADMIN` work too, but drop the whole filter or grant a capability that helps escape a container: not recommended.
@@ -90,7 +90,7 @@ The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are ac
 
 The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, phpwkhtmltopdf 2.5.0 and wicked_pdf 2.7.0 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
-Each release is built and tested by CI, then published by hand from two green runs (`.github/workflows/release.yml`, `apt.yml`, `npm.yml`, `docker.yml`), with SHA-256 sums and build provenance attestations (`gh attestation verify <file> --repo Jamalofski/pdfkiln`).
+Each release is built and tested by CI, then published by hand from two green runs (`.github/workflows/release.yml`, `apt.yml`, `npm.yml`, `docker.yml`), with SHA-256 sums and build provenance attestations (`gh attestation verify <file> --repo pdfkiln/pdfkiln`; up to 1.1.0, before the move to the pdfkiln organization, `--owner Jamalofski`).
 
 ## Migrating
 

@@ -634,7 +634,7 @@ jobs:
           for p in pathlib.Path(sys.argv[1]).rglob('*'):
               if p.is_file() and p.suffix in ('.json', '.yaml', '.rb'):
                   text = p.read_text(encoding='utf-8')
-                  served = re.sub(r'https://github\.com/Jamalofski/pdfkiln/releases/download/[^/"\s]+', 'http://127.0.0.1:8090', text)
+                  served = re.sub(r'https://github\.com/pdfkiln/pdfkiln/releases/download/[^/"\s]+', 'http://127.0.0.1:8090', text)
                   if served != text:
                       p.write_text(served, encoding='utf-8', newline='')
                       print(p)

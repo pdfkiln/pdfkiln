@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { repoRoot } from '../src/chromium.js';
 
-export const REPO = 'https://github.com/Jamalofski/pdfkiln';
+export const REPO = 'https://github.com/pdfkiln/pdfkiln';
 export const SITE = 'https://pdfkiln.org';
 const DESCRIPTION = 'Drop-in replacement for wkhtmltopdf, powered by Chromium';
 

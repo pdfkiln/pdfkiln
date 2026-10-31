@@ -14,7 +14,7 @@ $snappy = new Knp\Snappy\Pdf(Pdfkiln\binary());
 
 The package holds no binary: on first use, `vendor/bin/wkhtmltopdf` or `Pdfkiln\binary()` downloads the archive of the platform (Linux, macOS, Windows, about 150 MB) from GitHub Releases, checks it against the SHA-256 sum in `pins.json`, unpacks it in the user's cache (`~/.cache/pdfkiln`, `~/Library/Caches/pdfkiln`, `%LOCALAPPDATA%\pdfkiln`; `PDFKILN_CACHE_DIR` changes it), then runs it. Later calls run it directly. To download it during a deployment rather than on the first request, run `vendor/bin/wkhtmltopdf --version` once, as the user the web server runs PHP as, or with the same `PDFKILN_CACHE_DIR`.
 
-On Linux, Chromium needs its system libraries (`libnss3`, `libgbm1` and others) and, on Ubuntu 24.04, an AppArmor profile for its sandbox: the Debian package and the Docker image bring both, so prefer them on a Linux server ([Installation](https://github.com/Jamalofski/pdfkiln#installation)). This package suits Windows and macOS machines, and Linux ones that already have those libraries.
+On Linux, Chromium needs its system libraries (`libnss3`, `libgbm1` and others) and, on Ubuntu 24.04, an AppArmor profile for its sandbox: the Debian package and the Docker image bring both, so prefer them on a Linux server ([Installation](https://github.com/pdfkiln/pdfkiln#installation)). This package suits Windows and macOS machines, and Linux ones that already have those libraries.
 
 PHP 7.4 or later; `tar` (Linux, macOS, Windows 10 and later).
 
