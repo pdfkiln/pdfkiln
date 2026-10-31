@@ -1,11 +1,12 @@
 name: ci
 
-# Unit and command tests on the three systems, and the corpus replayed
-# with the command against wkhtmltopdf 0.12.6 (bench/compat.ts).
+# Unit and command tests on the three systems, Ubuntu and macOS in their
+# last two versions, and the corpus replayed with the command against
+# wkhtmltopdf 0.12.6 (bench/compat.ts).
 #
 # Started by hand only (gh workflow run ci.yml --ref main), before a
 # release; day-to-day checks run locally. Each channel is installed from
-# as a user would (jobs channels and dotnet).
+# as a user would (jobs newer, channels and dotnet).
 on:
   workflow_dispatch:
 
@@ -21,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        os: [ubuntu-24.04, ubuntu-26.04, windows-2025, macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -501,6 +502,65 @@ jobs:
           path: dist/package/*.sha256
           retention-days: 1
 
+  # The packages built above, on Ubuntu 24.04 and macOS 15, installed on
+  # the newer versions as users install them, and tested: the Debian
+  # package on Ubuntu 26.04 (its dependencies resolved there, its AppArmor
+  # profile loaded by its postinst), the archive on macOS 26.
+  newer:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-26.04
+            package: package-ubuntu-24.04
+          - os: macos-26
+            package: package-macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PDFKILN_PYTHON: python
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - run: npm ci
+      - run: npm run build
+      - run: pip install -r bench/requirements.txt
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.package }}
+          path: release
+
+      - name: Debian package, installed and tested (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./release/pdfkiln_*_amd64.deb
+          cat /etc/apparmor.d/pdfkiln
+          /usr/bin/wkhtmltopdf --version
+          /usr/bin/wkhtmltoimage --version
+          PDFKILN_TEST_WKHTMLTOPDF=/usr/bin/wkhtmltopdf PDFKILN_TEST_PDFKILN=/usr/bin/pdfkiln PDFKILN_TEST_WKHTMLTOIMAGE=/usr/bin/wkhtmltoimage node --test dist/test/cli.test.js
+
+      - name: Archive, unpacked and tested (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir archive
+          tar -xzf release/pdfkiln-*-macos-arm64.tar.gz -C archive
+          bin="$(ls -d "$PWD"/archive/*/)"
+          "${bin}wkhtmltopdf" --version
+          "${bin}wkhtmltoimage" --version
+          PDFKILN_TEST_WKHTMLTOPDF="${bin}wkhtmltopdf" PDFKILN_TEST_PDFKILN="${bin}pdfkiln" PDFKILN_TEST_WKHTMLTOIMAGE="${bin}wkhtmltoimage" node --test dist/test/cli.test.js
+
   # The manifests of the v1.1 channels (scripts/manifests.ts), from the sums
   # of every package, the macOS ones included.
   # Workflow artifact only: nothing is published.
@@ -534,16 +594,16 @@ jobs:
 
   # The channels installed as a user installs them, from this run's
   # packages and manifests: Composer (driven by knp-snappy) and Homebrew on
-  # macOS; Composer, Scoop and winget on Windows. The release files are
-  # served from the runner, at the address that replaces GitHub Releases'
-  # in the manifests. Scoop's checkver asks GitHub for the latest release:
-  # not before the first one.
+  # macOS 15 and 26; Composer, Scoop and winget on Windows. The release
+  # files are served from the runner, at the address that replaces GitHub
+  # Releases' in the manifests. Scoop's checkver asks GitHub for the latest
+  # release: not before the first one.
   channels:
     needs: manifests
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        os: [macos-15, macos-26, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
