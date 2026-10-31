@@ -599,7 +599,7 @@ jobs:
 
   # The channels installed as a user installs them, from this run's
   # packages and manifests: Composer (driven by knp-snappy) and Homebrew on
-  # macOS 15 and 26; Composer, Scoop and winget on Windows. The release
+  # macOS 15 and 26; Composer, Scoop, Chocolatey and winget on Windows. The release
   # files are served from the runner, at the address that replaces GitHub
   # Releases' in the manifests. Scoop's checkver asks GitHub for the latest
   # release: not before the first one.
@@ -637,7 +637,7 @@ jobs:
           "$py" - manifests <<'EOF'
           import pathlib, re, sys
           for p in pathlib.Path(sys.argv[1]).rglob('*'):
-              if p.is_file() and p.suffix in ('.json', '.yaml', '.rb'):
+              if p.is_file() and p.suffix in ('.json', '.yaml', '.rb', '.ps1'):
                   text = p.read_text(encoding='utf-8')
                   served = re.sub(r'https://github\.com/pdfkiln/pdfkiln/releases/download/[^/"\s]+', 'http://127.0.0.1:8090', text)
                   if served != text:
@@ -711,6 +711,31 @@ jobs:
           & "$scoop\shims\scoop.cmd" uninstall pdfkiln
           if ($LASTEXITCODE) { exit 1 }
 
+      # Chocolatey: the package packed from its manifest and installed from
+      # that folder (its download carries no mark of the web, so SmartScreen
+      # does not stop the unsigned installer), then removed by its uninstall
+      # script, which takes bin off the machine's PATH again.
+      - name: Chocolatey package, installed, tested and uninstalled (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\choco"
+          choco pack manifests\chocolatey\pdfkiln.nuspec --outputdirectory $out
+          if ($LASTEXITCODE) { exit 1 }
+          choco install pdfkiln --source $out --yes --no-progress
+          if ($LASTEXITCODE) { exit 1 }
+          $bin = "$env:ProgramFiles\wkhtmltopdf\bin"
+          & "$bin\wkhtmltopdf.exe" --version
+          if ($LASTEXITCODE) { exit 1 }
+          $path = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
+          if ($path -notcontains $bin) { "$bin is not on the machine's PATH"; exit 1 }
+          '<h1>Chocolatey</h1>' | & "$bin\wkhtmltopdf.exe" -q - choco.pdf
+          if ($LASTEXITCODE -or -not (Get-Content choco.pdf -TotalCount 1).StartsWith('%PDF-')) { exit 1 }
+          choco uninstall pdfkiln --yes --no-progress
+          if ($LASTEXITCODE -or (Test-Path "$bin\wkhtmltopdf.exe")) { 'pdfkiln is still installed'; exit 1 }
+          $path = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
+          if ($path -contains $bin) { "$bin is still on the machine's PATH"; exit 1 }
+
       # The installer, as winget starts it from its community repository: in
       # C:\Program Files\wkhtmltopdf. A package from a trusted source has
       # its download marked as trusted (zone 2; winget-cli,
@@ -743,6 +768,46 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           '<h1>winget</h1>' | & $exe -q - winget.pdf
           if ($LASTEXITCODE -or -not (Get-Content winget.pdf -TotalCount 1).StartsWith('%PDF-')) { exit 1 }
+
+  # The AUR package, built by makepkg and installed by pacman in Arch Linux
+  # from this run's x64 archive, served from the job; then a conversion as
+  # a user. Docker's default seccomp profile refuses the namespaces of
+  # Chromium's sandbox (job package, "Chromium's sandbox in Docker"):
+  # unconfined, for this test only.
+  aur:
+    needs: manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: archlinux:base-devel
+      options: --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-ubuntu-24.04
+          path: release
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: manifests
+          path: manifests
+
+      - name: PKGBUILD built, installed and tested
+        run: |
+          pacman -Syu --noconfirm --needed python
+          useradd -m builder
+          nohup python -m http.server 8090 --bind 127.0.0.1 --directory release > /dev/null 2>&1 &
+          for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8090/ && break; sleep 1; done
+          sed -i 's#https://github\.com/pdfkiln/pdfkiln/releases/download/[^/"]*#http://127.0.0.1:8090#' manifests/aur/PKGBUILD
+          chown -R builder manifests/aur
+          su builder -c 'cd manifests/aur && makepkg --noconfirm && makepkg --printsrcinfo > .SRCINFO.makepkg'
+          # The .SRCINFO scripts/manifests.ts writes is makepkg's, but for the address.
+          diff -B <(sed 's#https://github\.com/pdfkiln/pdfkiln/releases/download/[^/ ]*#http://127.0.0.1:8090#' manifests/aur/.SRCINFO) manifests/aur/.SRCINFO.makepkg
+          pacman -U --noconfirm manifests/aur/pdfkiln-bin-*.pkg.tar.zst
+          su builder -c 'wkhtmltopdf --version && wkhtmltoimage --version && pdfkiln --version'
+          su builder -c 'cd /tmp && echo "<h1>AUR</h1>" | wkhtmltopdf -q - aur.pdf && [ "$(head -c 5 aur.pdf)" = %PDF- ]'
+          pacman -R --noconfirm pdfkiln-bin
+        shell: bash
 
   # .NET callers on Windows: Rotativa.AspNetCore's driver on the runner;
   # an ASP.NET page in IIS on the runner (Windows Server 2025 with the

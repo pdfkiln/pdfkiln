@@ -1,11 +1,11 @@
 // The manifests of the v1.1 channels, written from the SHA-256 sums of a release's files:
-// Scoop, winget, a Homebrew formula and the Composer package. Nothing is
-// published: each goes to its own repository or registry by hand, once the
-// files are on GitHub Releases.
+// Scoop, winget, a Homebrew formula, Chocolatey, the AUR and the Composer
+// package. Nothing is published: each goes to its own repository or
+// registry by hand, once the files are on GitHub Releases.
 //
 //   node dist/scripts/manifests.js --sums <folder of *.sha256> [--version 1.0.0]
 //
-// Output: dist/manifests/{scoop,winget,homebrew,composer}/
+// Output: dist/manifests/{scoop,winget,homebrew,chocolatey,aur,composer}/
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -148,6 +148,124 @@ ${mac.map(([cpu, f]) => `    on_${cpu} do
 end
 `;
 
+  // Chocolatey: the installer, run silent with its PATH task, as winget
+  // runs it; the uninstaller found in the registry by its display name.
+  const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  out['chocolatey/pdfkiln.nuspec'] = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>pdfkiln</id>
+    <version>${version}</version>
+    <packageSourceUrl>${REPO}/blob/main/scripts/manifests.ts</packageSourceUrl>
+    <owners>Jamalofski</owners>
+    <title>PDFKiln</title>
+    <authors>Jamal Tantaoui</authors>
+    <projectUrl>${SITE}</projectUrl>
+    <iconUrl>${SITE}/favicon.svg</iconUrl>
+    <licenseUrl>${REPO}/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>${REPO}</projectSourceUrl>
+    <docsUrl>${SITE}/migrate/</docsUrl>
+    <bugTrackerUrl>${REPO}/issues</bugTrackerUrl>
+    <tags>wkhtmltopdf wkhtmltoimage pdf html-to-pdf chromium cli foss</tags>
+    <summary>${xml(DESCRIPTION)}</summary>
+    <description>${xml(`PDFKiln is a drop-in replacement for wkhtmltopdf, which is archived and has had no release since 2020. Called as \`wkhtmltopdf\` or \`wkhtmltoimage\`, it takes the command lines of wkhtmltopdf and wkhtmltoimage 0.12.6, with the same options, defaults, messages and exit codes, and renders with a current, sandboxed Chromium, updated with each release.
+
+The package runs the official installer. Like wkhtmltopdf's, it installs into \`C:\\Program Files\\wkhtmltopdf\`, the path pdfkit, Rotativa and most guides use, and it adds the \`bin\` folder to the PATH. Uninstall the \`wkhtmltopdf\` package first: both use that folder.
+
+PDFKiln is not affiliated with the wkhtmltopdf project.`)}</description>
+    <releaseNotes>${REPO}/releases/tag/${version}</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\\**" target="tools" />
+  </files>
+</package>
+`;
+  out['chocolatey/tools/chocolateyinstall.ps1'] = `$ErrorActionPreference = 'Stop'
+
+$packageArgs = @{
+  packageName    = $env:ChocolateyPackageName
+  fileType       = 'exe'
+  url64bit       = '${url}/${setup}'
+  checksum64     = '${sum(setup)}'
+  checksumType64 = 'sha256'
+  softwareName   = 'pdfkiln*'
+  silentArgs     = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /TASKS=addtopath'
+  validExitCodes = @(0)
+}
+Install-ChocolateyPackage @packageArgs
+`;
+  out['chocolatey/tools/chocolateyuninstall.ps1'] = `$ErrorActionPreference = 'Stop'
+
+[array]$key = Get-UninstallRegistryKey -SoftwareName 'pdfkiln*'
+if ($key.Count -eq 1) {
+  Uninstall-ChocolateyPackage -PackageName $env:ChocolateyPackageName -FileType 'exe' \`
+    -SilentArgs '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -File ($key[0].UninstallString -replace '"', '')
+} elseif ($key.Count -eq 0) {
+  Write-Warning "$env:ChocolateyPackageName was already uninstalled."
+} else {
+  Write-Warning "$($key.Count) installations of pdfkiln found: none uninstalled."
+}
+`;
+
+  // AUR: pdfkiln-bin, from the Linux archives built, laid out as the Debian
+  // package lays it out; Chromium's libraries are the Debian package's
+  // dependencies under Arch's names. No strip: it would drop the program
+  // the single executable carries.
+  const linux = ([['x86_64', file('linux-x64', '.tar.gz')], ['aarch64', file('linux-arm64', '.tar.gz')]] as const).filter(([, f]) => sums[f]);
+  if (!linux.length) throw new Error('no SHA-256 for a Linux archive');
+  const aur = {
+    pkgdesc: DESCRIPTION,
+    depends: ['alsa-lib', 'at-spi2-core', 'dbus', 'expat', 'fontconfig', 'gcc-libs', 'glib2', 'glibc', 'libx11', 'libxcb', 'libxcomposite',
+      'libxdamage', 'libxext', 'libxfixes', 'libxkbcommon', 'libxrandr', 'mesa', 'nspr', 'nss', 'systemd-libs', 'ttf-liberation'],
+    provides: ['pdfkiln', 'wkhtmltopdf', 'wkhtmltoimage'],
+    conflicts: ['pdfkiln', 'wkhtmltopdf'],
+  };
+  const list = (values: readonly string[]) => values.map((v) => `'${v}'`).join(' ');
+  out['aur/PKGBUILD'] = `# Maintainer: Jamal Tantaoui <contact at pdfkiln dot org>
+pkgname=pdfkiln-bin
+pkgver=${version}
+pkgrel=1
+pkgdesc='${aur.pkgdesc}'
+arch=(${list(linux.map(([a]) => a))})
+url='${SITE}'
+license=('MIT')
+depends=(${list(aur.depends)})
+provides=(${list(aur.provides)})
+conflicts=(${list(aur.conflicts)})
+options=('!strip' '!debug')
+${linux.map(([a, f]) => `source_${a}=("${f}::${url}/${f}")
+sha256sums_${a}=('${sum(f)}')`).join('\n')}
+
+package() {
+  local dir
+  case "$CARCH" in
+    x86_64) dir="pdfkiln-$pkgver-linux-x64" ;;
+    aarch64) dir="pdfkiln-$pkgver-linux-arm64" ;;
+  esac
+  install -d "$pkgdir/usr/lib/pdfkiln" "$pkgdir/usr/bin"
+  cp -a "$dir/pdfkiln" "$dir/chromium" "$pkgdir/usr/lib/pdfkiln/"
+  for name in pdfkiln wkhtmltopdf wkhtmltoimage; do
+    ln -s ../lib/pdfkiln/pdfkiln "$pkgdir/usr/bin/$name"
+  done
+  install -Dm644 "$dir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  cp -a "$dir/licenses/." "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 "$dir/README.txt" "$pkgdir/usr/share/doc/$pkgname/README.txt"
+}
+`;
+  // What makepkg --printsrcinfo writes, which the AUR requires beside it.
+  out['aur/.SRCINFO'] = `pkgbase = pdfkiln-bin
+\tpkgdesc = ${aur.pkgdesc}
+\tpkgver = ${version}
+\tpkgrel = 1
+\turl = ${SITE}
+${linux.map(([a]) => `\tarch = ${a}\n`).join('')}\tlicense = MIT
+${aur.depends.map((d) => `\tdepends = ${d}\n`).join('')}${aur.provides.map((p) => `\tprovides = ${p}\n`).join('')}${aur.conflicts.map((c) => `\tconflicts = ${c}\n`).join('')}\toptions = !strip
+\toptions = !debug
+${linux.map(([a, f]) => `\tsource_${a} = ${f}::${url}/${f}\n\tsha256sums_${a} = ${sum(f)}\n`).join('')}
+pkgname = pdfkiln-bin
+`;
+
   // Composer: the launchers of packaging/composer, and the sums they
   // check the downloaded archive against; Pdfkiln\binary() autoloaded.
   const archives = ['linux-x64', 'linux-arm64', 'macos-x64', 'macos-arm64'].map((p) => file(p, '.tar.gz')).concat(zip);
@@ -183,5 +301,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     mkdirSync(join(out, path, '..'), { recursive: true });
     writeFileSync(join(out, path), text);
   }
-  console.log(`${out}: scoop, winget, homebrew, composer for ${version}`);
+  console.log(`${out}: scoop, winget, homebrew, chocolatey, aur, composer for ${version}`);
 }
