@@ -40,7 +40,9 @@ export function manifests(version: string, sums: Record<string, string>): Manife
   };
   const out: Manifests = {};
 
-  // Scoop: the zip, its programs on the PATH through Scoop's shims.
+  // Scoop: the zip, its programs on the PATH through Scoop's shims. A
+  // release has no .sha256 per file: autoupdate finds the zip's line in
+  // SHA256SUMS (Scoop's find_hash_in_textfile, by file name).
   const zip = file('windows-x64', '.zip');
   out['scoop/pdfkiln.json'] = `${JSON.stringify({
     version,
@@ -53,7 +55,7 @@ export function manifests(version: string, sums: Record<string, string>): Manife
     checkver: { github: REPO },
     autoupdate: {
       architecture: { '64bit': { url: `${REPO}/releases/download/$version/pdfkiln-$version-windows-x64.zip` } },
-      hash: { url: '$url.sha256' },
+      hash: { url: '$baseurl/SHA256SUMS' },
     },
   }, null, 2)}\n`;
 

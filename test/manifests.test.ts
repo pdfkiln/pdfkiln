@@ -13,6 +13,7 @@ test('Scoop, winget, Homebrew and Composer point at the release, with its sums',
   assert.equal(scoop.architecture['64bit'].url, `${REPO}/releases/download/1.2.3/pdfkiln-1.2.3-windows-x64.zip`);
   assert.equal(scoop.architecture['64bit'].hash, '4'.repeat(64));
   assert.deepEqual(scoop.bin, ['bin\\wkhtmltopdf.exe', 'bin\\wkhtmltoimage.exe', 'bin\\pdfkiln.exe']);
+  assert.equal(scoop.autoupdate.hash.url, '$baseurl/SHA256SUMS');
   const installer = m['winget/manifests/p/PDFKiln/PDFKiln/1.2.3/PDFKiln.PDFKiln.installer.yaml']!;
   assert.match(installer, /InstallerUrl: \S+\/1\.2\.3\/pdfkiln-1\.2\.3-windows-x64-setup\.exe\n  InstallerSha256: 5{64}\n/);
   assert.match(installer, /InstallerType: inno/);
