@@ -751,8 +751,14 @@ jobs:
         run: |
           $dir = (Get-ChildItem manifests\winget\manifests\p\PDFKiln\PDFKiln -Directory | Select-Object -First 1).FullName
           winget --version
-          winget validate --manifest $dir
-          if ($LASTEXITCODE) { exit 1 }
+          # winget-pkgs asks for schema 1.12.0, which the runner's winget
+          # (1.11) does not know yet: it validates the manifest with a warning
+          # on each schema header and exits non-zero. That warning, and no
+          # other, is accepted (run 41231500632).
+          $out = winget validate --manifest $dir
+          $out
+          $other = $out | Where-Object { $_ -like 'Manifest Warning:*' -and $_ -notlike '*schema header URL does not match*' }
+          if (($LASTEXITCODE -and -not ($out -like 'Manifest validation succeeded with warnings*')) -or $other) { exit 1 }
           $manifest = Get-Content (Get-ChildItem $dir -Filter *.installer.yaml).FullName -Raw
           $url = [regex]::Match($manifest, 'InstallerUrl: (\S+)').Groups[1].Value
           $sha = [regex]::Match($manifest, 'InstallerSha256: (\S+)').Groups[1].Value
@@ -794,7 +800,9 @@ jobs:
 
       - name: PKGBUILD built, installed and tested
         run: |
-          pacman -Syu --noconfirm --needed python
+          # The dependencies first, as `makepkg -s` installs them: makepkg
+          # stops on a missing one, and pacman on a name Arch does not have.
+          pacman -Syu --noconfirm --needed python $(. manifests/aur/PKGBUILD && echo "${depends[@]}")
           useradd -m builder
           nohup python -m http.server 8090 --bind 127.0.0.1 --directory release > /dev/null 2>&1 &
           for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8090/ && break; sleep 1; done
