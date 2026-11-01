@@ -58,7 +58,7 @@ as_odoo env ODOO_PROOF_DOCS="$home/docs.json" "${odoo[@]}" shell -c "$home/odoo.
 cp "$home/docs.json" "$out/docs.json"
 
 python3 - "$out/platform.json" "$ID" "$VERSION_ID" "$VERSION_CODENAME" "$arch" "$branch" \
-  "$(git -C "$home/src" log -1 --format='%H %cs')" "$("$home/venv/bin/python" -V)" "$(runuser -u postgres -- psql -tAc 'show server_version')" <<'EOF'
+  "$(as_odoo git -C "$home/src" log -1 --format='%H %cs')" "$("$home/venv/bin/python" -V)" "$(runuser -u postgres -- psql -tAc 'show server_version')" <<'EOF'
 import json, sys
 keys = ['id', 'version', 'codename', 'arch', 'odoo', 'odoo_commit', 'python', 'postgresql']
 json.dump(dict(zip(keys, sys.argv[2:])), open(sys.argv[1], 'w'), indent=2)
@@ -82,10 +82,9 @@ run() {
   local pid=$!
   for _ in $(seq 120); do curl -fs -o /dev/null http://127.0.0.1:8069/web/login && break; sleep 1; done
   as_odoo "$home/venv/bin/python" -I "$here/print.py" "$home/docs.json" "$out/$name" "$name" || true
-  kill "$pid"
+  # runuser does not pass SIGTERM on: Odoo gets it directly.
+  pkill -u odoo -f odoo-bin || true
   wait "$pid" || true
-  for _ in $(seq 30); do pgrep -u odoo -f odoo-bin > /dev/null || return 0; sleep 1; done
-  pkill -9 -u odoo -f odoo-bin || true
 }
 
 # fetch <url> <sha256>: into the current folder, checked.
@@ -97,7 +96,9 @@ fetch() {
 mkdir -p /tmp/debs
 cd /tmp/debs
 
-if apt-cache show wkhtmltopdf > /dev/null 2>&1; then
+# Debian 13 and Ubuntu 26.04 still know the name, without a version to
+# install. grep reads it all: with -q, apt-cache would die of SIGPIPE.
+if apt-cache policy wkhtmltopdf | grep 'Candidate: [0-9]' > /dev/null; then
   apt-get install -y -qq --no-install-recommends wkhtmltopdf > "$out/wkhtmltopdf-distro.install.log" 2>&1
   engine wkhtmltopdf-distro yes "$(wkhtmltopdf --version)" "the wkhtmltopdf package of $NAME $VERSION_ID"
   run wkhtmltopdf-distro wkhtmltopdf
@@ -131,6 +132,7 @@ if [ -n "$pm" ]; then
   fetch "https://github.com/odoo/paper-muncher/releases/download/v0.9.0/paper-muncher_v0.9.0_${VERSION_CODENAME}_amd64.deb" "$pm"
   if apt-get install -y -qq --no-install-recommends "./paper-muncher_v0.9.0_${VERSION_CODENAME}_amd64.deb" > "$out/paper-muncher.install.log" 2>&1; then
     # The package installs under /opt; Odoo looks for paper-muncher in the PATH.
+    mkdir -p /usr/local/bin
     command -v paper-muncher > /dev/null || ln -s /opt/paper-muncher/bin/paper-muncher /usr/local/bin/paper-muncher
     engine paper-muncher yes "$(paper-muncher --version 2>&1 | head -1)" "paper-muncher_v0.9.0_${VERSION_CODENAME}_amd64.deb"
     run paper-muncher paper-muncher

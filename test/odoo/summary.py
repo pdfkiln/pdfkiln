@@ -1,7 +1,9 @@
 # The proof's results on one platform (proof.sh): for each engine and
 # document, the pages, and on each page whether the header (the company's
-# name) and the footer (Odoo's page number) are there; each page rendered
-# to PNG next to its PDF. Writes summary.json and summary.md.
+# name) and the footer (Odoo's page number) are there, and whether it has
+# text at all (Ubuntu 24.04's wkhtmltopdf draws Odoo 20's text as paths);
+# each page rendered to PNG next to its PDF. Writes summary.json and
+# summary.md.
 #
 #   python summary.py <out dir>
 import json
@@ -27,6 +29,7 @@ for name in ['wkhtmltopdf-distro', 'wkhtmltopdf-0.12.6', 'paper-muncher', 'pdfki
             for n, page in enumerate(pymupdf.open(os.path.join(folder, row['doc'] + '.pdf'))):
                 w, h = page.rect.width, page.rect.height
                 pages.append({
+                    'text': bool(page.get_text().strip()),
                     'header': 'My Company' in page.get_text(clip=pymupdf.Rect(0, 0, w, h * 0.15)),
                     'footer': 'Page' in page.get_text(clip=pymupdf.Rect(0, h * 0.85, w, h)),
                 })
@@ -48,6 +51,8 @@ def cell(engine, doc):
     if not row['pdf']:
         return f"no PDF (HTTP {row['status']})"
     pages = row['pages']
+    if not any(p['text'] for p in pages):
+        return f"{len(pages)} p, no text, {row['ms']} ms"
     both = sum(p['header'] and p['footer'] for p in pages)
     return f"{len(pages)} p, header and footer on {both}, {row['ms']} ms"
 
