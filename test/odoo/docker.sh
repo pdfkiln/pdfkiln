@@ -10,9 +10,9 @@
 #   docker/seccomp.json, the profile the README gives for Chromium's sandbox;
 # - pdfkiln-workers: the same, with --workers 2;
 # - pdfkiln-default-seccomp: the same under Docker's default profile, where
-#   Chromium's sandbox cannot start: what Odoo then logs.
+#   Chromium's sandbox cannot start: Odoo's log must say why.
 # Exits 1 unless PDFKiln prints every document with the profile, in both
-# modes.
+# modes, and names the cause under the default profile.
 #
 #   test/odoo/docker.sh <out dir>
 set -euo pipefail
@@ -105,3 +105,4 @@ cat "$out/pdfkiln-default-seccomp/chromium.txt"
 for name in pdfkiln pdfkiln-workers; do
   python3 -c 'import json, sys; rows = json.load(open(sys.argv[1])); sys.exit(0 if rows and all(r["pdf"] for r in rows) else 1)' "$out/$name/print.json"
 done
+grep -q 'refuses the user namespaces' "$out/pdfkiln-default-seccomp/chromium.txt"

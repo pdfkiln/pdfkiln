@@ -83,8 +83,24 @@ export function chromiumCommand(exe: string, args: string[], space: AddressSpace
   return ['/bin/sh', ['-c', 'ulimit -S -v "$(ulimit -H -v)"; exec "$0" "$@"', exe, ...args]];
 }
 
+// Whether this system lets a process create a user namespace, which
+// Chromium's sandbox needs: Docker's default seccomp profile refuses it,
+// as does a kernel with unprivileged user namespaces turned off, and
+// Chromium then only says "Target closed". Asked of unshare (util-linux)
+// once Chromium has failed; null when it cannot tell.
+export function userNamespaces(): boolean | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    execFileSync('unshare', ['--user', 'true'], { stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch (e) {
+    // unshare exits 1 when the kernel refuses; anything else tells nothing.
+    return (e as { status?: number }).status === 1 ? false : null;
+  }
+}
+
 // Explains the usual reasons Chromium cannot start, with the fix.
-export function explain(message: string, serverCore: () => boolean = windowsServerCore, missing: () => string[] = () => [], space: () => AddressSpace | null = () => null): string {
+export function explain(message: string, serverCore: () => boolean = windowsServerCore, missing: () => string[] = () => [], space: () => AddressSpace | null = () => null, namespaces: () => boolean | null = () => null): string {
   if (serverCore()) {
     return 'Chromium does not run on Windows Server Core: it stops at start, for want of system libraries. Use Windows Server with the Desktop Experience, or the mcr.microsoft.com/windows/server container image rather than servercore.';
   }
@@ -101,6 +117,9 @@ export function explain(message: string, serverCore: () => boolean = windowsServ
   }
   if (/as root without --no-sandbox/i.test(message)) {
     return 'Chromium refuses to run as root with its sandbox on. Run the command as an unprivileged user (or pass --kiln-no-sandbox, not recommended).';
+  }
+  if (namespaces() === false) {
+    return "Chromium's sandbox cannot start: this system refuses the user namespaces it needs. In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone). --kiln-no-sandbox works around it, not recommended.";
   }
   if (/No usable sandbox|namespace|setuid sandbox|zygote/i.test(message)) {
     return "Chromium's sandbox could not start: unprivileged user namespaces are unavailable. On Ubuntu 23.10 and later, AppArmor restricts them: install an AppArmor profile for Chromium that allows userns (see the README), or enable kernel.unprivileged_userns_clone. --kiln-no-sandbox works around it, not recommended.";
@@ -195,7 +214,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     });
   } catch (e) {
     removeQuietly(profile);
-    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace));
+    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces));
   }
   const pid = browser.process()?.pid;
   let closed = false;

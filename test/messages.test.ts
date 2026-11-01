@@ -69,6 +69,18 @@ test('a cap on the address space: a soft one raised, a hard one explained', () =
   assert.match(explain(closed, () => false, () => [], () => ({ soft: 2684354560, hard: 2684354560 })), /^Chromium cannot start under a cap on its address space \(ulimit -v, RLIMIT_AS\) of 2560 MiB: .* LimitAS=infinity/);
 });
 
+test('a system that refuses user namespaces: the sandbox, and the seccomp profile', () => {
+  // Under Docker's default seccomp profile, Chromium only says this (Odoo's
+  // official image, 01/11/2026).
+  const closed = 'Protocol error (Target.setDiscoverTargets): Target closed';
+  const refused = (namespaces: boolean | null) => explain(closed, () => false, () => [], () => null, () => namespaces);
+  assert.match(refused(false), /^Chromium's sandbox cannot start: this system refuses the user namespaces it needs\. In a container, run it with PDFKiln's seccomp profile \(docker run --security-opt seccomp=seccomp\.json, from https:\/\/raw\.githubusercontent\.com\/pdfkiln\/pdfkiln\/main\/docker\/seccomp\.json\)/);
+  assert.equal(refused(true), `Chromium did not start: ${closed}`);
+  assert.equal(refused(null), `Chromium did not start: ${closed}`);
+  // Namespaces allowed, the sandbox still refused: AppArmor, from Chromium's own words.
+  assert.match(explain('No usable sandbox!', () => false, () => [], () => null, () => true), /AppArmor/);
+});
+
 test('phases, padded over the progress bar', () => {
   let s = '';
   const fb = new Feedback('info', (x) => (s += x));
