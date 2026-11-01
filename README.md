@@ -74,13 +74,17 @@ scoop bucket add pdfkiln https://github.com/pdfkiln/scoop
 scoop install pdfkiln/pdfkiln
 ```
 
+**winget** (Windows x64), the installer, in `C:\Program Files\wkhtmltopdf`:
+
+```sh
+winget install pdfkiln
+```
+
 **Homebrew** (macOS ARM64):
 
 ```sh
 brew install pdfkiln/tap/pdfkiln
 ```
-
-**winget**: submitted to winget-pkgs, under review; once accepted, `winget install pdfkiln`.
 
 **Chocolatey**: submitted, in moderation; once approved, `choco install pdfkiln`.
 
