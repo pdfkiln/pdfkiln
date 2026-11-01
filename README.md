@@ -50,7 +50,7 @@ docker run --rm -i --security-opt seccomp=seccomp.json ghcr.io/pdfkiln/pdfkiln w
 
 `--security-opt seccomp=unconfined` and `--cap-add SYS_ADMIN` work too, but drop the whole filter or grant a capability that helps escape a container: not recommended.
 
-**PHP** (Composer, PHP 7.4 or later), for knp-snappy and the other PHP libraries: [`pdfkiln/pdfkiln`](https://packagist.org/packages/pdfkiln/pdfkiln) puts `wkhtmltopdf` and `wkhtmltoimage` in `vendor/bin` and downloads the program of the platform on first use, its SHA-256 checked. It takes the place of packages that ship wkhtmltopdf itself, such as `h4cc/wkhtmltopdf-amd64`. On a Linux server, the Debian package or the Docker image is better: they bring Chromium's system libraries.
+**PHP** (Composer, PHP 7.4 or later), for knp-snappy and the other PHP libraries: [`pdfkiln/pdfkiln`](https://packagist.org/packages/pdfkiln/pdfkiln) puts `wkhtmltopdf` and `wkhtmltoimage` in `vendor/bin` and downloads the program of the platform on first use, its SHA-256 checked; a version no project uses any more is deleted. It takes the place of packages that ship wkhtmltopdf itself, such as `h4cc/wkhtmltopdf-amd64`. On a Linux server, the Debian package or the Docker image is better: they bring Chromium's system libraries.
 
 ```sh
 composer require pdfkiln/pdfkiln
@@ -60,7 +60,7 @@ composer require pdfkiln/pdfkiln
 $snappy = new Knp\Snappy\Pdf(Pdfkiln\binary());
 ```
 
-**npm** (Node.js 22.12 or later), for Node projects; Chromium is downloaded on first use into the user's cache, its SHA-256 checked. npm refuses the name `pdfkiln`, too close to `pdfkit`, hence the scope:
+**npm** (Node.js 22.12 or later), for Node projects; Chromium is downloaded on first use into the user's cache, its SHA-256 checked, and deleted from it once no project uses that version any more. npm refuses the name `pdfkiln`, too close to `pdfkit`, hence the scope:
 
 ```sh
 npx @pdfkiln/pdfkiln wkhtmltopdf page.html page.pdf

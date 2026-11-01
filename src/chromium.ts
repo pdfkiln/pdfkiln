@@ -1,8 +1,8 @@
 // Where chrome-headless-shell is: next to the program once installed,
 // in the repository's .cache when developing (npm run fetch:chromium), in
 // the user's cache for the npm package, which downloads it on first use.
-import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
@@ -79,7 +79,15 @@ export function executablePath(): string {
 // once both succeed.
 export async function ensureChromium(): Promise<string> {
   const exe = executablePath();
-  if (existsSync(exe) || process.env.PDFKILN_CHROMIUM || isSea()) return exe;
+  if (process.env.PDFKILN_CHROMIUM || isSea()) return exe;
+  if (exe === userInstall()) {
+    try {
+      track(join(userCacheDir(), 'chromium'), repoRoot, chromiumVersion);
+    } catch {
+      // The cache stays as it is: never a reason to fail a conversion.
+    }
+  }
+  if (existsSync(exe)) return exe;
   const pin = readPin();
   const key = platformKey();
   const archive = pin.archives[key];
@@ -113,4 +121,128 @@ export async function ensureChromium(): Promise<string> {
     rmSync(tmp, { recursive: true, force: true });
   }
   return exe;
+}
+
+const day = 86_400_000;
+
+interface UseRecord { path?: string; version?: string }
+
+// The cache keeps each Chromium in chromium/<version>/, about 280 MB.
+// Each package that uses it records its folder and version in
+// chromium/projects/, when that version changes and at most once a day; the
+// cache is cleaned then (packaging/composer/src/launch.php does the same):
+// - a version that no recorded package pins any more goes at once;
+// - a package whose folder cannot be read (gone, or out of this account's
+//   reach) keeps its version until 30 days after it last recorded itself;
+// - a version that no record names, left by pdfkiln 1.1.0 or earlier,
+//   goes once it has not run for 30 days;
+// - a download cut short goes after a day.
+// Several projects of one account, on different versions, never take each
+// other's Chromium away.
+export function track(cache: string, project: string, version: string): void {
+  const projects = join(cache, 'projects');
+  const record = join(projects, `${createHash('sha256').update(project).digest('hex').slice(0, 16)}.json`);
+  let previous: string | undefined;
+  try {
+    const v = (JSON.parse(readFileSync(record, 'utf8')) as UseRecord).version;
+    if (typeof v === 'string') previous = v;
+  } catch {
+    // Not recorded yet.
+  }
+  if (previous === version && Date.now() - mtime(record) < day) return;
+  mkdirSync(projects, { recursive: true });
+  const tmp = `${record}.${randomBytes(4).toString('hex')}`;
+  writeFileSync(tmp, JSON.stringify({ path: project, version }));
+  try {
+    renameSync(tmp, record);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+  clean(cache, previous);
+}
+
+function clean(cache: string, previous: string | undefined): void {
+  const now = Date.now();
+  const used = new Set<string>();
+  const known = new Set<string>(previous ? [previous] : []);
+  const projects = join(cache, 'projects');
+  for (const f of readdirSync(projects)) {
+    const record = join(projects, f);
+    const age = now - mtime(record);
+    // A record whose writing was cut short.
+    if (!/^[0-9a-f]{16}\.json$/.test(f)) {
+      if (age > day) remove(record);
+      continue;
+    }
+    let r: UseRecord = {};
+    try {
+      r = JSON.parse(readFileSync(record, 'utf8')) as UseRecord;
+    } catch {
+      // Unreadable: while it may still be a project's, nothing is cleaned.
+    }
+    if (typeof r.path !== 'string' || typeof r.version !== 'string') {
+      if (age < 30 * day) return;
+      remove(record);
+      continue;
+    }
+    const pinned = pinnedVersion(r.path);
+    if (pinned) {
+      used.add(pinned);
+      known.add(r.version);
+    } else if (age < 30 * day) {
+      used.add(r.version);
+    } else {
+      known.add(r.version);
+      remove(record);
+    }
+  }
+  for (const f of readdirSync(cache)) {
+    const p = join(cache, f);
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(f)) {
+      if (!used.has(f) && (known.has(f) || now - lastRun(p) > 30 * day)) discard(cache, p);
+    } else if (f.startsWith('.delete-') || (f.startsWith('.download-') && now - mtime(p) > day)) {
+      remove(p);
+    }
+  }
+}
+
+function pinnedVersion(project: string): string | undefined {
+  try {
+    const v = (JSON.parse(readFileSync(join(project, 'chromium.json'), 'utf8')) as ChromiumPin).version;
+    return typeof v === 'string' ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function mtime(path: string): number {
+  return statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+}
+
+// When a version's Chromium last ran: the access time of its program, where
+// the system keeps it, and never earlier than its install.
+function lastRun(dir: string): number {
+  const exe = statSync(join(dir, `chrome-headless-shell-${platformKey()}`, exeName()), { throwIfNoEntry: false });
+  return Math.max(exe?.atimeMs ?? 0, mtime(dir));
+}
+
+// Renamed, then deleted: the version's folder is whole or gone, never half
+// there. What a running process still holds goes the next time.
+function discard(cache: string, dir: string): void {
+  const trash = join(cache, `.delete-${randomBytes(6).toString('hex')}`);
+  try {
+    renameSync(dir, trash);
+  } catch {
+    return;
+  }
+  remove(trash);
+}
+
+function remove(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Held by a running process (Windows): the next time.
+  }
 }

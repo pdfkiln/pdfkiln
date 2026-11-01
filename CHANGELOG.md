@@ -16,6 +16,10 @@ Security:
 
 - Up to 1.1.0, the program file `pdfkiln` could be writable by every user (mode 0777): installed by the Debian package and in the Docker image, as `/usr/lib/pdfkiln/pdfkiln`, and unpacked as root from the Linux and macOS archives. Any local account could replace the program that root, the web server or Odoo run. 1.1.1 ships it, and every other file, writable by its owner only. Until you update, as root: `chmod 755 /usr/lib/pdfkiln/pdfkiln`, or the same on the `pdfkiln` file of an unpacked archive.
 
+Installed with Composer or npm:
+
+- The user's cache no longer keeps every version it downloaded, about 400 MB each with Composer, 280 MB of Chromium with npm. Each project that uses the cache records itself in it: once no project pins a version any more, the next call deletes it, before downloading the new one. Several sites of one account on different versions keep each theirs; a site whose folder this one cannot read, behind `open_basedir` for instance, keeps its version until 30 days after its last call. The versions left by 1.1.0 and earlier, which no project has recorded, go once they have not run for 30 days; a download cut short, after a day.
+
 In every mode:
 
 - The PDFs' Creator, the Application field of PDF viewers, is PDFKiln and its version (`PDFKiln 1.1.1`), the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`. The version tells whoever receives a PDF which Chromium rendered it, the one of that release: keep PDFKiln up to date.

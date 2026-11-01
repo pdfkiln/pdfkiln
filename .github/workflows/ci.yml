@@ -73,7 +73,7 @@ jobs:
         run: echo "pinned $(node -p "require('./chromium.json').version"), Stable $(node dist/scripts/update-chromium.js --dry-run)"
 
       - name: Unit tests
-        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/server.test.js dist/test/manifests.test.js
+        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/server.test.js dist/test/manifests.test.js
 
       - name: Command tests
         run: node --test dist/test/cli.test.js

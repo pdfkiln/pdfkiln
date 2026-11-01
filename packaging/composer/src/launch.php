@@ -6,11 +6,14 @@
 // and runs it. Later calls run it directly, with the same standard input,
 // output, error and exit code. binary() gives the program's own path, for
 // libraries that check it is executable: on Windows, PHP's is_executable
-// is false for the .bat Composer writes next to each program.
+// is false for the .bat Composer writes next to each program. A version no
+// project uses any more is deleted (track()).
 //
 // PDFKILN_CACHE_DIR changes the cache folder, as for the npm package.
 
 namespace Pdfkiln;
+
+const DAY = 86400;
 
 // STDERR exists on the command line only, not under php-fpm.
 function say(string $message): void
@@ -43,11 +46,106 @@ function platform(): ?string
 function removeTree(string $path): void
 {
     if (is_dir($path) && !is_link($path)) {
-        foreach (scandir($path) as $f) if ($f !== '.' && $f !== '..') removeTree($path . DIRECTORY_SEPARATOR . $f);
+        foreach (@scandir($path) ?: [] as $f) if ($f !== '.' && $f !== '..') removeTree($path . DIRECTORY_SEPARATOR . $f);
         @rmdir($path);
     } else {
         @unlink($path);
     }
+}
+
+// The program `name` in the folder of an installed version (scripts/package.ts).
+function program(string $dir, string $version, string $platform, string $name): string
+{
+    return $platform === 'windows-x64'
+        ? "$dir\\wkhtmltopdf\\bin\\$name.exe"
+        : "$dir/pdfkiln-$version-$platform/$name";
+}
+
+// The cache keeps each version in dist/<version>-<platform>/, about 400 MB.
+// Each project records its folder and version in dist/projects/, when that
+// version changes and at most once a day; the cache is cleaned then
+// (src/chromium.ts does the same for the npm package):
+// - a version that no recorded project pins any more goes at once;
+// - a project whose folder cannot be read (gone, or out of reach of this
+//   account or of open_basedir) keeps its version until 30 days after it
+//   last recorded itself;
+// - a version that no record names, left by pdfkiln 1.1.0 or earlier, goes
+//   once it has not run for 30 days;
+// - a download cut short goes after a day.
+// Several sites of one account, on different versions, never take each
+// other's program away.
+function track(string $dist, string $project, string $version): void
+{
+    $projects = $dist . DIRECTORY_SEPARATOR . 'projects';
+    $record = $projects . DIRECTORY_SEPARATOR . substr(hash('sha256', $project), 0, 16) . '.json';
+    $previous = is_file($record) ? (json_decode((string) @file_get_contents($record), true)['version'] ?? null) : null;
+    if (!is_string($previous)) $previous = null;
+    if ($previous === $version && (int) @filemtime($record) > time() - DAY) return;
+    if (!is_dir($projects) && !@mkdir($projects, 0700, true) && !is_dir($projects)) return;
+    $tmp = "$record." . bin2hex(random_bytes(4));
+    if (@file_put_contents($tmp, json_encode(['path' => $project, 'version' => $version])) === false || !@rename($tmp, $record)) {
+        @unlink($tmp);
+        return;
+    }
+    clean($dist, $previous);
+}
+
+function clean(string $dist, ?string $previous): void
+{
+    $used = [];
+    $known = $previous === null ? [] : [$previous => true];
+    $projects = $dist . DIRECTORY_SEPARATOR . 'projects';
+    foreach (@scandir($projects) ?: [] as $f) {
+        if ($f === '.' || $f === '..') continue;
+        $record = $projects . DIRECTORY_SEPARATOR . $f;
+        $age = time() - (int) @filemtime($record);
+        // A record whose writing was cut short.
+        if (!preg_match('/^[0-9a-f]{16}\.json$/', $f)) {
+            if ($age > DAY) @unlink($record);
+            continue;
+        }
+        $r = json_decode((string) @file_get_contents($record), true);
+        if (!is_string($r['path'] ?? null) || !is_string($r['version'] ?? null)) {
+            // Unreadable: while it may still be a project's, nothing is cleaned.
+            if ($age < 30 * DAY) return;
+            @unlink($record);
+            continue;
+        }
+        $pins = @file_get_contents($r['path'] . DIRECTORY_SEPARATOR . 'pins.json');
+        $pinned = $pins === false ? null : (json_decode($pins, true)['version'] ?? null);
+        if (is_string($pinned)) {
+            $used[$pinned] = true;
+            $known[$r['version']] = true;
+        } elseif ($age < 30 * DAY) {
+            $used[$r['version']] = true;
+        } else {
+            $known[$r['version']] = true;
+            @unlink($record);
+        }
+    }
+    foreach (@scandir($dist) ?: [] as $f) {
+        $path = $dist . DIRECTORY_SEPARATOR . $f;
+        if (preg_match('/^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)-((?:linux|macos)-(?:x64|arm64)|windows-x64)$/', $f, $m)) {
+            if (!isset($used[$m[1]]) && (isset($known[$m[1]]) || lastRun($path, $m[1], $m[2]) < time() - 30 * DAY)) discard($dist, $path);
+        } elseif (strncmp($f, 'delete-', 7) === 0 || (strncmp($f, 'tmp-', 4) === 0 && (int) @filemtime($path) < time() - DAY)) {
+            removeTree($path);
+        }
+    }
+}
+
+// When a version's program last ran: the access time of its file, where the
+// system keeps it, and never earlier than its install.
+function lastRun(string $dir, string $version, string $platform): int
+{
+    return max((int) @fileatime(program($dir, $version, $platform, 'pdfkiln')), (int) @filemtime($dir));
+}
+
+// Renamed, then deleted: the version's folder is whole or gone, never half
+// there. What a running process still holds goes the next time.
+function discard(string $dist, string $dir): void
+{
+    $trash = $dist . DIRECTORY_SEPARATOR . 'delete-' . bin2hex(random_bytes(6));
+    if (@rename($dir, $trash)) removeTree($trash);
 }
 
 function run(array $cmd): int
@@ -108,10 +206,14 @@ function binary(string $name = 'wkhtmltopdf'): string
     $pins = json_decode((string) file_get_contents(__DIR__ . '/../pins.json'), true);
     $platform = platform();
     if (!$pins || !$platform) throw new \RuntimeException('pdfkiln: no build of PDFKiln for this system');
-    $dir = cacheDir() . DIRECTORY_SEPARATOR . 'dist' . DIRECTORY_SEPARATOR . "{$pins['version']}-$platform";
-    $exe = $platform === 'windows-x64'
-        ? "$dir\\wkhtmltopdf\\bin\\$name.exe"
-        : "$dir/pdfkiln-{$pins['version']}-$platform/$name";
+    $dist = cacheDir() . DIRECTORY_SEPARATOR . 'dist';
+    $dir = $dist . DIRECTORY_SEPARATOR . "{$pins['version']}-$platform";
+    try {
+        track($dist, dirname(__DIR__), $pins['version']);
+    } catch (\Throwable $e) {
+        // The cache stays as it is: never a reason to fail a conversion.
+    }
+    $exe = program($dir, $pins['version'], $platform, $name);
     if (!is_file($exe)) {
         $error = install($pins, $platform, $dir);
         if ($error) throw new \RuntimeException("pdfkiln: $error");
