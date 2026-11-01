@@ -29,6 +29,7 @@ import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { platformKey, repoRoot } from '../src/chromium.js';
 import { chromiumVersion, version } from '../src/version.js';
+import { normalizeModes } from './modes.js';
 
 const { values } = parseArgs({
   options: {
@@ -178,6 +179,7 @@ fi
 `);
 for (const f of ['postinst', 'postrm']) chmodSync(join(debian, f), 0o755);
 if (conffiles.length) writeFileSync(join(debian, 'conffiles'), `${conffiles.join('\n')}\n`);
+normalizeModes(root);
 
 const deb = join(out, `${name}.deb`);
 execFileSync('dpkg-deb', ['--root-owner-group', '-Zxz', '--build', root, deb], { stdio: 'inherit' });

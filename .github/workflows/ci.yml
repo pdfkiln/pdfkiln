@@ -402,6 +402,8 @@ jobs:
           node dist/scripts/deb.js
           sudo apt-get update
           sudo apt-get install -y ./dist/package/pdfkiln_*.deb
+          # No file of the package writable by another user than root.
+          if dpkg -L pdfkiln | xargs -d '\n' stat -c '%A %n' | grep -E '^[^l](....w|.......w)'; then exit 1; fi
           cat /etc/apparmor.d/pdfkiln
           /usr/bin/wkhtmltopdf --version
           /usr/bin/wkhtmltoimage --version

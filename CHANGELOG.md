@@ -12,6 +12,10 @@ The project has moved to the pdfkiln organization, https://github.com/pdfkiln/pd
 - The Docker image is `ghcr.io/pdfkiln/pdfkiln`: `ghcr.io/jamalofski/pdfkiln` stays at 1.1.0. Change the image in your `docker pull` commands and compose files.
 - The files of 1.1.0 and earlier verify with `gh attestation verify <file> --owner Jamalofski`, those of 1.1.1 and later with `--repo pdfkiln/pdfkiln`.
 
+Security:
+
+- Up to 1.1.0, the program file `pdfkiln` could be writable by every user (mode 0777): installed by the Debian package and in the Docker image, as `/usr/lib/pdfkiln/pdfkiln`, and unpacked as root from the Linux and macOS archives. Any local account could replace the program that root, the web server or Odoo run. 1.1.1 ships it, and every other file, writable by its owner only. Until you update, as root: `chmod 755 /usr/lib/pdfkiln/pdfkiln`, or the same on the `pdfkiln` file of an unpacked archive.
+
 In every mode:
 
 - The PDFs' Creator, the Application field of PDF viewers, is PDFKiln and its version (`PDFKiln 1.1.1`), the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`. The version tells whoever receives a PDF which Chromium rendered it, the one of that release: keep PDFKiln up to date.

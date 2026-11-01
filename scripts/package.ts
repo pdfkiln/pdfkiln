@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { installDir, platformKey, repoRoot } from '../src/chromium.js';
 import { chromiumVersion, version } from '../src/version.js';
+import { normalizeModes } from './modes.js';
 
 const { values } = parseArgs({ options: { launcher: { type: 'string' } } });
 const win = process.platform === 'win32';
@@ -69,6 +70,7 @@ Documentation: https://pdfkiln.org
 `);
 
 // The archive and its checksum.
+if (!win) normalizeModes(root);
 const archive = join(out, `${name}${win ? '.zip' : '.tar.gz'}`);
 // Windows' own tar (bsdtar) writes zip files; Git's GNU tar, first in the
 // PATH of a bash step, takes "D:" for a remote host.
