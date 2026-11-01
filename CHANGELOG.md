@@ -1,32 +1,32 @@
 # Changes
 
 What each version changes, for those who use it. A version's release notes
-open with its section here (scripts/release.ts), after the Chromium it
-carries: no release without one. Up to 1.0.2, see each version's GitHub
-release.
+open with its section here (scripts/release.ts): no release without one.
+They name Chromium only when the version changes it, with its new version
+first. Up to 1.0.2, see each version's GitHub release.
 
 ## 1.1.1
+
+Security:
+
+- Up to 1.1.0, any local account could replace the program that root, the web server or Odoo run: the file `pdfkiln` was writable by every user (mode 0777) in the Debian package and the Docker image (`/usr/lib/pdfkiln/pdfkiln`), and could be in the Linux and macOS archives unpacked as root. 1.1.1 installs every file writable by its owner only. Until you update, as root: `chmod 755 /usr/lib/pdfkiln/pdfkiln`, or the same on the `pdfkiln` file of an unpacked archive.
 
 The project has moved to the pdfkiln organization, https://github.com/pdfkiln/pdfkiln; the old addresses redirect.
 
 - The Docker image is `ghcr.io/pdfkiln/pdfkiln`: `ghcr.io/jamalofski/pdfkiln` stays at 1.1.0. Change the image in your `docker pull` commands and compose files.
 - The files of 1.1.0 and earlier verify with `gh attestation verify <file> --owner Jamalofski`, those of 1.1.1 and later with `--repo pdfkiln/pdfkiln`.
 
-Security:
+In every mode:
 
-- Up to 1.1.0, the program file `pdfkiln` could be writable by every user (mode 0777): installed by the Debian package and in the Docker image, as `/usr/lib/pdfkiln/pdfkiln`, and unpacked as root from the Linux and macOS archives. Any local account could replace the program that root, the web server or Odoo run. 1.1.1 ships it, and every other file, writable by its owner only. Until you update, as root: `chmod 755 /usr/lib/pdfkiln/pdfkiln`, or the same on the `pdfkiln` file of an unpacked archive.
+- On Linux, PDFKiln works under a soft cap on the address space (RLIMIT_AS, `ulimit -v`), as wkhtmltopdf does. Odoo 16 to 20 set one on the programs they start, in every server mode (`limit_memory_hard`, 2560 MiB by default): 1.1.0 failed under it ("…Target closed") and Odoo printed no PDF. A hard cap cannot be lifted by the program it applies to: the conversion then fails with a message that says so, and how to lift it.
+- On Linux, where the system refuses the user namespaces PDFKiln's sandbox needs (Docker's default seccomp profile, unprivileged user namespaces turned off), the conversion fails with a message that says so and gives the fix (PDFKiln's seccomp profile, in a container), where 1.1.0 only said "…Target closed".
+- On Linux, the program takes 18 MB less on disk (111 MB instead of 129) and about 3 MB less to download: Node's symbol table and debug sections, which only a debugger reads, are left out.
+- The PDFs' Creator, the Application field of PDF viewers, reads `PDFKiln 1.1.1`, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so does the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`. The version tells whoever receives a PDF which release made it: keep PDFKiln up to date.
+- On Windows, the installer and the list of installed apps give PDFKiln as the name and the publisher, where 1.1.0 gave pdfkiln and Jamalofski.
 
 Installed with Composer or npm:
 
-- The user's cache no longer keeps every version it downloaded, about 400 MB each with Composer, 280 MB of Chromium with npm. Each project that uses the cache records itself in it: once no project pins a version any more, the next call deletes it, before downloading the new one. Several sites of one account on different versions keep each theirs; a site whose folder this one cannot read, behind `open_basedir` for instance, keeps its version until 30 days after its last call. The versions left by 1.1.0 and earlier, which no project has recorded, go once they have not run for 30 days; a download cut short, after a day.
-
-In every mode:
-
-- The PDFs' Creator, the Application field of PDF viewers, is PDFKiln and its version (`PDFKiln 1.1.1`), the name as it is now written, where 1.1.0 wrote `pdfkiln`; called as `pdfkiln`, so is the first word of `--version`. The Producer stays `pdfkiln.org`, the commands and packages `pdfkiln`. The version tells whoever receives a PDF which Chromium rendered it, the one of that release: keep PDFKiln up to date.
-- On Windows, the installer and the list of installed apps give PDFKiln as the name and the publisher, where 1.1.0 gave pdfkiln and Jamalofski.
-- On Linux, the program file takes 18 MB less (111 MB instead of 129) in the archives, the Debian package and the Docker image, and about 3 MB less to download: Node's symbol table and debug sections, which only a debugger reads, are left out.
-- On Linux, Chromium starts under a soft cap on the address space (RLIMIT_AS, `ulimit -v`), where wkhtmltopdf runs. Odoo 16 to 20 set one on the programs they start, in every server mode: `limit_memory_hard`, 2560 MiB by default. Under it, 1.1.0 failed with "Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed", and Odoo printed no PDF. A hard cap cannot be lifted by the program it applies to: the conversion fails with a message that says so, and how to lift it.
-- On Linux, where the system refuses the user namespaces Chromium's sandbox needs (Docker's default seccomp profile, unprivileged user namespaces turned off), the conversion fails with a message that says so and gives the fix (PDFKiln's seccomp profile, in a container), where 1.1.0 only said "Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed".
+- The user's cache no longer keeps every version it downloaded, about 400 MB each with Composer, 280 MB with npm: a version no project uses any more is deleted at the next call, before the new one is downloaded. Sites of one account on different versions each keep theirs as long as they use it, behind `open_basedir` too. The versions left by 1.1.0 and earlier go once they have not run for 30 days.
 
 Called as `wkhtmltopdf`, bugs fixed:
 
@@ -38,8 +38,8 @@ Called as `pdfkiln`, five changes break commands that worked with 1.0.4; each sa
 
 In every mode:
 
-- Pages that send CSP reports or beacons (https://www.google.fr), or whose responses Chromium blocks (HTML for an image, an API without CORS headers), no longer fail the conversion: called as `wkhtmltopdf`, pdfkiln exited 1 with "network status code 99". An HTTP error on such a response still fails, as with wkhtmltopdf.
-- The PDFs no longer give the versions of pdfkiln and Chromium, which told whoever receives one whether the server runs a Chromium with known flaws: Creator is `pdfkiln`, Producer `pdfkiln.org`.
+- Pages that send CSP reports or beacons (https://www.google.fr), or whose responses are blocked as unsafe (HTML for an image, an API without CORS headers), no longer fail the conversion: called as `wkhtmltopdf`, pdfkiln exited 1 with "network status code 99". An HTTP error on such a response still fails, as with wkhtmltopdf.
+- The PDFs no longer give the versions of the software that made them, which told whoever receives one whether the server runs a version with known flaws: Creator is `pdfkiln`, Producer `pdfkiln.org`.
 
 Called as `wkhtmltopdf`, bugs fixed:
 
@@ -63,11 +63,11 @@ Called as `pdfkiln`, what is new:
 
 ## 1.0.4
 
-- Security: Chromium 156.0.8078.80, with the 21 fixes of Chrome 156.0.8078.79, 1 of them rated Critical by Google (MediaStream) and 19 High: [Google's announcement](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02107719452.html). pdfkiln renders the pages it is given with this Chromium: update.
+- Security: the 21 fixes of Chrome 156.0.8078.79, 1 of them rated Critical by Google (MediaStream) and 19 High: [Google's announcement](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02107719452.html). pdfkiln renders the pages it is given with this Chromium: update.
 - `--no-custom-header-propagation` turns the propagation on, as in wkhtmltopdf 0.12.6, where it does what `--custom-header-propagation` does; up to 1.0.3, pdfkiln turned it off. Commands written for wkhtmltopdf that pass it send their `--custom-header` with every request again.
-- On Windows Server Core, where Chromium cannot start, the conversion fails with a message that says so, instead of "Target closed". Windows Server with the Desktop Experience runs pdfkiln, IIS included: now tested as the application pool's identity.
-- On Linux, a Chromium that cannot load a system library (the archive and the Composer package do not carry them) is named with the missing libraries, instead of "Target closed"; the README lists the Debian and Ubuntu packages.
-- `pdfkiln serve` no longer crashes when Chromium exits at start: it reports why, as a conversion does.
+- On Windows Server Core, where pdfkiln cannot render, the conversion fails with a message that says so, instead of "Target closed". Windows Server with the Desktop Experience runs pdfkiln, IIS included: now tested as the application pool's identity.
+- On Linux, a missing system library (the archive and the Composer package do not carry them) is named in the error, instead of "Target closed"; the README lists the Debian and Ubuntu packages.
+- `pdfkiln serve` no longer crashes when it cannot start rendering: it reports why, as a conversion does.
 - The packages (npm, Debian, Docker image, Windows installer, Scoop, winget, Homebrew, Composer) give https://pdfkiln.org as the home page.
 
 ## 1.0.3

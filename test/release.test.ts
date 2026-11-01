@@ -87,23 +87,29 @@ test('changes: the version\'s section of the changelog, none or an empty one ref
   assert.throws(() => changes(changelog, '1.2'), /no "## 1\.2" section/);
 });
 
-test('notes: what changed first, Chromium ahead of the changelog\'s lines', () => {
-  const origin = { repo: 'owner/pdfkiln', commit: 'abcdef0123456789', ciRun: '11', arm64Run: '12', attested: false };
+test('notes: Chromium named only when the release changes it, first', () => {
+  const origin = { repo: 'owner/pdfkiln', commit: 'abcdef0123456789', attested: false };
   const text = notes('1.2.3', '156.0.8078.73', '156.0.8078.47', '- Fixed this.', origin, []);
-  assert.match(text, /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73 \(chrome-headless-shell, Chrome for Testing\), from 156\.0\.8078\.47\.\n- Fixed this\.\n\n## Files\n/);
-  assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- Fixed this.', origin, []), /^## Changes in 1\.2\.3\n\n- Chromium unchanged: 156\.0\.8078\.73 /);
-  assert.match(notes('1.2.3', '156.0.8078.73', '', '- Fixed this.', origin, []), /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73 \(chrome-headless-shell, Chrome for Testing\)\.\n/);
+  assert.match(text, /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73, from 156\.0\.8078\.47\.\n- Fixed this\.\n\n## Files\n/);
   assert.ok(text.indexOf('## Files') < text.indexOf('PDFKiln is a drop-in replacement for wkhtmltopdf'));
+  // The same Chromium, or the first release: not a word of it.
+  for (const previous of ['156.0.8078.73', '']) {
+    const same = notes('1.2.3', '156.0.8078.73', previous, '- Fixed this.', origin, []);
+    assert.match(same, /^## Changes in 1\.2\.3\n\n- Fixed this\.\n\n## Files\n/);
+    assert.doesNotMatch(same, /Chromium/);
+  }
+  assert.throws(() => notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- Chromium starts faster.', origin, []), /"## 1\.2\.3" section names Chromium, which 1\.2\.3 does not change/);
+  assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- `PDFKILN_CHROMIUM` and chromium.json.', origin, []), /PDFKILN_CHROMIUM/);
 });
 
-test('notes: the files, the runs and commit they come from, provenance once attested', () => {
+test('notes: the files, the commit CI built them from, provenance once attested', () => {
   const assembled = files.map((f) => ({ ...f, sha256: '0'.repeat(64), size: 158_200_000 }));
-  const origin = { repo: 'owner/pdfkiln', commit: 'abcdef0123456789', ciRun: '11', arm64Run: '12', attested: false };
+  const origin = { repo: 'owner/pdfkiln', commit: 'abcdef0123456789', attested: false };
   const text = notes('1.2.3', '156.0.8078.47', '156.0.8078.47', '- Fixed this.', origin, assembled);
   assert.match(text, /\| `pdfkiln-1\.2\.3-windows-x64-setup\.exe` \| Windows x64, installer, in C:\\Program Files\\wkhtmltopdf \| 158\.2 MB \|/);
-  assert.match(text, /\[abcdef0\]\(https:\/\/github\.com\/owner\/pdfkiln\/commit\/abcdef0123456789\)/);
-  assert.match(text, /\[ci run 11\]\(https:\/\/github\.com\/owner\/pdfkiln\/actions\/runs\/11\)/);
-  assert.match(text, /\[arm64 run 12\]/);
+  assert.match(text, /\nBuilt and tested by CI \(`ci\.yml`, `arm64\.yml`\) from commit \[abcdef0\]\(https:\/\/github\.com\/owner\/pdfkiln\/commit\/abcdef0123456789\)\.\n/);
+  // A run's logs go after 90 days: no link to one.
+  assert.doesNotMatch(text, /actions\/runs/);
   assert.doesNotMatch(text, /attestation/);
   assert.match(notes('1.2.3', '156.0.8078.47', '156.0.8078.47', '- Fixed this.', { ...origin, attested: true }, assembled), /gh attestation verify <file> --repo owner\/pdfkiln/);
 });

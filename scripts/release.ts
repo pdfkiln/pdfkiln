@@ -4,8 +4,7 @@
 // notes. Run by .github/workflows/release.yml.
 //
 //   node dist/scripts/release.js --from <folder of the runs' artifacts> --out <folder>
-//     [--notes <file> --repo <owner/name> --commit <sha> --ci-run <id> --arm64-run <id> --attested
-//      --previous-chromium <version>]
+//     [--notes <file> --repo <owner/name> --commit <sha> --attested --previous-chromium <version>]
 //
 // Output: the release's files and SHA256SUMS in --out, the notes in --notes,
 // which open with the version's section of CHANGELOG.md.
@@ -72,7 +71,7 @@ export function assemble(from: string, out: string, files: ReleaseFile[]): Assem
   return assembled;
 }
 
-export interface Origin { repo: string; commit: string; ciRun: string; arm64Run: string; attested: boolean }
+export interface Origin { repo: string; commit: string; attested: boolean }
 
 // The section of CHANGELOG.md for `version`, from its "## <version>" heading
 // to the next one: none, or an empty one, stops the release.
@@ -86,21 +85,19 @@ export function changes(changelog: string, version: string): string {
   return section;
 }
 
-// What changed first, Chromium's version ahead of the changelog's lines
+// What changed first: Chromium's version when the release changes it
 // (`previous`: the Chromium of the latest release, empty for the first),
-// then the files; what pdfkiln is, last, for those who land here.
+// the only time the notes name it, then the changelog's lines; then the
+// files; what PDFKiln is, last, for those who land here.
 export function notes(version: string, chromium: string, previous: string, changed: string, origin: Origin, files: Assembled[]): string {
   const url = `https://github.com/${origin.repo}`;
-  const shell = 'chrome-headless-shell, Chrome for Testing';
-  const line = !previous
-    ? `Chromium ${chromium} (${shell}).`
-    : previous === chromium
-      ? `Chromium unchanged: ${chromium} (${shell}).`
-      : `Chromium ${chromium} (${shell}), from ${previous}.`;
+  const newChromium = previous !== '' && previous !== chromium;
+  if (!newChromium && /\bChromium\b/.test(changed)) {
+    throw new Error(`CHANGELOG.md: the "## ${version}" section names Chromium, which ${version} does not change`);
+  }
   return `## Changes in ${version}
 
-- ${line}
-${changed}
+${newChromium ? `- Chromium ${chromium}, from ${previous}.\n` : ''}${changed}
 
 ## Files
 
@@ -108,11 +105,11 @@ ${changed}
 | --- | --- | --- |
 ${files.map((f) => `| \`${f.file}\` | ${f.label} | ${(f.size / 1e6).toFixed(1)} MB |`).join('\n')}
 
-The files as CI built and tested them, from commit [${origin.commit.slice(0, 7)}](${url}/commit/${origin.commit}): [ci run ${origin.ciRun}](${url}/actions/runs/${origin.ciRun}) and [arm64 run ${origin.arm64Run}](${url}/actions/runs/${origin.arm64Run}) (GitHub keeps run logs 90 days).
+Built and tested by CI (\`ci.yml\`, \`arm64.yml\`) from commit [${origin.commit.slice(0, 7)}](${url}/commit/${origin.commit}).
 
 - Checksums: \`sha256sum -c SHA256SUMS --ignore-missing\`
 ${origin.attested ? `- Provenance: \`gh attestation verify <file> --repo ${origin.repo}\`\n` : ''}
-PDFKiln is a drop-in replacement for wkhtmltopdf, powered by Chromium: called as \`wkhtmltopdf\` or \`wkhtmltoimage\`, it accepts the command line of wkhtmltopdf 0.12.6. Installation and migration: [README](${url}/blob/${origin.commit}/README.md). Not affiliated with the wkhtmltopdf project.
+PDFKiln is a drop-in replacement for wkhtmltopdf: called as \`wkhtmltopdf\` or \`wkhtmltoimage\`, it accepts the command line of wkhtmltopdf 0.12.6. Installation and migration: [README](${url}/blob/${origin.commit}/README.md). Not affiliated with the wkhtmltopdf project.
 `;
 }
 
@@ -124,8 +121,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       notes: { type: 'string' },
       repo: { type: 'string', default: REPO.replace('https://github.com/', '') },
       commit: { type: 'string', default: '' },
-      'ci-run': { type: 'string', default: '' },
-      'arm64-run': { type: 'string', default: '' },
       attested: { type: 'boolean', default: false },
       'previous-chromium': { type: 'string', default: '' },
     },
@@ -134,7 +129,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const changed = values.notes ? changes(readFileSync(join(repoRoot, 'CHANGELOG.md'), 'utf8'), version) : '';
   const files = assemble(values.from, values.out, releaseFiles(version));
   if (values.notes) {
-    const origin = { repo: values.repo, commit: values.commit, ciRun: values['ci-run'], arm64Run: values['arm64-run'], attested: values.attested };
+    const origin = { repo: values.repo, commit: values.commit, attested: values.attested };
     writeFileSync(values.notes, notes(version, chromiumVersion, values['previous-chromium'], changed, origin, files));
   }
   for (const f of files) console.log(`${f.file} ${(f.size / 1e6).toFixed(1)} MB ${f.sha256}`);

@@ -126,8 +126,9 @@ jobs:
           gh run download "$ARM64_RUN" --repo "$GITHUB_REPOSITORY" --name package-linux-arm64 --dir from/package-linux-arm64
           ls -lR from
 
-      # The notes open with what changed: the Chromium of the latest
-      # release, then CHANGELOG.md's section for this version (none stops it).
+      # The notes open with what changed: Chromium's version when it differs
+      # from the latest release's, then CHANGELOG.md's section for this
+      # version (none, or one naming an unchanged Chromium, stops it).
       - name: Files, checked against CI's sums, and notes
         env:
           SHA: ${{ steps.runs.outputs.sha }}
@@ -142,8 +143,7 @@ jobs:
             echo "latest release $latest, Chromium $previous"
           fi
           node dist/scripts/release.js --from from --out release --notes notes.md \
-            --repo "$GITHUB_REPOSITORY" --commit "$SHA" --ci-run "$CI_RUN" --arm64-run "$ARM64_RUN" \
-            --previous-chromium "$previous" $attested
+            --repo "$GITHUB_REPOSITORY" --commit "$SHA" --previous-chromium "$previous" $attested
           cat release/SHA256SUMS
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
 
