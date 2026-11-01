@@ -5,7 +5,8 @@ name: odoo
 # source prints its standard reports through its own route, with PDFKiln
 # and with the other engines that install there (test/odoo/proof.sh).
 # Each platform runs in a container of its image, with docker/seccomp.json,
-# the profile the README gives for Docker.
+# the profile the README gives for Docker. Then Odoo's official image, with
+# PDFKiln added FROM it (test/odoo/docker.sh).
 # Started by hand: gh workflow run odoo.yml --ref main [-f pdfkiln=apt]
 on:
   workflow_dispatch:
@@ -102,5 +103,47 @@ jobs:
         if: always()
         with:
           name: odoo-${{ matrix.platform }}
+          path: ${{ runner.temp }}/out
+          retention-days: 30
+
+  docker:
+    needs: package
+    if: ${{ !cancelled() && needs.package.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - run: pip install pymupdf
+
+      - uses: actions/download-artifact@v8
+        if: inputs.pdfkiln == 'commit'
+        with:
+          name: deb-${{ runner.arch }}
+          path: deb
+
+      - name: Odoo's official image
+        env:
+          ODOO_TAG: ${{ inputs.odoo }}
+        run: |
+          deb="$(ls "$PWD"/deb/pdfkiln_*.deb 2> /dev/null || true)"
+          PDFKILN_DEB="$deb" test/odoo/docker.sh "$RUNNER_TEMP/out"
+
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: odoo-docker-${{ runner.arch }}
           path: ${{ runner.temp }}/out
           retention-days: 30

@@ -16,7 +16,10 @@ out = sys.argv[1]
 platform = json.load(open(os.path.join(out, 'platform.json')))
 docs = list(json.load(open(os.path.join(out, 'docs.json'))))
 engines = {}
-for name in ['wkhtmltopdf-distro', 'wkhtmltopdf-0.12.6', 'paper-muncher', 'pdfkiln', 'pdfkiln-workers']:
+known = ['wkhtmltopdf-distro', 'wkhtmltopdf-0.12.6', 'paper-muncher', 'pdfkiln', 'pdfkiln-workers']
+# Then the setups of docker.sh, in name order.
+others = sorted(n for n in os.listdir(out) if n not in known and os.path.isfile(os.path.join(out, n, 'engine.json')))
+for name in known + others:
     folder = os.path.join(out, name)
     if not os.path.isfile(os.path.join(folder, 'engine.json')):
         continue
