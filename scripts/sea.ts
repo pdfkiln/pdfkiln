@@ -26,6 +26,10 @@ copyFileSync(process.execPath, exe);
 // The copy keeps the mode of the Node it copies: 0777 on GitHub's runners,
 // which put a program anyone could replace in the archives and packages.
 chmodSync(exe, 0o755);
+// Node's symbol table and debug sections, which only a debugger reads:
+// 18 MB of the 129 on Linux x64. Before the injection, which strip would
+// damage. node.exe keeps its symbols apart, in a .pdb file.
+if (process.platform === 'linux') execFileSync('strip', ['--strip-all', exe]);
 if (process.platform === 'darwin') execFileSync('codesign', ['--remove-signature', exe]);
 await inject(exe, 'NODE_SEA_BLOB', await import('node:fs').then((fs) => fs.readFileSync(blob)), {
   sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
