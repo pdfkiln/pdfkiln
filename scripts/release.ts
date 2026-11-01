@@ -95,9 +95,12 @@ export function notes(version: string, chromium: string, previous: string, chang
   if (!newChromium && /\bChromium\b/.test(changed)) {
     throw new Error(`CHANGELOG.md: the "## ${version}" section names Chromium, which ${version} does not change`);
   }
+  // A blank line before a section that opens with a paragraph, which would
+  // otherwise run on in the bullet.
+  const head = newChromium ? `- Chromium ${chromium}, from ${previous}.\n${changed.startsWith('- ') ? '' : '\n'}` : '';
   return `## Changes in ${version}
 
-${newChromium ? `- Chromium ${chromium}, from ${previous}.\n` : ''}${changed}
+${head}${changed}
 
 ## Files
 
