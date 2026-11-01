@@ -1,0 +1,106 @@
+name: odoo
+
+# Odoo with PDFKiln on each platform Odoo 20 supports (Debian 13, Ubuntu
+# 26.04 and 24.04; amd64, and arm64 on Debian 13): Odoo installed from
+# source prints its standard reports through its own route, with PDFKiln
+# and with the other engines that install there (test/odoo/proof.sh).
+# Each platform runs in a container of its image, with docker/seccomp.json,
+# the profile the README gives for Docker.
+# Started by hand: gh workflow run odoo.yml --ref main [-f pdfkiln=apt]
+on:
+  workflow_dispatch:
+    inputs:
+      pdfkiln:
+        description: 'commit: the Debian package built from the commit; apt: the published repository'
+        type: choice
+        options: [commit, apt]
+        default: commit
+      odoo:
+        description: Odoo branch
+        default: '20.0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odoo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: inputs.pdfkiln == 'commit'
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/downloads
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json') }}
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run fetch:chromium
+      - run: npm run bundle
+      - run: node dist/scripts/sea.js
+      - run: node dist/scripts/package.js
+      - run: node dist/scripts/deb.js
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-${{ runner.arch }}
+          path: dist/package/pdfkiln_*.deb
+          retention-days: 2
+
+  proof:
+    needs: package
+    if: ${{ !cancelled() && needs.package.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: debian-13-amd64, runner: ubuntu-24.04, image: 'debian:trixie' }
+          - { platform: debian-13-arm64, runner: ubuntu-24.04-arm, image: 'debian:trixie' }
+          - { platform: ubuntu-26.04-amd64, runner: ubuntu-24.04, image: 'ubuntu:26.04' }
+          - { platform: ubuntu-24.04-amd64, runner: ubuntu-24.04, image: 'ubuntu:24.04' }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        if: inputs.pdfkiln == 'commit'
+        with:
+          name: deb-${{ runner.arch }}
+          path: deb
+
+      - name: Odoo on ${{ matrix.platform }}
+        env:
+          ODOO_BRANCH: ${{ inputs.odoo }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          deb="$(ls deb/pdfkiln_*.deb 2> /dev/null || true)"
+          docker run --rm --security-opt seccomp="$PWD/docker/seccomp.json" \
+            -v "$PWD:/w:ro" -v "$RUNNER_TEMP/out:/out" \
+            -e ODOO_BRANCH -e PDFKILN_DEB="${deb:+/w/$deb}" \
+            "$IMAGE" bash /w/test/odoo/proof.sh /out
+
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: odoo-${{ matrix.platform }}
+          path: ${{ runner.temp }}/out
+          retention-days: 30
