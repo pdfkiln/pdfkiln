@@ -20,6 +20,8 @@ PDFKiln is not affiliated with the original wkhtmltopdf project.
 
 ## Installation
 
+Each package is self-contained: nothing else to install, except Chromium's system libraries on Linux, which the Debian package and the Docker image bring themselves.
+
 **Debian and Ubuntu** (built for Debian 12 and 13 and Ubuntu 22.04 and later, tested on Ubuntu 24.04 and 26.04 and Debian 13; amd64 and arm64), from the signed APT repository, which brings Chromium's security fixes with `apt upgrade`:
 
 ```sh
