@@ -82,13 +82,17 @@ scoop install pdfkiln/pdfkiln
 winget install pdfkiln
 ```
 
+**Chocolatey** (Windows x64), the same installer:
+
+```sh
+choco install pdfkiln
+```
+
 **Homebrew** (macOS ARM64):
 
 ```sh
 brew install pdfkiln/tap/pdfkiln
 ```
-
-**Chocolatey**: submitted, in moderation; once approved, `choco install pdfkiln`.
 
 **GitHub Actions**: [`pdfkiln/setup`](https://github.com/pdfkiln/setup) installs it on the runner (Linux, macOS, Windows), for the tests of a project that calls wkhtmltopdf:
 
