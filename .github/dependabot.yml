@@ -1,12 +1,31 @@
-# Weekly updates of the other dependencies; Chromium's pin moves with a
-# pdfkiln version (scripts/update-chromium.ts).
+# Chromium's pin moves with a pdfkiln version (scripts/update-chromium.ts).
+# One grouped pull request per ecosystem, security fixes grouped too. Dependabot
+# only opens pull requests: merging stays manual and releases stay manual
+# (tags or workflow_dispatch). The cooldown keeps versions younger than three
+# days out, like pnpm's minimumReleaseAge.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      npm:
+        patterns: ["*"]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      github-actions:
+        patterns: ["*"]
+      github-actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
