@@ -15,6 +15,8 @@
 // - secure by default: a page reads no local file but itself unless --allow
 //   or --enable-local-file-access, and reaches no loopback, private or
 //   link-local address unless --allow-private-network;
+// - Chromium kept open by pdfkiln serve when it answers on the native
+//   interface's socket, else a Chromium of its own;
 // - an input that does not load fails: exit 1, no PDF;
 // - its own messages, with why: one error for an input that does not load,
 //   a warning for each resource that does not (-q hides them).
@@ -25,7 +27,9 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument } from '@cantoo/pdf-lib';
+import type { Browser, BrowserContext } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
+import { connectServer, nativeSocket, socketPath } from '../engine/server.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
@@ -33,41 +37,61 @@ import { fixDests, merge, moveDest, prune, readOutline, writeOutline, type Final
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
 
-const HELP = `Usage: pdfkiln [options] <input>... <output>
+const HELP = `PDFKiln: HTML to PDF with Chromium
 
-Converts HTML to PDF with Chromium. Inputs are files, URLs (http:, https:,
-file: or data:), or - for the standard input; they are merged in order. The
-output is a file, or - for the standard output. Paper size, margins, headers
-and footers come from the page's CSS (@page and its margin boxes); A4 with
-1 cm margins otherwise.
+Usage:
+  pdfkiln [options] <input>... <output>
+  pdfkiln <command> [options]
 
-Options:
-  --tagged                  Tagged PDF, readable by screen readers (one input)
-  --outline                 Bookmarks from the headings
-  --css <file>              Apply this style sheet after the page's own
-  --media <type>            CSS media type: print (default) or screen
-  --javascript-delay <ms>   Wait up to this long after loading (default 1000,
-                            0: none), less once nothing can change the page
-  --wait-for <selector>     Wait for an element that matches this CSS selector,
-                            then for --javascript-delay; --timeout bounds it
-  --header <name: value>    Send this HTTP header with every request to the
-                            input's host, no other (repeatable)
-  --cookie <name=value>     Send this cookie to the input's host (repeatable)
-  --allow <path>            Let local pages read files under this path
-                            (repeatable)
+Examples:
+  pdfkiln invoice.html invoice.pdf
+  pdfkiln https://example.com/report report.pdf
+  pdfkiln cover.html body.html book.pdf     # merged in order
+  pdfkiln - - < page.html > page.pdf        # standard input and output
+
+Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
+input; the output is a file, or - for the standard output. Paper size,
+margins, headers and footers come from the page's CSS (@page and its margin
+boxes): A4 with 1 cm margins otherwise.
+
+Rendering:
+  --css <file>                Add a style sheet after the page's own
+  --media <print|screen>      CSS media type (default: print)
+  --outline                   Bookmarks from the headings
+  --tagged                    Tagged PDF, for screen readers (one input)
+
+Waiting for the page:
+  --javascript-delay <ms>     Wait up to this long after loading, less once
+                              the page stops changing (default: 1000; 0: none)
+  --wait-for <selector>       First wait for an element matching this selector
+  --timeout <seconds>         Give up after this long (default: 120; 0: none)
+
+Requests to the input's host, and no other (repeatable):
+  --header "<name>: <value>"  Send this HTTP header
+  --cookie <name>=<value>     Send this cookie
+
+Access, refused by default:
+  --allow <path>              Let local pages read files under this path
+                              (repeatable)
   --enable-local-file-access  Let local pages read any local file
-  --allow-private-network   Let pages reach loopback, private and link-local
-                            addresses, refused by default
-  --timeout <seconds>       Stop after this many seconds (default 120, 0: none)
-  --no-sandbox              Run Chromium without its sandbox (not recommended)
-  -q, --quiet               No warnings
-  -V, --version             Show the version
-  -h, --help                Show this help
+  --allow-private-network     Let pages reach localhost, private and
+                              link-local addresses
 
-Called as wkhtmltopdf or wkhtmltoimage, or as "pdfkiln wkhtmltopdf <options>"
-or "pdfkiln wkhtmltoimage <options>", PDFKiln is compatible with wkhtmltopdf
-and wkhtmltoimage 0.12.6 instead. "pdfkiln serve" keeps Chromium open for
-their conversions (pdfkiln serve --help).
+Other:
+  -q, --quiet                 No warnings
+  --no-sandbox                Run Chromium without its sandbox (not advised)
+  -V, --version               Show the version
+  -h, --help                  Show this help
+
+Commands:
+  serve                       Keep Chromium open, so that pdfkiln,
+                              wkhtmltopdf and wkhtmltoimage start faster
+  wkhtmltopdf                 The command line of wkhtmltopdf 0.12.6
+  wkhtmltoimage               The command line of wkhtmltoimage 0.12.6
+  "pdfkiln <command> --help" shows the options of each.
+
+Exit code: 0 once the PDF is written, 1 otherwise, with the reason.
+Docs: https://pdfkiln.org
 `;
 
 const stderr = (s: string) => writeSync(2, s);
@@ -251,17 +275,42 @@ export async function nativeMain(args: string[]): Promise<number> {
   };
   const work = mkdtempSync(join(tmpdir(), 'pdfkiln-'));
   let session: Session | undefined;
+  // Connected to pdfkiln serve: its browser, and the context of this
+  // conversion, closed by the server if the process ends first.
+  let remote: Browser | undefined;
+  let context: BrowserContext | undefined;
   let stop = () => {};
+  const tooLong = () => {
+    removeQuietly(work);
+    stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
+    process.exit(1);
+  };
+  // PDFKILN_TIMINGS=1 writes, in ms, the time to get a browser context and
+  // the whole conversion's, and whether pdfkiln serve gave the context.
+  const timings: Record<string, number> = {};
+  const t0 = performance.now();
   try {
     if (blockPrivate) relay = await startRelay();
-    if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
-    session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: relay?.url, proxyBypassList: relay ? '<-loopback>' : undefined });
-    stop = deadline(session, timeout, () => {
-      removeQuietly(work);
-      stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
-      process.exit(1);
-    });
-    const context = session.browser.defaultBrowserContext();
+    // Even loopback addresses go through the relay.
+    const proxy = { proxyServer: relay?.url, proxyBypass: relay ? '<-loopback>' : undefined };
+    const path = socketPath();
+    remote = (path && (await connectServer(nativeSocket(path)))) || undefined;
+    if (remote) {
+      context = await remote.createBrowserContext({ proxyServer: proxy.proxyServer, proxyBypassList: proxy.proxyBypass ? [proxy.proxyBypass] : undefined });
+      if (timeout) {
+        const timer = setTimeout(tooLong, timeout * 1000);
+        timer.unref();
+        stop = () => clearTimeout(timer);
+      }
+    } else {
+      // The server's Chromium has its own sandbox setting.
+      if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
+      session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: proxy.proxyServer, proxyBypassList: proxy.proxyBypass });
+      stop = deadline(session, timeout, tooLong);
+      context = session.browser.defaultBrowserContext();
+    }
+    timings.chromium = Math.round(performance.now() - t0);
+    if (remote) timings.served = 1;
     const base = defaultObject();
     base.load.jsdelay = jsdelay;
     base.load.blockLocalFileAccess = !v['enable-local-file-access'];
@@ -339,8 +388,14 @@ export async function nativeMain(args: string[]): Promise<number> {
     return 1;
   } finally {
     stop();
+    if (remote) {
+      await context?.close().catch(() => {});
+      await remote.disconnect().catch(() => {});
+    }
     await session?.close();
     await relay?.close();
     removeQuietly(work);
+    timings.total = Math.round(performance.now() - t0);
+    if (process.env.PDFKILN_TIMINGS) stderr(`${JSON.stringify(timings)}\n`);
   }
 }

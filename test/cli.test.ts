@@ -882,8 +882,10 @@ describe('native interface', () => {
   test('--help and --version: the name PDFKiln, the command pdfkiln', async () => {
     let r = await native(['--help']);
     assert.equal(r.code, 0);
-    assert.match(r.stdout.toString(), /^Usage: pdfkiln \[options\] <input>\.\.\. <output>\n/);
-    assert.match(r.stdout.toString(), /<options>", PDFKiln is compatible with wkhtmltopdf\n/);
+    assert.match(r.stdout.toString(), /^PDFKiln: HTML to PDF with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
+    assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
+    // Every line fits in 80 columns.
+    assert.deepEqual(r.stdout.toString().split('\n').filter((l) => l.length > 80), []);
     r = await native(['--version']);
     assert.equal(r.code, 0);
     assert.match(r.stdout.toString(), /^PDFKiln \d+\.\d+\.\d+, Chromium \d+(\.\d+){3}\n$/);
@@ -971,8 +973,10 @@ describe('wkhtmltoimage', () => {
 describe('pdfkiln serve', () => {
   const pdfkiln = bundled ? join(root, 'dist', 'bundle', 'pdfkiln.cjs') : join(root, 'dist', 'src', 'bin', 'pdfkiln.js');
 
-  test('conversions use the Chromium kept open, each in a context of its own', async (t) => {
-    const socket = process.platform === 'win32' ? `\\\\.\\pipe\\pdfkiln-test-${process.pid}` : join(dir, 'serve', 'chromium.sock');
+  // pdfkiln serve on a socket of its own; stop() ends it and removes its
+  // folder.
+  const startServe = async (name: string) => {
+    const socket = process.platform === 'win32' ? `\\\\.\\pipe\\pdfkiln-test-${name}-${process.pid}` : join(dir, `serve-${name}`, 'chromium.sock');
     // Killed on Windows, serve cannot remove its folder: it goes in the suite's.
     const tmp = mkdtempSync(join(dir, 'serve-tmp-'));
     const server = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', '--socket', socket]), {
@@ -987,6 +991,64 @@ describe('pdfkiln serve', () => {
       });
       server.once('exit', () => fail(new Error(`pdfkiln serve exited: ${log}`)));
     });
+    return {
+      socket,
+      log: () => log,
+      stop: async () => {
+        const exited = new Promise((ok) => server.once('exit', ok));
+        // Windows has no SIGTERM: the tree is killed.
+        if (process.platform === 'win32') (await import('../src/engine/browser.js')).killTree(server.pid);
+        else server.kill('SIGTERM');
+        await exited;
+        // The killed Chromium holds its files a few seconds more on Windows.
+        await (await import('../src/engine/browser.js')).removeWhenFree(tmp, 30000);
+      },
+    };
+  };
+
+  test('pdfkiln uses it too, on a socket of its own, with the same refusals', async () => {
+    const { nativeSocket } = await import('../src/engine/server.js');
+    const serve = await startServe('native');
+    const convert = (args: string[], env: NodeJS.ProcessEnv): Promise<Run> => new Promise((ok) => {
+      const child = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, args), { cwd: dir, env: { ...process.env, PDFKILN_TIMINGS: '1', ...env } });
+      let err = '';
+      child.stderr.on('data', (d) => (err += d));
+      child.on('close', (code) => ok({ code, stdout: Buffer.alloc(0), stderr: err, ms: 0 }));
+    });
+    try {
+      const env = { PDFKILN_SERVER: serve.socket };
+      const page = file('serve/native.html', '<h1>Served</h1>');
+      const out = join(dir, 'serve-native.pdf');
+      const [a, b] = await Promise.all([
+        convert([page, out], env),
+        convert(['--allow-private-network', `${base}/ok`, join(dir, 'serve-native-b.pdf')], env),
+      ]);
+      assert.equal(a.code, 0, a.stderr);
+      assert.match(a.stderr, /"served":1/);
+      assert.equal(b.code, 0, b.stderr);
+      assert.match(b.stderr, /"served":1/);
+      assert.ok(readFileSync(out).subarray(0, 5).equals(Buffer.from('%PDF-')));
+      // Private addresses stay refused by default through the server.
+      const c = await convert([`${base}/ok`, join(dir, 'serve-native-c.pdf')], env);
+      assert.equal(c.code, 1);
+      assert.match(c.stderr, /could not load http:\/\/127\.0\.0\.1:\d+\/ok: 127\.0\.0\.1 is a private address \(--allow-private-network to reach it\)\n/);
+      assert.match(c.stderr, /"served":1/);
+      if (process.platform !== 'win32') assert.ok(existsSync(nativeSocket(serve.socket)), 'native socket beside the other');
+      // A Chromium of its own on Linux, where the fonts differ; the same one elsewhere.
+      if (process.platform === 'linux' && (await import('../src/engine/fonts.js')).qtDefaultFamily()) assert.match(serve.log(), /Chromium started for pdfkiln/);
+      else assert.doesNotMatch(serve.log(), /Chromium started for pdfkiln/);
+      // No server on its socket, as with a server of 1.1 that has none: its own Chromium.
+      const d = await convert([page, join(dir, 'serve-native-d.pdf')], { PDFKILN_SERVER: join(dir, 'nowhere.sock') });
+      assert.equal(d.code, 0, d.stderr);
+      assert.doesNotMatch(d.stderr, /"served"/);
+    } finally {
+      await serve.stop();
+    }
+  });
+
+  test('conversions use the Chromium kept open, each in a context of its own', async (t) => {
+    const serve = await startServe('compat');
+    const socket = serve.socket;
     try {
       const env = { PDFKILN_SERVER: socket, PDFKILN_TIMINGS: '1' };
       const [a, b] = await Promise.all([
@@ -1004,13 +1066,7 @@ describe('pdfkiln serve', () => {
       assert.equal(d.code, 0, d.stderr);
       assert.doesNotMatch(d.stderr, /"served"/);
     } finally {
-      const exited = new Promise((ok) => server.once('exit', ok));
-      // Windows has no SIGTERM: the tree is killed.
-      if (process.platform === 'win32') (await import('../src/engine/browser.js')).killTree(server.pid);
-      else server.kill('SIGTERM');
-      await exited;
-      // The killed Chromium holds its files a few seconds more on Windows.
-      await (await import('../src/engine/browser.js')).removeWhenFree(tmp, 30000);
+      await serve.stop();
     }
     if (process.platform !== 'win32') assert.ok(!existsSync(socket), 'socket removed');
     if (!hasPyMuPDF) t.skip('PyMuPDF missing');

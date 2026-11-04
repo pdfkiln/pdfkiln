@@ -8,15 +8,22 @@ import { serve, socketPath } from '../engine/server.js';
 
 const HELP = `Usage: pdfkiln serve [options]
 
-Keeps Chromium open for the conversions of this user: wkhtmltopdf and
-wkhtmltoimage connect to it by themselves and save its start-up, each in a
-browser context of its own. It listens on a socket only this user can open,
+Keeps Chromium open for this user's conversions: pdfkiln, wkhtmltopdf and
+wkhtmltoimage connect to it by themselves and skip its start-up, each in a
+browser context of its own. It listens on sockets only this user can open,
 never on a TCP port. Stop it with Ctrl+C or SIGTERM.
 
+On Linux, pdfkiln gets a Chromium of its own, started at its first
+conversion: it renders with the system's fonts, where wkhtmltopdf and
+wkhtmltoimage emulate those of wkhtmltopdf.
+
 Options:
-  --socket <path>   Where to listen (default: run/chromium.sock in the cache folder,
-                    ~/.cache/pdfkiln on Linux; \\\\.\\pipe\\pdfkiln-<user> on Windows).
-                    The commands look there too, or in PDFKILN_SERVER ("off": nowhere).
+  --socket <path>   Where wkhtmltopdf and wkhtmltoimage connect; pdfkiln
+                    connects beside it, -native added to the name
+                    (chromium-native.sock). Default: run/chromium.sock in
+                    the cache folder, ~/.cache/pdfkiln on Linux;
+                    \\\\.\\pipe\\pdfkiln-<user> on Windows. The commands look
+                    there too, or in PDFKILN_SERVER ("off": nowhere).
   --no-sandbox      Run Chromium without its sandbox (not recommended)
   -h, --help        Show this help
 `;

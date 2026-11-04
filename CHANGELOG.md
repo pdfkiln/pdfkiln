@@ -5,6 +5,22 @@ open with its section here (scripts/release.ts): no release without one.
 They name Chromium only when the version changes it, with its new version
 first. Up to 1.0.2, see each version's GitHub release.
 
+## 1.2.0
+
+Security:
+
+- The 213 fixes of Chrome 157.0.8103.38, 7 of them rated Critical by Google (Dawn, ANGLE, WebGL, Prerender, Geometry, Core) and 77 High: [Google's announcement](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html). PDFKiln renders the pages it is given with this Chromium: update. A `pdfkiln serve` started before the update keeps its Chromium until it restarts: `systemctl restart 'pdfkiln@*'` with the Debian package's unit.
+
+In every mode:
+
+- The program runs on Node.js 24.22.2, where 1.1.1 ran on 24.22.1.
+
+Called as `pdfkiln`, what is new:
+
+- `pdfkiln serve` serves `pdfkiln` too: its conversions skip Chromium's start-up, as those of `wkhtmltopdf` and `wkhtmltoimage` do, and nothing changes in the commands. On the two-page Odoo invoice, 0.76 s less per conversion on a Debian 13 server (0.63 s instead of 1.39 s), 0.71 s on a Windows 11 PC (1.06 s instead of 1.77 s), measured with `node dist/bench/call.js --native --server --no-wkhtmltopdf --delay 200 --runs 9`.
+- On Linux, `pdfkiln serve` starts a second Chromium for `pdfkiln`, at its first conversion, with the system's fonts: the Chromium of `wkhtmltopdf` emulates wkhtmltopdf's fonts, a setting of the whole process. `pdfkiln` renders the same pages through the server as without it. Its socket is beside the other: `chromium-native.sock`, or the path of `--socket` and `PDFKILN_SERVER` with `-native` added. A `pdfkiln serve` of 1.1 has no such socket, and `pdfkiln` starts its own Chromium, as before, until the server restarts.
+- `pdfkiln --help` opens with examples, groups the options by what they do and lists the commands (`serve`, `wkhtmltopdf`, `wkhtmltoimage`).
+
 ## 1.1.1
 
 Security:
