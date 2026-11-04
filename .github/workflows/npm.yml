@@ -61,7 +61,7 @@ jobs:
       # Trusted publishing needs npm 11.5.1 or later, staging 11.15.0.
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .node-version
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@11.21.1
 
