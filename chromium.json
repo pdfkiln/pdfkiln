@@ -1,38 +1,38 @@
 {
   "product": "chrome-headless-shell",
   "channel": "Stable",
-  "version": "156.0.8078.80",
+  "version": "157.0.8103.38",
   "source": "https://storage.googleapis.com/chrome-for-testing-public",
   "archives": {
     "linux64": {
       "file": "chrome-headless-shell-linux64.zip",
-      "size": 126922702,
-      "sha256": "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4"
+      "size": 128168542,
+      "sha256": "deafffa74660b34853a4119c361fd427ac8c9fcb62db51ddb8a797cd83a4ba2d"
     },
     "linux-arm64": {
       "file": "chrome-headless-shell-linux-arm64.zip",
-      "size": 126679292,
-      "sha256": "5bb6a00a4285c13303d3f72c5afdb70f144ea7a93eed462365a52b69631c9607"
+      "size": 128171139,
+      "sha256": "b9b910a57b2a15eb3e55000a2339f93a973934a413ebfc6e585a50ec6c42fd6c"
     },
     "mac-arm64": {
       "file": "chrome-headless-shell-mac-arm64.zip",
-      "size": 103982159,
-      "sha256": "ea615baa2e9caf0d02d1898a6562b5f8fa9c35239707dae0f592178df5b986ac"
+      "size": 104773711,
+      "sha256": "e6a6b13551aa12f951d0891d79282606b13742837c8fa0505e1272bae116ce82"
     },
     "mac-x64": {
       "file": "chrome-headless-shell-mac-x64.zip",
-      "size": 109493298,
-      "sha256": "535d417d9034cbd11e7dacd1a71aa3d6e1b525e6d5dcd2671eb2532f01481228"
+      "size": 110442262,
+      "sha256": "79821745d0a72d2ba752d981284ed0a9e6fa320dad133596941a17dba6186de3"
     },
     "win32": {
       "file": "chrome-headless-shell-win32.zip",
-      "size": 119036038,
-      "sha256": "8d7472c5c60215a24c42e31d0e9567f1fbf41365e46c8d36c59b2a8b8b2b3a65"
+      "size": 120390416,
+      "sha256": "35e0d45c0136448f7b587f6fb7195a0686127a4dfdc23ef3b0e04b5e9ffe16cd"
     },
     "win64": {
       "file": "chrome-headless-shell-win64.zip",
-      "size": 125772546,
-      "sha256": "10a77466005e7f64e00f1a75fd1ea81f4a38a60093c65fea6895843b26e60a9a"
+      "size": 126513060,
+      "sha256": "1ff4540855478ba0848e03f1ef8d455f77d058b38285df91bc34273788a73446"
     }
   }
 }
