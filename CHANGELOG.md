@@ -9,7 +9,8 @@ first. Up to 1.0.2, see each version's GitHub release.
 
 Security:
 
-- The 213 fixes of Chrome 157.0.8103.38, 7 of them rated Critical by Google (Dawn, ANGLE, WebGL, Prerender, Geometry, Core) and 77 High: [Google's announcement](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html). PDFKiln renders the pages it is given with this Chromium: update. A `pdfkiln serve` started before the update keeps its Chromium until it restarts: `systemctl restart 'pdfkiln@*'` with the Debian package's unit.
+- The 213 fixes of Chrome 157.0.8103.38, 7 of them rated Critical by Google (Dawn, ANGLE, WebGL, Prerender, Geometry, Core) and 77 High: [Google's announcement](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html). PDFKiln renders the pages it is given with this Chromium: update.
+- The Debian package restarts the `pdfkiln serve` units that run (`pdfkiln@<user>`) when it is updated, this update included: up to 1.1.1, a server kept the Chromium it had started with, its flaws with it, until restarted by hand. A conversion under way at that moment fails. Removed, the package stops them. A `pdfkiln serve` started otherwise (archive, script of your own) keeps its Chromium until you restart it.
 
 In every mode:
 

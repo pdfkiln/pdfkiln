@@ -467,15 +467,33 @@ jobs:
           sudo apt-get install -y pdfkiln < /dev/null
           dpkg -S /etc/apt/sources.list.d/pdfkiln.sources
           /usr/bin/wkhtmltopdf --version
+          # A server that runs restarts on the upgrade (postinst): its Chromium is the new one.
+          served() {
+            for i in $(seq 60); do
+              [ -S "$HOME/.cache/pdfkiln/run/chromium.sock" ] && return 0
+              sleep 1
+            done
+            sudo journalctl -u "pdfkiln@$USER" --no-pager | tail -n 20
+            return 1
+          }
+          sudo systemctl start "pdfkiln@$USER"
+          served
+          before=$(systemctl show -p MainPID --value "pdfkiln@$USER")
           node dist/scripts/deb.js --apt-url $url --apt-key "$RUNNER_TEMP/test-key.asc" --out "$debs" --revision 2
           node dist/scripts/apt.js --repo "$repo" --key "$fpr" "$debs"/pdfkiln_*-2_amd64.deb
           update
           sudo apt-get install -y --only-upgrade pdfkiln < /dev/null
           dpkg-query -W -f '${Version}\n' pdfkiln | grep -- '-2$'
+          served
+          after=$(systemctl show -p MainPID --value "pdfkiln@$USER")
+          echo "pdfkiln@$USER: $before, then $after"
+          if [ "$before" = 0 ] || [ "$after" = 0 ] || [ "$after" = "$before" ]; then echo "pdfkiln@$USER did not restart"; exit 1; fi
           sed -i 's/^Label: pdfkiln$/Label: pdfkilm/' "$repo/dists/stable/InRelease"
           if update; then echo 'a tampered index was accepted'; exit 1; fi
           sudo apt-get purge -y pdfkiln
           test ! -e /etc/apt/sources.list.d/pdfkiln.sources
+          # And stops with the package (prerm).
+          if systemctl is-active -q "pdfkiln@$USER"; then echo "pdfkiln@$USER still runs"; exit 1; fi
           kill $server
         shell: bash
 

@@ -4,7 +4,8 @@
 //   /usr/lib/pdfkiln/   pdfkiln, chromium/
 //   /usr/bin/pdfkiln, /usr/bin/wkhtmltopdf, /usr/bin/wkhtmltoimage -> ../lib/pdfkiln/pdfkiln
 //   /usr/share/doc/pdfkiln/   copyright (our license and the others), README.txt
-//   /lib/systemd/system/pdfkiln@.service   pdfkiln serve for one user, not enabled
+//   /lib/systemd/system/pdfkiln@.service   pdfkiln serve for one user, not enabled;
+//     those that run restart on an update, and stop on a removal
 //
 // It provides wkhtmltopdf and replaces the official wkhtmltox package. On
 // systems whose AppArmor restricts user namespaces (Ubuntu 23.10 and
@@ -165,6 +166,20 @@ ${profile}EOF
     apparmor_parser -r -W /etc/apparmor.d/pdfkiln || true
   fi
 fi
+# A pdfkiln serve that runs keeps the Chromium it started with, its flaws
+# with it: on an update, those that run restart (try-restart leaves the
+# others stopped). A conversion under way at that moment fails.
+if [ "$1" = configure ] && [ -n "$2" ] && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+  systemctl try-restart 'pdfkiln@*.service' || true
+fi
+`);
+// Removed, the program is gone: the servers that run stop with it.
+writeFileSync(join(debian, 'prerm'), `#!/bin/sh
+set -e
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+  systemctl stop 'pdfkiln@*.service' || true
+fi
 `);
 writeFileSync(join(debian, 'postrm'), `#!/bin/sh
 set -e
@@ -177,7 +192,7 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
   fi
 fi
 `);
-for (const f of ['postinst', 'postrm']) chmodSync(join(debian, f), 0o755);
+for (const f of ['postinst', 'prerm', 'postrm']) chmodSync(join(debian, f), 0o755);
 if (conffiles.length) writeFileSync(join(debian, 'conffiles'), `${conffiles.join('\n')}\n`);
 normalizeModes(root);
 
