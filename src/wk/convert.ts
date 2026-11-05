@@ -5,14 +5,13 @@ import { accessSync, constants, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib';
+import type { PDFDocument } from '@cantoo/pdf-lib';
 import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
 import { relayGet } from '../engine/relay.js';
-import {
-  fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline, type FinalItem, type LinkFate, type OutlineItem,
-} from '../pdf/assemble.js';
+import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
+import { pdfModules } from '../pdf/modules.js';
 import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
 import type { Feedback } from './feedback.js';
@@ -134,7 +133,9 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
 
     const block = g.kiln.blockPrivateNetwork;
     const proxy = objects.find((o) => o.load.proxy)?.load.proxy ?? null;
-    const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout);
+    const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout, () => void pdfModules().catch(() => {}));
+    // Loaded while Chromium started.
+    const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
     const fontFamily = chromium.fontFamily;
     step('launch');
     if (g.cookieJar) await loadJar(context, g.cookieJar);
@@ -539,7 +540,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
 }
 
 async function emptyDocument(width: number, height: number): Promise<PDFDocument> {
-  const doc = await PDFDocument.create();
+  const doc = await (await pdfModules())[0].PDFDocument.create();
   doc.addPage([width * PT_PER_MM, height * PT_PER_MM]);
   return doc;
 }

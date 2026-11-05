@@ -8,9 +8,10 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { PDFDocument, type PDFPage } from '@cantoo/pdf-lib';
+import type { PDFDocument, PDFPage } from '@cantoo/pdf-lib';
 import type { BrowserContext } from 'puppeteer-core';
 import { emulate, openPage, type LoadSpec, type Reporter } from '../engine/loader.js';
+import { pdfModules } from '../pdf/modules.js';
 import type { HeaderFooter } from './settings.js';
 
 const PT_PER_MM = 72 / 25.4;
@@ -182,7 +183,7 @@ export interface Layer {
 
 export async function stamp(doc: PDFDocument, pages: PDFPage[], layers: Layer[]): Promise<void> {
   for (const layer of layers) {
-    const src = await PDFDocument.load(layer.pdf);
+    const src = await (await pdfModules())[0].PDFDocument.load(layer.pdf);
     const n = Math.min(src.getPageCount(), layer.targets.length);
     // A page Chromium left blank has no content stream: nothing to draw.
     const indices = Array.from({ length: n }, (_, i) => i).filter((i) => src.getPage(i).node.normalizedEntries().Contents);

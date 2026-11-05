@@ -16,7 +16,7 @@ export class Chromium {
   fontFamily?: string;
   private stopDeadline = () => {};
 
-  async start(g: PdfGlobal, proxy: Proxy | null, bypass: string[], work: string, fb: Feedback, onTimeout: (line: string) => void): Promise<BrowserContext> {
+  async start(g: PdfGlobal, proxy: Proxy | null, bypass: string[], work: string, fb: Feedback, onTimeout: (line: string) => void, meanwhile?: () => void): Promise<BrowserContext> {
     if (g.kiln.blockPrivateNetwork) {
       this.relay = await startRelay();
       if (proxy) fb.warning('--proxy is ignored with --kiln-block-private-network');
@@ -32,6 +32,7 @@ export class Chromium {
       proxyServer,
       proxyBypassList: proxyBypass.join(';') || undefined,
       env: this.fontFamily ? noAliasEnv(work) : {},
+      meanwhile,
     });
     this.stopDeadline = deadline(this.session, g.kiln.timeout, () => {
       // Written even with --quiet, as wkhtmltopdf's last line.

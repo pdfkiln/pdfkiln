@@ -19,6 +19,9 @@ export interface LaunchOptions {
   proxyServer?: string;
   proxyBypassList?: string;
   env?: NodeJS.ProcessEnv;
+  // Work for this process while Chromium starts, which leaves it idle:
+  // loading the modules the conversion needs next.
+  meanwhile?: () => void;
 }
 
 export class LaunchError extends Error {}
@@ -212,7 +215,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     const cwd = process.cwd();
     if (process.platform === 'win32') process.chdir(opts.dir);
     try {
-      browser = await puppeteer.launch({
+      const launching = puppeteer.launch({
         executablePath: file,
         ignoreDefaultArgs: true,
         headless: 'shell',
@@ -225,6 +228,9 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
         handleSIGHUP: false,
         protocolTimeout: 0,
       });
+      // Once Puppeteer has started Chromium, before Chromium answers.
+      if (opts.meanwhile) setTimeout(opts.meanwhile, 0);
+      browser = await launching;
     } finally {
       if (process.platform === 'win32') process.chdir(cwd);
     }

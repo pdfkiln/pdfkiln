@@ -30,12 +30,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { PDFDocument } from '@cantoo/pdf-lib';
+import type { PDFDocument } from '@cantoo/pdf-lib';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
-import { fixDests, merge, moveDest, prune, readOutline, writeOutline, type FinalItem, type OutlineItem } from '../pdf/assemble.js';
+import type { FinalItem, OutlineItem } from '../pdf/assemble.js';
+import { pdfModules } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
 
@@ -316,8 +317,16 @@ export async function nativeMain(args: string[]): Promise<number> {
     if (blockPrivate) relay = await startRelay();
     step('relay');
     if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
-    session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: relay?.url, proxyBypassList: relay ? '<-loopback>' : undefined });
+    session = await launch({
+      dir: work,
+      noSandbox: v['no-sandbox'],
+      proxyServer: relay?.url,
+      proxyBypassList: relay ? '<-loopback>' : undefined,
+      meanwhile: () => void pdfModules().catch(() => {}),
+    });
     step('launch');
+    const [{ PDFDocument }, { fixDests, merge, moveDest, prune, readOutline, writeOutline }] = await pdfModules();
+    step('modules');
     stop = deadline(session, timeout, () => {
       removeQuietly(work);
       stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
