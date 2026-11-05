@@ -161,7 +161,19 @@ function writeAll(fd: number, data: Uint8Array): void {
   for (let off = 0; off < data.length;) off += writeSync(fd, data, off);
 }
 
+// PDFKILN_TIMINGS=1 writes the time of each step, in ms, on stderr, as the
+// compatible mode does; the steps of several inputs add up.
+const timings: Record<string, number> = {};
+let mark = 0;
+const step = (name: string) => {
+  const now = performance.now();
+  timings[name] = (timings[name] ?? 0) + Math.round(now - mark);
+  mark = now;
+};
+
 export async function nativeMain(args: string[]): Promise<number> {
+  mark = performance.now();
+  timings.boot = Math.round(mark);
   let parsed;
   try {
     parsed = parseArgs({
@@ -300,9 +312,12 @@ export async function nativeMain(args: string[]): Promise<number> {
   let session: Session | undefined;
   let stop = () => {};
   try {
+    step('options');
     if (blockPrivate) relay = await startRelay();
+    step('relay');
     if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
     session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: relay?.url, proxyBypassList: relay ? '<-loopback>' : undefined });
+    step('launch');
     stop = deadline(session, timeout, () => {
       removeQuietly(work);
       stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
@@ -344,6 +359,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         css,
         waitFor: v['wait-for'],
       }, out);
+      step('load');
       // An input that does not load, or comes in HTTP error, fails: no PDF
       // of an error page.
       if (!lp.ok || lp.status >= 400) {
@@ -365,6 +381,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       const doc = await PDFDocument.load(pdf, { updateMetadata: false });
       fixDests(doc, CM_PT, CM_PT, 1);
       parts.push({ doc, outline: v.outline ? readOutline(doc) : [] });
+      step('print');
     }
     const merged = await merge(parts, Boolean(v.tagged));
     prune(merged.doc);
@@ -383,8 +400,10 @@ export async function nativeMain(args: string[]): Promise<number> {
     if (v.subject !== undefined) merged.doc.setSubject(v.subject);
     if (v.keywords !== undefined) merged.doc.setKeywords([v.keywords]);
     const bytes = await merged.doc.save();
+    step('assemble');
     if (output === '-') writeAll(1, bytes);
     else writeFileSync(output, bytes);
+    step('write');
     return 0;
   } catch (e) {
     // Cut off by --timeout, which says so itself.
@@ -400,5 +419,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     await session?.close();
     await relay?.close();
     removeQuietly(work);
+    step('close');
+    if (process.env.PDFKILN_TIMINGS) stderr(`${JSON.stringify(timings)}\n`);
   }
 }
