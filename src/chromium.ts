@@ -44,7 +44,7 @@ export function installDir(version = chromiumVersion): string {
 const exeName = () => (process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell');
 
 // The single executable: Node's sea module says so.
-function isSea(): boolean {
+export function isSea(): boolean {
   try {
     return typeof require === 'function' && (require('node:sea') as { isSea(): boolean }).isSea();
   } catch {

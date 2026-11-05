@@ -626,6 +626,21 @@ describe('security', () => {
       assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), []);
     }
   });
+
+  // On Windows, the command returns once the PDF is written, Chromium ended
+  // and its folder left to a helper.
+  test('a conversion leaves nothing behind: its folder goes, the caller\'s folder is free at once', async () => {
+    const tmp = mkdtempSync(join(dir, 'tmp-'));
+    for (let i = 0; i < 3; i++) {
+      const cwd = mkdtempSync(join(dir, 'cwd-'));
+      const r = await run(['-q', `${base}/ok`, join(dir, 'leave.pdf')], { cwd, env: { TEMP: tmp, TMP: tmp, TMPDIR: tmp } });
+      assert.equal(r.code, 0, r.stderr);
+      // A caller that removes the folder it ran the command in.
+      rmSync(cwd, { recursive: true });
+    }
+    for (let i = 0; i < 50 && readdirSync(tmp).some((f) => f.startsWith('pdfkiln-')); i++) await new Promise((ok) => setTimeout(ok, 100));
+    assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), []);
+  });
 });
 
 describe('native interface', () => {
