@@ -1,18 +1,14 @@
 // Starts chrome-headless-shell for one conversion: a fresh profile in a
 // temporary folder, the sandbox on, DevTools over a pipe, and a deadline
-// after which the whole process group is killed. On Windows, the command
-// returns as soon as the PDF is written: Chromium is ended and its folder
-// left to a helper (src/engine/cleanup.ts).
-import { execFileSync, spawn } from 'node:child_process';
+// after which the whole process group is killed.
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import puppeteer, { type Browser } from 'puppeteer-core';
-import { ensureChromium, isSea } from '../chromium.js';
-import { isHelperEntry } from './cleanup.js';
+import { ensureChromium } from '../chromium.js';
 
 export interface LaunchOptions {
-  // Folder of the conversion: the profile goes in it, the caller removes
-  // it, or on Windows the helper close() leaves it to.
+  // Folder of the conversion: the profile goes in it, the caller removes it.
   dir: string;
   noSandbox?: boolean;
   // Chromium's own proxy settings, as --proxy-server and --proxy-bypass-list.
@@ -132,14 +128,10 @@ export function explain(message: string, serverCore: () => boolean = windowsServ
   return `Chromium did not start: ${message.split('\n')[0]}`;
 }
 
-// Folders of conversions left to the helper, which removes them.
-const handedOver = new Set<string>();
-
 // Removes a temporary folder; on Windows, Chromium's files may stay locked
 // a moment after it is killed. A folder left behind is better than a
 // crash that hides the conversion's result.
 export function removeQuietly(path: string): void {
-  if (handedOver.has(path)) return;
   try {
     rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {
@@ -208,32 +200,22 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     // Puppeteer gets every argument, its defaults included: under a cap on
     // the address space, the program it starts is a shell.
     const [file, argv] = chromiumCommand(exe, await puppeteer.defaultArgs({ headless: 'shell', args }));
-    // A folder a process works in cannot be removed on Windows: Chromium,
-    // which may still be leaving once the command has returned, works in
-    // the conversion's folder rather than the caller's. Puppeteer takes no
-    // working folder: it is this process's while Chromium starts.
-    const cwd = process.cwd();
-    if (process.platform === 'win32') process.chdir(opts.dir);
-    try {
-      const launching = puppeteer.launch({
-        executablePath: file,
-        ignoreDefaultArgs: true,
-        headless: 'shell',
-        pipe: true,
-        args: argv,
-        env: { ...process.env, ...opts.env },
-        defaultViewport: null,
-        handleSIGINT: false,
-        handleSIGTERM: false,
-        handleSIGHUP: false,
-        protocolTimeout: 0,
-      });
-      // Once Puppeteer has started Chromium, before Chromium answers.
-      if (opts.meanwhile) setTimeout(opts.meanwhile, 0);
-      browser = await launching;
-    } finally {
-      if (process.platform === 'win32') process.chdir(cwd);
-    }
+    const launching = puppeteer.launch({
+      executablePath: file,
+      ignoreDefaultArgs: true,
+      headless: 'shell',
+      pipe: true,
+      args: argv,
+      env: { ...process.env, ...opts.env },
+      defaultViewport: null,
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+      protocolTimeout: 0,
+    });
+    // Once Puppeteer has started Chromium, before Chromium answers.
+    if (opts.meanwhile) setTimeout(opts.meanwhile, 0);
+    browser = await launching;
   } catch (e) {
     removeQuietly(profile);
     throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces));
@@ -249,22 +231,12 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
       if (closed) return;
       closed = true;
       // Nothing to save in a throwaway profile: on Linux and macOS, killing
-      // the process group is faster than a graceful close.
+      // the process group is faster than a graceful close. On Windows,
+      // taskkill costs about 0.85 s by itself: it only goes after a
+      // Chromium that did not close (its other processes leave with it).
       if (process.platform === 'win32') {
-        // Ended at once (TerminateProcess; its other processes leave with
-        // it), the folder left to the helper: waiting for a graceful close
-        // and removing the profile took about 120 ms per conversion, after
-        // the PDF was written (Windows 11 PC, 05/11/2026).
-        const child = browser.process();
-        const gone = child && child.exitCode === null && child.signalCode === null ? new Promise((r) => child.once('exit', r)) : undefined;
-        browser.disconnect().catch(() => {});
-        child?.kill();
-        if (handOver(opts.dir)) return;
-        // No helper: as before, wait for its end and remove the profile.
-        // taskkill costs about 0.85 s by itself: it only goes after a
-        // Chromium that did not end.
-        if (gone) await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]);
-        if (child?.exitCode === null && child.signalCode === null) killTree(pid);
+        await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+        if (browser.process()?.exitCode === null) killTree(pid);
         await removeWhenFree(profile);
       } else {
         browser.disconnect().catch(() => {});
@@ -274,30 +246,6 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     },
   };
   return session;
-}
-
-// The helper: this program, detached from the command and its console,
-// working in the temporary folder, with the conversion's folder in
-// PDFKILN_CLEANUP. False when it could not be started, or when this process
-// is not one of the program's entries (isHelperEntry).
-function handOver(dir: string): boolean {
-  if (!isHelperEntry()) return false;
-  try {
-    const helper = spawn(process.execPath, isSea() ? [] : process.argv.slice(1, 2), {
-      env: { ...process.env, PDFKILN_CLEANUP: dir },
-      cwd: dirname(dir),
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    helper.on('error', () => {});
-    if (!helper.pid) return false;
-    helper.unref();
-    handedOver.add(dir);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // Kills Chromium if the conversion outlives `seconds`; 0 disables it.

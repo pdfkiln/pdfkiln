@@ -627,8 +627,7 @@ describe('security', () => {
     }
   });
 
-  // On Windows, the command returns once the PDF is written, Chromium ended
-  // and its folder left to a helper.
+  // Chromium is gone and its folder removed by the time the command returns.
   test('a conversion leaves nothing behind: its folder goes, the caller\'s folder is free at once', async () => {
     const tmp = mkdtempSync(join(dir, 'tmp-'));
     for (let i = 0; i < 3; i++) {
