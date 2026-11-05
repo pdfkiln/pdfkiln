@@ -116,8 +116,21 @@ function clientCertOf(load: LoadPage): ClientCert | undefined {
   }
 }
 
+// The blank tab Chromium opens at start serves the first page of a
+// conversion: opening one costs 60 to 85 ms. Claimed before any wait, as the
+// compatible mode opens its pages at once.
+const claimed = new WeakSet<BrowserContext>();
+async function takePage(context: BrowserContext): Promise<Page> {
+  if (!claimed.has(context)) {
+    claimed.add(context);
+    const blank = (await context.pages()).find((p) => p.url() === 'about:blank');
+    if (blank) return blank;
+  }
+  return context.newPage();
+}
+
 export async function openPage(context: BrowserContext, spec: LoadSpec, out: Reporter): Promise<LoadedPage> {
-  const page = await context.newPage();
+  const page = await takePage(context);
   const cdp = await page.createCDPSession();
   const lp = new LoadedPage(page, cdp, spec);
   const { load, web } = spec;

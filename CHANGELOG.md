@@ -19,6 +19,7 @@ GitHub release.
 In every mode:
 
 - On Windows, a conversion returns about 0.1 s sooner (two-page Odoo invoice, Windows 11 PC): Chromium is ended as soon as the PDF is written, and the same program, started detached, removes its temporary folder once Chromium has let go of it. The folder the command ran in is free as soon as it returns.
+- On Linux, conversions take a little less: about 0.05 s called as `pdfkiln`, 0.01 to 0.04 s called as `wkhtmltopdf` (two-page Odoo invoice, Debian 13 server). The first page of a conversion opens in the blank tab Chromium starts with, rather than in a new one.
 
 Called as `pdfkiln`, what is new:
 
