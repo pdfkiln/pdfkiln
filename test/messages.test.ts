@@ -30,7 +30,7 @@ test('Chromium that does not start: the reason, with the fix', () => {
   assert.match(explain('Running as root without --no-sandbox is not supported', () => false), /refuses to run as root/);
 });
 
-test('Chromium that lacks a system library: named, from ldd or the loader', () => {
+test('Chromium that lacks a system library: named, from ldd', () => {
   // Lines of ldd for chrome-headless-shell 156 on Ubuntu 24.04 (WSL), without
   // libasound2t64 (28/10/2026); a library may come twice.
   const ldd = [
@@ -43,10 +43,7 @@ test('Chromium that lacks a system library: named, from ldd or the loader', () =
   assert.deepEqual(parseLdd(ldd), ['libasound.so.2']);
   const closed = 'Protocol error (Target.setDiscoverTargets): Target closed';
   assert.match(explain(closed, () => false, () => parseLdd(ldd)), /^Chromium cannot start: the system lacks libasound\.so\.2\. The Debian package/);
-  // pdfkiln serve reads Chromium's stderr: the loader's own message.
-  const loader = 'chrome-headless-shell: error while loading shared libraries: libasound.so.2: cannot open shared object file: No such file or directory';
-  assert.match(explain(loader, () => false), /the system lacks libasound\.so\.2\./);
-  assert.match(explain(loader, () => false, () => ['libasound.so.2', 'libgbm.so.1']), /lacks libasound\.so\.2, libgbm\.so\.1\./);
+  assert.match(explain(closed, () => false, () => ['libasound.so.2', 'libgbm.so.1']), /lacks libasound\.so\.2, libgbm\.so\.1\./);
   assert.equal(explain(closed, () => false, () => []), `Chromium did not start: ${closed}`);
 });
 

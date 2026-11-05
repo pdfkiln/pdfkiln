@@ -137,7 +137,6 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout);
     const fontFamily = chromium.fontFamily;
     step('launch');
-    if (chromium.served) timings.served = 1;
     if (g.cookieJar) await loadJar(context, g.cookieJar);
 
     // The page itself: a URL, a file, or the standard input.

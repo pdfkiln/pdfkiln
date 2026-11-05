@@ -4,8 +4,10 @@
 //   /usr/lib/pdfkiln/   pdfkiln, chromium/
 //   /usr/bin/pdfkiln, /usr/bin/wkhtmltopdf, /usr/bin/wkhtmltoimage -> ../lib/pdfkiln/pdfkiln
 //   /usr/share/doc/pdfkiln/   copyright (our license and the others), README.txt
-//   /lib/systemd/system/pdfkiln@.service   pdfkiln serve for one user, not enabled;
-//     those that run restart on an update, and stop on a removal
+//
+// No systemd unit since 1.2.0, which removed pdfkiln serve: on an update
+// from 1.1.x, preinst stops the pdfkiln@ units that run and disables those
+// that are enabled.
 //
 // It provides wkhtmltopdf and replaces the official wkhtmltox package. On
 // systems whose AppArmor restricts user namespaces (Ubuntu 23.10 and
@@ -71,22 +73,6 @@ cpSync(join(from, 'chromium'), join(lib, 'chromium'), { recursive: true, verbati
 symlinkSync('../lib/pdfkiln/pdfkiln', join(root, 'usr', 'bin', 'pdfkiln'));
 symlinkSync('../lib/pdfkiln/pdfkiln', join(root, 'usr', 'bin', 'wkhtmltopdf'));
 symlinkSync('../lib/pdfkiln/pdfkiln', join(root, 'usr', 'bin', 'wkhtmltoimage'));
-
-// Chromium kept open for one user's conversions, not enabled:
-// systemctl enable --now pdfkiln@odoo
-mkdirSync(join(root, 'lib', 'systemd', 'system'), { recursive: true });
-writeFileSync(join(root, 'lib', 'systemd', 'system', 'pdfkiln@.service'), `[Unit]
-Description=PDFKiln: Chromium kept open for the conversions of %i
-After=network.target
-
-[Service]
-User=%i
-ExecStart=/usr/bin/pdfkiln serve
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`);
 
 // copyright: ours first, then each license of the archive.
 const licenses = readdirSync(join(from, 'licenses')).sort();
@@ -155,6 +141,30 @@ profile pdfkiln /usr/lib/pdfkiln/chromium/chrome-headless-shell flags=(unconfine
   include if exists <local/pdfkiln>
 }
 `;
+// Up to 1.1.x, the package had a pdfkiln@.service unit, for pdfkiln serve,
+// removed in 1.2.0. On the update, while its file is still there, the units
+// that run stop and those that are enabled are disabled: none is left
+// running the old program, nor a link to a file that is gone. The stop goes
+// through deb-systemd-invoke, as in Debian's own packages, which honours
+// policy-rc.d (systemctl where it is missing), and matches the units in
+// memory; disable takes no pattern, hence one call per link.
+writeFileSync(join(debian, 'preinst'), `#!/bin/sh
+set -e
+if [ "$1" = upgrade ] && [ -e /lib/systemd/system/pdfkiln@.service ]; then
+  if [ -d /run/systemd/system ]; then
+    if command -v deb-systemd-invoke > /dev/null; then
+      deb-systemd-invoke stop 'pdfkiln@*.service' > /dev/null || true
+    else
+      systemctl stop 'pdfkiln@*.service' || true
+    fi
+  fi
+  for link in /etc/systemd/system/*.wants/pdfkiln@?*.service; do
+    [ -L "$link" ] || continue
+    echo "pdfkiln serve was removed in 1.2.0: disabling \${link##*/}"
+    systemctl disable "\${link##*/}" || true
+  done
+fi
+`);
 // The profile is written only where AppArmor knows the 4.0 rules: Debian
 // 12's AppArmor would refuse it, and does not restrict user namespaces.
 writeFileSync(join(debian, 'postinst'), `#!/bin/sh
@@ -166,29 +176,9 @@ ${profile}EOF
     apparmor_parser -r -W /etc/apparmor.d/pdfkiln || true
   fi
 fi
-# A pdfkiln serve that runs keeps the Chromium it started with, its flaws
-# with it: on an update, those that run restart (try-restart leaves the
-# others stopped). A conversion under way at that moment fails. Through
-# deb-systemd-invoke, as Debian's own packages do, which honours
-# policy-rc.d; systemctl where it is missing.
-if [ "$1" = configure ] && [ -n "$2" ] && [ -d /run/systemd/system ]; then
+# The unit of 1.1.x gone (preinst): systemd forgets it.
+if [ "$1" = configure ] && [ -n "$2" ] && dpkg --compare-versions "$2" lt 1.2.0~ && [ -d /run/systemd/system ]; then
   systemctl --system daemon-reload > /dev/null || true
-  if command -v deb-systemd-invoke > /dev/null; then
-    deb-systemd-invoke try-restart 'pdfkiln@*.service' > /dev/null || true
-  else
-    systemctl try-restart 'pdfkiln@*.service' || true
-  fi
-fi
-`);
-// Removed, the program is gone: the servers that run stop with it.
-writeFileSync(join(debian, 'prerm'), `#!/bin/sh
-set -e
-if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
-  if command -v deb-systemd-invoke > /dev/null; then
-    deb-systemd-invoke stop 'pdfkiln@*.service' > /dev/null || true
-  else
-    systemctl stop 'pdfkiln@*.service' || true
-  fi
 fi
 `);
 writeFileSync(join(debian, 'postrm'), `#!/bin/sh
@@ -202,7 +192,7 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
   fi
 fi
 `);
-for (const f of ['postinst', 'prerm', 'postrm']) chmodSync(join(debian, f), 0o755);
+for (const f of ['preinst', 'postinst', 'postrm']) chmodSync(join(debian, f), 0o755);
 if (conffiles.length) writeFileSync(join(debian, 'conffiles'), `${conffiles.join('\n')}\n`);
 normalizeModes(root);
 

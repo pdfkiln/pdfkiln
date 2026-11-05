@@ -6,6 +6,16 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.2.0
+
+`pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.
+
+`pdfkiln serve`, what breaks:
+
+- `pdfkiln serve` exits 1, with "pdfkiln serve was removed in 1.2.0: each conversion starts its own Chromium". Take it out of your scripts and service definitions (Docker, launchd, systemd): conversions work without it, each with a Chromium of its own, as they did whenever no server ran. Those who ran it lose what it saved, Chromium's start-up and shutdown: about 0.17 s per conversion on Linux, 0.06 s on macOS (two-page Odoo invoice). It was off on Windows.
+- `wkhtmltopdf` and `wkhtmltoimage` no longer look for a server: `PDFKILN_SERVER` has no effect any more, and a 1.1 server that still runs is ignored; stop it. Pages render with the command's time zone and language (`TZ`, `LANG`) again: through a server, they had the server's.
+- Debian package: the `pdfkiln@.service` unit is gone. The update stops the `pdfkiln@` units that run and disables those that are enabled: nothing to do.
+
 ## 1.1.2
 
 Security:

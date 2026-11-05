@@ -105,8 +105,6 @@ export function explain(message: string, serverCore: () => boolean = windowsServ
     return 'Chromium does not run on Windows Server Core: it stops at start, for want of system libraries. Use Windows Server with the Desktop Experience, or the mcr.microsoft.com/windows/server container image rather than servercore.';
   }
   const libs = missing();
-  const loader = /error while loading shared libraries: ([^:\s]+)/.exec(message);
-  if (loader && !libs.includes(loader[1]!)) libs.push(loader[1]!);
   if (libs.length) {
     return `Chromium cannot start: the system lacks ${libs.join(', ')}. The Debian package installs Chromium's libraries; with the archive or the Composer package, install them first (README, Installation, Linux and macOS archives).`;
   }

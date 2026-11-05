@@ -73,7 +73,7 @@ jobs:
         run: echo "pinned $(node -p "require('./chromium.json').version"), Stable $(node dist/scripts/update-chromium.js --dry-run)"
 
       - name: Unit tests
-        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/server.test.js dist/test/manifests.test.js
+        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/manifests.test.js
 
       - name: Command tests
         run: node --test dist/test/cli.test.js
@@ -84,16 +84,6 @@ jobs:
           node --test dist/test/cli.test.js
         env:
           PDFKILN_TEST_BUNDLE: '1'
-
-      # A measure: the two-page Odoo invoice with and without pdfkiln serve,
-      # alternated (wkhtmltopdf 0.12.6 is compared in the compat job; there
-      # is none for macOS). pdfkiln serve is off on Windows.
-      - name: Chromium kept open, two-page Odoo invoice
-        if: runner.os != 'Windows'
-        run: |
-          node dist/bench/call.js --server --no-wkhtmltopdf --delay 200 --runs 9 | tee serve.txt
-          { echo '## pdfkiln serve, two-page Odoo invoice'; echo; echo '```'; cat serve.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-        shell: bash
 
   compat:
     strategy:
@@ -411,6 +401,45 @@ jobs:
           /usr/bin/wkhtmltoimage --version
           PDFKILN_TEST_WKHTMLTOPDF=/usr/bin/wkhtmltopdf PDFKILN_TEST_PDFKILN=/usr/bin/pdfkiln PDFKILN_TEST_WKHTMLTOIMAGE=/usr/bin/wkhtmltoimage node --test dist/test/cli.test.js
 
+      # Up to 1.1.x, the package had a pdfkiln@.service unit, for pdfkiln
+      # serve, removed in 1.2.0. From the last 1.1.x release, with a unit
+      # enabled and started and another enabled only, the update stops the
+      # first, disables both (preinst) and removes the file.
+      - name: Debian package, updated from 1.1.x with pdfkiln@ units (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          old=$(gh release list --repo pdfkiln/pdfkiln --limit 100 --json tagName --jq '.[].tagName' | grep -E '^1\.1\.[0-9]+$' | sort -V | tail -n 1)
+          gh release download "$old" --repo pdfkiln/pdfkiln --pattern "pdfkiln_${old}-1_amd64.deb" --pattern SHA256SUMS --dir "$RUNNER_TEMP/old"
+          (cd "$RUNNER_TEMP/old" && grep " pdfkiln_${old}-1_amd64.deb\$" SHA256SUMS | sha256sum -c -)
+          sudo apt-get remove -y pdfkiln
+          sudo apt-get install -y "$RUNNER_TEMP/old/pdfkiln_${old}-1_amd64.deb"
+          test -e /lib/systemd/system/pdfkiln@.service
+          sudo systemctl enable --now "pdfkiln@$USER"
+          sudo systemctl enable pdfkiln@nobody
+          for i in $(seq 60); do
+            [ -S "$HOME/.cache/pdfkiln/run/chromium.sock" ] && break
+            sleep 1
+          done
+          if [ ! -S "$HOME/.cache/pdfkiln/run/chromium.sock" ]; then sudo journalctl -u "pdfkiln@$USER" --no-pager | tail -n 20; exit 1; fi
+          node dist/scripts/deb.js --revision 2 --out "$RUNNER_TEMP/new"
+          sudo apt-get install -y "$RUNNER_TEMP"/new/pdfkiln_*-2_amd64.deb 2>&1 | tee "$RUNNER_TEMP/update.txt"
+          dpkg-query -W -f '${Version}\n' pdfkiln | grep -- '-2$'
+          grep -F "disabling pdfkiln@$USER.service" "$RUNNER_TEMP/update.txt"
+          grep -F 'disabling pdfkiln@nobody.service' "$RUNNER_TEMP/update.txt"
+          test ! -e /lib/systemd/system/pdfkiln@.service
+          if systemctl is-active -q "pdfkiln@$USER"; then echo "pdfkiln@$USER still runs"; exit 1; fi
+          links=$(find /etc/systemd/system -name 'pdfkiln@*')
+          if [ -n "$links" ]; then echo "still enabled: $links"; exit 1; fi
+          set +e
+          /usr/bin/pdfkiln serve 2> "$RUNNER_TEMP/serve.txt"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/serve.txt"
+          [ "$code" = 1 ] && grep -qx 'pdfkiln serve was removed in 1.2.0: each conversion starts its own Chromium' "$RUNNER_TEMP/serve.txt"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+
       - name: Docker image, built from the package (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -468,35 +497,15 @@ jobs:
           sudo apt-get install -y pdfkiln < /dev/null
           dpkg -S /etc/apt/sources.list.d/pdfkiln.sources
           /usr/bin/wkhtmltopdf --version
-          # A server that runs restarts on the upgrade (postinst): its Chromium is the new one.
-          served() {
-            for i in $(seq 60); do
-              [ -S "$HOME/.cache/pdfkiln/run/chromium.sock" ] && return 0
-              sleep 1
-            done
-            sudo journalctl -u "pdfkiln@$USER" --no-pager | tail -n 20
-            return 1
-          }
-          sudo systemctl start "pdfkiln@$USER"
-          served
-          before=$(systemctl show -p MainPID --value "pdfkiln@$USER")
           node dist/scripts/deb.js --apt-url $url --apt-key "$RUNNER_TEMP/test-key.asc" --out "$debs" --revision 2
           node dist/scripts/apt.js --repo "$repo" --key "$fpr" "$debs"/pdfkiln_*-2_amd64.deb
           update
           sudo apt-get install -y --only-upgrade pdfkiln < /dev/null
           dpkg-query -W -f '${Version}\n' pdfkiln | grep -- '-2$'
-          served
-          after=$(systemctl show -p MainPID --value "pdfkiln@$USER")
-          echo "pdfkiln@$USER: $before, then $after"
-          # Restarted by the upgrade, not by systemd after a crash (NRestarts counts those).
-          restarts=$(systemctl show -p NRestarts --value "pdfkiln@$USER")
-          if [ "$before" = 0 ] || [ "$after" = 0 ] || [ "$after" = "$before" ] || [ "$restarts" != 0 ]; then echo "pdfkiln@$USER did not restart"; exit 1; fi
           sed -i 's/^Label: pdfkiln$/Label: pdfkilm/' "$repo/dists/stable/InRelease"
           if update; then echo 'a tampered index was accepted'; exit 1; fi
           sudo apt-get purge -y pdfkiln
           test ! -e /etc/apt/sources.list.d/pdfkiln.sources
-          # And stops with the package (prerm).
-          if systemctl is-active -q "pdfkiln@$USER"; then echo "pdfkiln@$USER still runs"; exit 1; fi
           kill $server
         shell: bash
 

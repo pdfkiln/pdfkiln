@@ -6,7 +6,7 @@
 // (bench/requirements.txt) and are skipped without it.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createServer as createTcpServer, type AddressInfo } from 'node:net';
@@ -970,90 +970,44 @@ describe('wkhtmltoimage', () => {
   });
 });
 
-describe('pdfkiln serve', () => {
+describe('pdfkiln serve, removed in 1.2.0', () => {
   const pdfkiln = bundled ? join(root, 'dist', 'bundle', 'pdfkiln.cjs') : join(root, 'dist', 'src', 'bin', 'pdfkiln.js');
-  // pdfkiln serve with these arguments, run to its end.
-  const serveOnce = (args: string[]): Promise<{ code: number | null; stderr: string }> => new Promise((ok) => {
-    const p = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', ...args]), { stdio: ['ignore', 'ignore', 'pipe'] });
+  const serve = (args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> => new Promise((ok) => {
+    const p = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', ...args]), { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
     let stderr = '';
+    p.stdout.on('data', (d) => (stdout += d));
     p.stderr.on('data', (d) => (stderr += d));
-    p.on('close', (code) => ok({ code, stderr }));
+    p.on('close', (code) => ok({ code, stdout, stderr }));
   });
 
-  test('off on Windows: it does not start, and no command looks for it', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
-    const r = await serveOnce(['--socket', `\\\\.\\pipe\\pdfkiln-test-${process.pid}`]);
-    assert.equal(r.code, 1);
-    assert.match(r.stderr, /^pdfkiln serve: not available on Windows, where another account could pose as the server/);
-    // A pipe that PDFKILN_SERVER names, as another account could make it: never opened.
-    const pipe = `\\\\.\\pipe\\pdfkiln-test-other-${process.pid}`;
+  test('pdfkiln serve exits 1, and says why', async () => {
+    for (const args of [[], ['--help'], ['--socket', join(dir, 'x.sock')]]) {
+      const r = await serve(args);
+      assert.deepEqual(r, { code: 1, stdout: '', stderr: 'pdfkiln serve was removed in 1.2.0: each conversion starts its own Chromium\n' });
+    }
+  });
+
+  test('the commands look for no server: PDFKILN_SERVER, the socket of 1.1', async () => {
+    // Where 1.1 looked: PDFKILN_SERVER, else run/chromium.sock in the cache
+    // folder; on Windows, a pipe.
+    const cache = join(dir, 'cache');
+    mkdirSync(join(cache, 'run'), { recursive: true });
+    const paths = process.platform === 'win32' ? [`\\\\.\\pipe\\pdfkiln-test-${process.pid}`] : [join(dir, 'server.sock'), join(cache, 'run', 'chromium.sock')];
     let connections = 0;
-    const squatter = createTcpServer((c) => {
-      connections++;
-      c.destroy();
-    });
-    await new Promise<void>((ok, fail) => squatter.once('error', fail).listen(pipe, ok));
+    const servers = await Promise.all(paths.map((p) => new Promise<ReturnType<typeof createTcpServer>>((ok, fail) => {
+      const s = createTcpServer((c) => {
+        connections++;
+        c.destroy();
+      });
+      s.once('error', fail).listen(p, () => ok(s));
+    })));
     try {
-      const c = await run(['-q', `${base}/ok`, join(dir, 'serve-windows.pdf')], { env: { PDFKILN_SERVER: pipe, PDFKILN_TIMINGS: '1' } });
-      assert.equal(c.code, 0, c.stderr);
-      assert.doesNotMatch(c.stderr, /"served"/);
+      const r = await run(['-q', `${base}/ok`, join(dir, 'no-server.pdf')], { env: { PDFKILN_SERVER: paths[0], PDFKILN_CACHE_DIR: cache } });
+      assert.equal(r.code, 0, r.stderr);
       assert.equal(connections, 0);
     } finally {
-      squatter.close();
+      for (const s of servers) s.close();
     }
-  });
-
-  test('conversions use the Chromium kept open, each in a context of its own', { skip: process.platform === 'win32' && 'not on Windows' }, async (t) => {
-    // A folder that exists keeps its mode; the socket alone is private.
-    const folder = join(dir, 'serve');
-    mkdirSync(folder, { recursive: true });
-    chmodSync(folder, 0o755);
-    const socket = join(folder, 'chromium.sock');
-    const tmp = mkdtempSync(join(dir, 'serve-tmp-'));
-    const server = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', '--socket', socket]), {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp },
-    });
-    let log = '';
-    await new Promise<void>((ok, fail) => {
-      server.stderr.on('data', (d) => {
-        log += d;
-        if (/serving on/.test(log)) ok();
-      });
-      server.once('exit', () => fail(new Error(`pdfkiln serve exited: ${log}`)));
-    });
-    try {
-      assert.equal(statSync(folder).mode & 0o777, 0o755);
-      assert.equal(statSync(socket).mode & 0o777, 0o600);
-      const env = { PDFKILN_SERVER: socket, PDFKILN_TIMINGS: '1' };
-      const [a, b] = await Promise.all([
-        run(['-q', `${base}/set-cookie`, join(dir, 'serve-a.pdf')], { env }),
-        run(['-q', `${base}/ok`, join(dir, 'serve-b.pdf')], { env }),
-      ]);
-      assert.equal(a.code, 0, a.stderr);
-      assert.equal(b.code, 0, b.stderr);
-      assert.match(a.stderr, /"served":1/);
-      const c = await run(['-q', `${base}/show-cookie`, join(dir, 'serve-c.pdf')], { env });
-      assert.equal(c.code, 0, c.stderr);
-      if (hasPyMuPDF) assert.match(pagesText(join(dir, 'serve-c.pdf'))[0]!, /Cookie: none/);
-      // No server there: the command starts its own Chromium.
-      const d = await run(['-q', `${base}/ok`, join(dir, 'serve-d.pdf')], { env: { PDFKILN_SERVER: join(dir, 'nowhere.sock'), PDFKILN_TIMINGS: '1' } });
-      assert.equal(d.code, 0, d.stderr);
-      assert.doesNotMatch(d.stderr, /"served"/);
-      // A second server on that socket does not start, and leaves the first one's.
-      const second = await serveOnce(['--socket', socket]);
-      assert.equal(second.code, 1);
-      assert.match(second.stderr, /^pdfkiln serve: a server already listens on /);
-      assert.ok(existsSync(socket), "the first server's socket stays");
-      const e = await run(['-q', `${base}/ok`, join(dir, 'serve-e.pdf')], { env });
-      assert.equal(e.code, 0, e.stderr);
-      assert.match(e.stderr, /"served":1/);
-    } finally {
-      const exited = new Promise((ok) => server.once('exit', ok));
-      server.kill('SIGTERM');
-      await exited;
-      rmSync(tmp, { recursive: true, force: true });
-    }
-    assert.ok(!existsSync(socket), 'socket removed');
-    if (!hasPyMuPDF) t.skip('PyMuPDF missing');
   });
 });

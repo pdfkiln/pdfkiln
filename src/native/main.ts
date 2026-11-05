@@ -80,8 +80,6 @@ Other:
   -h, --help                  Show this help
 
 Commands:
-  serve                       Keep Chromium open, so that wkhtmltopdf and
-                              wkhtmltoimage start faster (Linux, macOS)
   wkhtmltopdf                 The command line of wkhtmltopdf 0.12.6
   wkhtmltoimage               The command line of wkhtmltoimage 0.12.6
   "pdfkiln <command> --help" shows the options of each.
