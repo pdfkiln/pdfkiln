@@ -85,22 +85,23 @@ export function changes(changelog: string, version: string): string {
   return section;
 }
 
-// What changed first: Chromium's version when the release changes it
-// (`previous`: the Chromium of the latest release, empty for the first),
-// the only time the notes name it, then the changelog's lines; then the
-// files; what PDFKiln is, last, for those who land here.
+// What changed, the changelog's section, which gives the Chromium update
+// when the release makes one ("Chromium <previous> → <new>", `previous`
+// being the Chromium of the latest release, empty for the first) and only
+// then; then the files; what PDFKiln is, last, for those who land here.
 export function notes(version: string, chromium: string, previous: string, changed: string, origin: Origin, files: Assembled[]): string {
   const url = `https://github.com/${origin.repo}`;
   const newChromium = previous !== '' && previous !== chromium;
-  if (!newChromium && /\bChromium\b/.test(changed)) {
-    throw new Error(`CHANGELOG.md: the "## ${version}" section names Chromium, which ${version} does not change`);
+  const update = `Chromium ${previous} → ${chromium}`;
+  if (newChromium && !changed.includes(update)) {
+    throw new Error(`CHANGELOG.md: the "## ${version}" section does not give "${update}"`);
   }
-  // A blank line before a section that opens with a paragraph, which would
-  // otherwise run on in the bullet.
-  const head = newChromium ? `- Chromium ${chromium}, from ${previous}.\n${changed.startsWith('- ') ? '' : '\n'}` : '';
+  if (!newChromium && /\bChromium \S+ → /.test(changed)) {
+    throw new Error(`CHANGELOG.md: the "## ${version}" section gives a Chromium update, which ${version} does not make`);
+  }
   return `## Changes in ${version}
 
-${head}${changed}
+${changed}
 
 ## Files
 

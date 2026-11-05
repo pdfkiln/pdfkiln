@@ -15,8 +15,6 @@
 // - secure by default: a page reads no local file but itself unless --allow
 //   or --enable-local-file-access, and reaches no loopback, private or
 //   link-local address unless --allow-private-network;
-// - Chromium kept open by pdfkiln serve when it answers on the native
-//   interface's socket, else a Chromium of its own;
 // - an input that does not load fails: exit 1, no PDF;
 // - its own messages, with why: one error for an input that does not load,
 //   a warning for each resource that does not (-q hides them).
@@ -27,9 +25,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PDFDocument } from '@cantoo/pdf-lib';
-import type { Browser, BrowserContext } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
-import { connectServer, nativeSocket, socketPath } from '../engine/server.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
@@ -84,8 +80,8 @@ Other:
   -h, --help                  Show this help
 
 Commands:
-  serve                       Keep Chromium open, so that pdfkiln,
-                              wkhtmltopdf and wkhtmltoimage start faster
+  serve                       Keep Chromium open, so that wkhtmltopdf and
+                              wkhtmltoimage start faster (Linux, macOS)
   wkhtmltopdf                 The command line of wkhtmltopdf 0.12.6
   wkhtmltoimage               The command line of wkhtmltoimage 0.12.6
   "pdfkiln <command> --help" shows the options of each.
@@ -275,42 +271,17 @@ export async function nativeMain(args: string[]): Promise<number> {
   };
   const work = mkdtempSync(join(tmpdir(), 'pdfkiln-'));
   let session: Session | undefined;
-  // Connected to pdfkiln serve: its browser, and the context of this
-  // conversion, closed by the server if the process ends first.
-  let remote: Browser | undefined;
-  let context: BrowserContext | undefined;
   let stop = () => {};
-  const tooLong = () => {
-    removeQuietly(work);
-    stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
-    process.exit(1);
-  };
-  // PDFKILN_TIMINGS=1 writes, in ms, the time to get a browser context and
-  // the whole conversion's, and whether pdfkiln serve gave the context.
-  const timings: Record<string, number> = {};
-  const t0 = performance.now();
   try {
     if (blockPrivate) relay = await startRelay();
-    // Even loopback addresses go through the relay.
-    const proxy = { proxyServer: relay?.url, proxyBypass: relay ? '<-loopback>' : undefined };
-    const path = socketPath();
-    remote = (path && (await connectServer(nativeSocket(path)))) || undefined;
-    if (remote) {
-      context = await remote.createBrowserContext({ proxyServer: proxy.proxyServer, proxyBypassList: proxy.proxyBypass ? [proxy.proxyBypass] : undefined });
-      if (timeout) {
-        const timer = setTimeout(tooLong, timeout * 1000);
-        timer.unref();
-        stop = () => clearTimeout(timer);
-      }
-    } else {
-      // The server's Chromium has its own sandbox setting.
-      if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
-      session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: proxy.proxyServer, proxyBypassList: proxy.proxyBypass });
-      stop = deadline(session, timeout, tooLong);
-      context = session.browser.defaultBrowserContext();
-    }
-    timings.chromium = Math.round(performance.now() - t0);
-    if (remote) timings.served = 1;
+    if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
+    session = await launch({ dir: work, noSandbox: v['no-sandbox'], proxyServer: relay?.url, proxyBypassList: relay ? '<-loopback>' : undefined });
+    stop = deadline(session, timeout, () => {
+      removeQuietly(work);
+      stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
+      process.exit(1);
+    });
+    const context = session.browser.defaultBrowserContext();
     const base = defaultObject();
     base.load.jsdelay = jsdelay;
     base.load.blockLocalFileAccess = !v['enable-local-file-access'];
@@ -388,14 +359,8 @@ export async function nativeMain(args: string[]): Promise<number> {
     return 1;
   } finally {
     stop();
-    if (remote) {
-      await context?.close().catch(() => {});
-      await remote.disconnect().catch(() => {});
-    }
     await session?.close();
     await relay?.close();
     removeQuietly(work);
-    timings.total = Math.round(performance.now() - t0);
-    if (process.env.PDFKILN_TIMINGS) stderr(`${JSON.stringify(timings)}\n`);
   }
 }

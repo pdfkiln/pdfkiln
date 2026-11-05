@@ -1,12 +1,17 @@
 // Chromium kept open between conversions (pdfkiln serve): started once,
-// reached through a socket only its user can open (a Unix socket in a
-// folder of mode 0700, a named pipe on Windows), never a TCP port, which
-// any local user could drive. Each conversion connects, works in a browser
-// context of its own (cookies, cache and storage apart) and leaves; its
-// requests are still intercepted, files read and limits enforced by its
-// own process. Without a server, the commands start their own Chromium.
-// The native interface has a socket of its own, served by a Chromium with
-// the system's fonts where the compatible mode's has wkhtmltopdf's.
+// reached through a Unix socket only its user can open (mode 0600, and the
+// client checks its owner), never a TCP port, which any local user could
+// drive. Not on Windows: a named pipe lives in a namespace every account
+// shares, another account can create one under our name first, and Node
+// cannot tell who did. Each conversion connects, works in a browser context
+// of its own (cookies, cache and storage apart) and leaves; its requests
+// are still intercepted, files read and limits enforced by its own process.
+// Without a server, the commands start their own Chromium.
+//
+// The rule: a conversion's Chromium is the one its command would start, the
+// server only one of those started earlier. A command uses it only if it
+// runs that Chromium (sameChromium); its sandbox is the one its owner chose
+// (pdfkiln serve --no-sandbox applies to every conversion it serves).
 //
 // One DevTools connection to Chromium is shared by every client: message
 // ids are renumbered per client, and events go to the client that owns the
@@ -14,28 +19,20 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer, type Server, type Socket } from 'node:net';
-import { tmpdir, userInfo } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type ConnectionTransport } from 'puppeteer-core';
 import { ensureChromium, userCacheDir } from '../chromium.js';
+import { chromiumVersion } from '../version.js';
 import { addressSpace, chromiumCommand, explain, killTree, LaunchError, missingLibraries, removeWhenFree, userNamespaces, windowsServerCore } from './browser.js';
 
-// PDFKILN_SERVER: the socket, or "off" not to look for a server.
+// PDFKILN_SERVER: the socket, or "off" not to look for a server. None on
+// Windows (above): each conversion starts its own Chromium.
 export function socketPath(): string | null {
+  if (process.platform === 'win32') return null;
   const env = process.env.PDFKILN_SERVER;
   if (env === 'off') return null;
   if (env) return env;
-  if (process.platform === 'win32') {
-    // An IIS application pool's identity has no account Node can read
-    // (uv_os_get_passwd fails with ENOMEM, Windows Server Core 2025, CI job
-    // dotnet): no pipe to name, so no server, and each conversion starts
-    // its own Chromium.
-    try {
-      return `\\\\.\\pipe\\pdfkiln-${userInfo().username}`;
-    } catch {
-      return null;
-    }
-  }
   // The user's cache folder: a service and the application it serves, run
   // by the same user, find the same path.
   return join(userCacheDir(), 'run', 'chromium.sock');
@@ -79,24 +76,25 @@ class SocketTransport implements ConnectionTransport {
   }
 }
 
-// The socket of the native interface, beside that of the compatible mode
-// (chromium.sock, chromium-native.sock): on Linux, the compatible mode's
-// Chromium has wkhtmltopdf's fonts (fonts.ts), a setting of the whole
-// process, and the native interface gets a Chromium with the system's.
-export function nativeSocket(path: string): string {
-  return process.platform !== 'win32' && path.endsWith('.sock') ? `${path.slice(0, -5)}-native.sock` : `${path}-native`;
+// Whether a server's Chromium, as Browser.getVersion names it
+// ("HeadlessChrome/157.0.8103.38"), is the one this command would start:
+// another, left running by an update or started by another install, may
+// lack its security fixes. With PDFKILN_CHROMIUM, the command's own is that
+// file, whose version it does not know: any server will do.
+export function sameChromium(product: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.PDFKILN_CHROMIUM) || product.slice(product.lastIndexOf('/') + 1) === chromiumVersion;
 }
 
-// The server of this user, if one answers on `path`.
-export async function connectServer(path: string | null = socketPath()): Promise<Browser | null> {
+// The server of this user, if one answers and runs the Chromium this
+// command would start; else the version of the one it runs, if another.
+export async function connectServer(): Promise<Browser | string | null> {
+  const path = socketPath();
   if (!path) return null;
-  if (process.platform !== 'win32') {
-    try {
-      // A socket another user put there is not ours to trust.
-      if (statSync(path).uid !== process.getuid!()) return null;
-    } catch {
-      return null;
-    }
+  try {
+    // A socket another user put there is not ours to trust.
+    if (statSync(path).uid !== process.getuid!()) return null;
+  } catch {
+    return null;
   }
   const socket = await new Promise<Socket | null>((ok) => {
     const s = netConnect(path);
@@ -107,13 +105,17 @@ export async function connectServer(path: string | null = socketPath()): Promise
   // A server that does not answer in 5 s is left for a Chromium of our own.
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<null>((ok) => (timer = setTimeout(() => ok(null), 5000)));
-  const browser = await Promise.race([
-    puppeteer.connect({ transport: new SocketTransport(socket), defaultViewport: null, protocolTimeout: 0 }).catch(() => null),
+  const found = await Promise.race([
+    (async () => {
+      const browser = await puppeteer.connect({ transport: new SocketTransport(socket), defaultViewport: null, protocolTimeout: 0 });
+      return { browser, product: await browser.version() };
+    })().catch(() => null),
     late,
   ]);
   clearTimeout(timer);
-  if (!browser) socket.destroy();
-  return browser;
+  if (found && sameChromium(found.product)) return found.browser;
+  socket.destroy();
+  return found ? found.product.slice(found.product.lastIndexOf('/') + 1) : null;
 }
 
 interface Message {
@@ -198,7 +200,12 @@ export class Mux {
       const p = this.pending.get(m.id);
       if (!p) return;
       this.pending.delete(m.id);
-      if (p.method === 'Target.createBrowserContext' && m.result?.browserContextId && p.client) this.contexts.set(m.result.browserContextId, p.client);
+      if (p.method === 'Target.createBrowserContext' && m.result?.browserContextId) {
+        // A context whose client left before it was made: nobody else
+        // would close it.
+        if (p.client) this.contexts.set(m.result.browserContextId, p.client);
+        else this.forward({ method: 'Target.disposeBrowserContext', params: { browserContextId: m.result.browserContextId } });
+      }
       p.client?.send({ ...m, id: p.id });
       return;
     }
@@ -263,47 +270,45 @@ export class Mux {
 }
 
 export interface ServeOptions {
-  // The socket of the compatible mode; the native interface's is beside it
-  // (nativeSocket).
   socket: string;
   noSandbox: boolean;
-  // The environment of the compatible mode's Chromium, given its folder:
-  // when it is empty, the native interface shares that Chromium.
+  // Chromium's environment, given its folder.
   env: (dir: string) => NodeJS.ProcessEnv;
   log: (line: string) => void;
 }
 
 // Starts Chromium with the same arguments as for one conversion, and
-// serves it until the process is stopped or a Chromium exits. The native
-// interface's own Chromium, when it needs one, starts at its first
-// conversion: those who only call wkhtmltopdf do not pay for it.
+// serves it until the process is stopped or Chromium exits.
 export async function serve(opts: ServeOptions): Promise<number> {
   const dir = mkdtempSync(join(tmpdir(), 'pdfkiln-serve-'));
-  const sockets = [opts.socket, nativeSocket(opts.socket)] as const;
-  const children: ChildProcess[] = [];
-  const servers: Server[] = [];
-  let finish!: (code: number) => void;
-  const finished = new Promise<number>((ok) => (finish = ok));
+  let chromium: ChildProcess | undefined;
+  let server: Server | undefined;
+  // Set once it listens: the socket of a server already there is not its
+  // own to remove.
+  let listening = false;
   const stop = async () => {
-    for (const server of servers) server.close();
-    for (const child of children) killTree(child.pid);
+    server?.close();
+    killTree(chromium?.pid);
     await removeWhenFree(dir);
-    if (process.platform !== 'win32') for (const socket of sockets) rmSync(socket, { force: true });
+    if (listening) rmSync(opts.socket, { force: true });
   };
   try {
-    if (process.platform !== 'win32') {
-      for (const socket of sockets) {
-        const folder = join(socket, '..');
+    // A folder it makes is private; one that exists is left as it is (a
+    // home folder, say), the socket being created private itself.
+    const folder = join(opts.socket, '..');
+    if (!existsSync(folder)) {
+      try {
         mkdirSync(folder, { recursive: true, mode: 0o700 });
-        chmodSync(folder, 0o700);
-        if (existsSync(socket)) {
-          const alive = await new Promise<boolean>((ok) => {
-            const s = netConnect(socket).once('connect', () => (s.destroy(), ok(true))).once('error', () => ok(false));
-          });
-          if (alive) throw new LaunchError(`a server already listens on ${socket}`);
-          rmSync(socket, { force: true });
-        }
+      } catch (e) {
+        throw new LaunchError(`cannot create ${folder}: ${e instanceof Error ? e.message : String(e)}`);
       }
+    }
+    if (existsSync(opts.socket)) {
+      const alive = await new Promise<boolean>((ok) => {
+        const s = netConnect(opts.socket).once('connect', () => (s.destroy(), ok(true))).once('error', () => ok(false));
+      });
+      if (alive) throw new LaunchError(`a server already listens on ${opts.socket}`);
+      rmSync(opts.socket, { force: true });
     }
     let exe: string;
     try {
@@ -311,87 +316,71 @@ export async function serve(opts: ServeOptions): Promise<number> {
     } catch (e) {
       throw new LaunchError(`Chromium could not be downloaded: ${e instanceof Error ? e.message : String(e)}`);
     }
-    // One Chromium, in its folder, with its environment; once it answers,
-    // its exit ends the server.
-    const start = async (name: string, env: NodeJS.ProcessEnv): Promise<Mux> => {
-      const args = await puppeteer.defaultArgs({
-        headless: 'shell',
-        userDataDir: join(dir, name),
-        args: [
-          '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-          '--webrtc-ip-handling-policy=disable_non_proxied_udp',
-          ...(opts.noSandbox ? ['--no-sandbox'] : []),
-          '--remote-debugging-pipe',
-        ],
-      });
-      const child = spawn(...chromiumCommand(exe, args), { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
-      children.push(child);
-      let stderr = '';
-      child.stderr!.on('data', (d) => (stderr += d));
-      const toChromium = child.stdio[3] as NodeJS.WritableStream;
-      const fromChromium = child.stdio[4] as NodeJS.ReadableStream;
-      // A Chromium gone breaks its pipes (EPIPE): its exit tells why.
-      toChromium.on('error', () => {});
-      fromChromium.on('error', () => {});
-      const mux = new Mux((m) => toChromium.write(`${m}\0`));
-      // Chromium answers its first message, id 0, before anything is served.
-      let answered: () => void = () => {};
-      let started = false;
-      fromChromium.on('data', frames((m) => {
-        if (started) mux.fromChromium(m);
-        else {
-          started = true;
-          answered();
-        }
-      }));
-      await new Promise<void>((ok, fail) => {
-        const onExit = () => fail(new LaunchError(explain(stderr || 'Chromium exited', windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces)));
-        child.once('exit', onExit);
-        answered = () => {
-          child.off('exit', onExit);
-          ok();
-        };
-        toChromium.write(`${JSON.stringify({ id: 0, method: 'Browser.getVersion' })}\0`);
-      });
+    const args = await puppeteer.defaultArgs({
+      headless: 'shell',
+      userDataDir: join(dir, 'chromium'),
+      args: [
+        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+        '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+        ...(opts.noSandbox ? ['--no-sandbox'] : []),
+        '--remote-debugging-pipe',
+      ],
+    });
+    const child = spawn(...chromiumCommand(exe, args), { env: { ...process.env, ...opts.env(dir) }, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    chromium = child;
+    // Chromium answers its first message, id 0, before anything is served.
+    let answered: () => void = () => {};
+    let started = false;
+    // Its error output is kept until it answers, for the reason it would
+    // not start; then only drained: a server runs for weeks.
+    let stderr = '';
+    child.stderr!.on('data', (d) => {
+      if (!started) stderr += d;
+    });
+    const toChromium = child.stdio[3] as NodeJS.WritableStream;
+    const fromChromium = child.stdio[4] as NodeJS.ReadableStream;
+    // A Chromium gone breaks its pipes (EPIPE): its exit tells why.
+    toChromium.on('error', () => {});
+    fromChromium.on('error', () => {});
+    const mux = new Mux((m) => toChromium.write(`${m}\0`));
+    fromChromium.on('data', frames((m) => {
+      if (started) mux.fromChromium(m);
+      else {
+        started = true;
+        answered();
+      }
+    }));
+    await new Promise<void>((ok, fail) => {
+      const onExit = () => fail(new LaunchError(explain(stderr || 'Chromium exited', windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces)));
+      child.once('exit', onExit);
+      answered = () => {
+        child.off('exit', onExit);
+        ok();
+      };
+      toChromium.write(`${JSON.stringify({ id: 0, method: 'Browser.getVersion' })}\0`);
+    });
+    server = createServer((socket) => mux.connect(socket));
+    // Created private (0600) from the start: no moment when another user
+    // could connect.
+    const mask = process.umask(0o177);
+    try {
+      await new Promise<void>((ok, fail) => server!.once('error', fail).listen(opts.socket, ok));
+    } catch (e) {
+      throw new LaunchError(`cannot listen on ${opts.socket}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      process.umask(mask);
+    }
+    listening = true;
+    chmodSync(opts.socket, 0o600);
+    opts.log(`pdfkiln: Chromium kept open, serving on ${opts.socket}`);
+    const code = await new Promise<number>((ok) => {
       child.once('exit', () => {
         opts.log('pdfkiln: Chromium exited');
-        finish(1);
+        ok(1);
       });
-      return mux;
-    };
-    const listen = async (socket: string, onSocket: (s: Socket) => void) => {
-      const server = createServer(onSocket);
-      servers.push(server);
-      await new Promise<void>((ok, fail) => server.once('error', fail).listen(socket, ok));
-      if (process.platform !== 'win32') chmodSync(socket, 0o600);
-    };
-    const env = opts.env(dir);
-    const mux = await start('chromium', env);
-    await listen(sockets[0], (socket) => mux.connect(socket));
-    if (!Object.keys(env).length) await listen(sockets[1], (socket) => mux.connect(socket));
-    else {
-      let native: Promise<Mux> | undefined;
-      await listen(sockets[1], (socket) => {
-        socket.on('error', () => {});
-        // The client's messages wait in the socket until its Chromium answers.
-        native ??= start('chromium-native', {}).then((m) => {
-          opts.log("pdfkiln: Chromium started for pdfkiln, with the system's fonts");
-          return m;
-        }, (e: unknown) => {
-          // The client gives up on the server and starts its own; the next
-          // one tries again.
-          native = undefined;
-          opts.log(`pdfkiln: Chromium for pdfkiln did not start: ${e instanceof Error ? e.message : String(e)}`);
-          throw e;
-        });
-        native.then((m) => {
-          if (!socket.destroyed) m.connect(socket);
-        }, () => socket.destroy());
-      });
-    }
-    opts.log(`pdfkiln: Chromium kept open, serving on ${sockets[0]}, and for pdfkiln on ${sockets[1]}`);
-    for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => finish(0));
-    return await finished;
+      for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => ok(0));
+    });
+    return code;
   } finally {
     await stop();
   }

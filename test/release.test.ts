@@ -87,20 +87,22 @@ test('changes: the version\'s section of the changelog, none or an empty one ref
   assert.throws(() => changes(changelog, '1.2'), /no "## 1\.2" section/);
 });
 
-test('notes: Chromium named only when the release changes it, first', () => {
+test('notes: the changelog gives the Chromium update, only when there is one', () => {
   const origin = { repo: 'owner/pdfkiln', commit: 'abcdef0123456789', attested: false };
-  const text = notes('1.2.3', '156.0.8078.73', '156.0.8078.47', '- Fixed this.', origin, []);
-  assert.match(text, /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73, from 156\.0\.8078\.47\.\n- Fixed this\.\n\n## Files\n/);
+  const update = 'Security:\n\n- Chromium 156.0.8078.47 → 156.0.8078.73 ([release notes](https://example.org)).\n- Fixed this.';
+  const text = notes('1.2.3', '156.0.8078.73', '156.0.8078.47', update, origin, []);
+  assert.match(text, /^## Changes in 1\.2\.3\n\nSecurity:\n\n- Chromium 156\.0\.8078\.47 → 156\.0\.8078\.73 \(\[release notes\]\(https:\/\/example\.org\)\)\.\n- Fixed this\.\n\n## Files\n/);
   assert.ok(text.indexOf('## Files') < text.indexOf('PDFKiln is a drop-in replacement for wkhtmltopdf'));
-  assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.47', 'Security:\n\n- Fixed this.', origin, []), /^## Changes in 1\.2\.3\n\n- Chromium 156\.0\.8078\.73, from 156\.0\.8078\.47\.\n\nSecurity:\n/);
-  // The same Chromium, or the first release: not a word of it.
+  // A release that changes Chromium and does not say so does not go out.
+  assert.throws(() => notes('1.2.3', '156.0.8078.73', '156.0.8078.47', '- Fixed this.', origin, []), /"## 1\.2\.3" section does not give "Chromium 156\.0\.8078\.47 → 156\.0\.8078\.73"/);
+  // The same Chromium, or the first release: no such line; the name alone is fine.
   for (const previous of ['156.0.8078.73', '']) {
     const same = notes('1.2.3', '156.0.8078.73', previous, '- Fixed this.', origin, []);
     assert.match(same, /^## Changes in 1\.2\.3\n\n- Fixed this\.\n\n## Files\n/);
     assert.doesNotMatch(same, /Chromium/);
+    assert.throws(() => notes('1.2.3', '156.0.8078.73', previous, update, origin, []), /"## 1\.2\.3" section gives a Chromium update, which 1\.2\.3 does not make/);
   }
-  assert.throws(() => notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- Chromium starts faster.', origin, []), /"## 1\.2\.3" section names Chromium, which 1\.2\.3 does not change/);
-  assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- `PDFKILN_CHROMIUM` and chromium.json.', origin, []), /PDFKILN_CHROMIUM/);
+  assert.match(notes('1.2.3', '156.0.8078.73', '156.0.8078.73', '- Chromium starts faster.', origin, []), /Chromium starts faster/);
 });
 
 test('notes: the files, the commit CI built them from, provenance once attested', () => {

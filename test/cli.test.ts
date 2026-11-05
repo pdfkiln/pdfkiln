@@ -6,7 +6,7 @@
 // (bench/requirements.txt) and are skipped without it.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createServer as createTcpServer, type AddressInfo } from 'node:net';
@@ -972,12 +972,42 @@ describe('wkhtmltoimage', () => {
 
 describe('pdfkiln serve', () => {
   const pdfkiln = bundled ? join(root, 'dist', 'bundle', 'pdfkiln.cjs') : join(root, 'dist', 'src', 'bin', 'pdfkiln.js');
+  // pdfkiln serve with these arguments, run to its end.
+  const serveOnce = (args: string[]): Promise<{ code: number | null; stderr: string }> => new Promise((ok) => {
+    const p = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', ...args]), { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    p.stderr.on('data', (d) => (stderr += d));
+    p.on('close', (code) => ok({ code, stderr }));
+  });
 
-  // pdfkiln serve on a socket of its own; stop() ends it and removes its
-  // folder.
-  const startServe = async (name: string) => {
-    const socket = process.platform === 'win32' ? `\\\\.\\pipe\\pdfkiln-test-${name}-${process.pid}` : join(dir, `serve-${name}`, 'chromium.sock');
-    // Killed on Windows, serve cannot remove its folder: it goes in the suite's.
+  test('off on Windows: it does not start, and no command looks for it', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+    const r = await serveOnce(['--socket', `\\\\.\\pipe\\pdfkiln-test-${process.pid}`]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^pdfkiln serve: not available on Windows, where another account could pose as the server/);
+    // A pipe that PDFKILN_SERVER names, as another account could make it: never opened.
+    const pipe = `\\\\.\\pipe\\pdfkiln-test-other-${process.pid}`;
+    let connections = 0;
+    const squatter = createTcpServer((c) => {
+      connections++;
+      c.destroy();
+    });
+    await new Promise<void>((ok, fail) => squatter.once('error', fail).listen(pipe, ok));
+    try {
+      const c = await run(['-q', `${base}/ok`, join(dir, 'serve-windows.pdf')], { env: { PDFKILN_SERVER: pipe, PDFKILN_TIMINGS: '1' } });
+      assert.equal(c.code, 0, c.stderr);
+      assert.doesNotMatch(c.stderr, /"served"/);
+      assert.equal(connections, 0);
+    } finally {
+      squatter.close();
+    }
+  });
+
+  test('conversions use the Chromium kept open, each in a context of its own', { skip: process.platform === 'win32' && 'not on Windows' }, async (t) => {
+    // A folder that exists keeps its mode; the socket alone is private.
+    const folder = join(dir, 'serve');
+    mkdirSync(folder, { recursive: true });
+    chmodSync(folder, 0o755);
+    const socket = join(folder, 'chromium.sock');
     const tmp = mkdtempSync(join(dir, 'serve-tmp-'));
     const server = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, ['serve', '--socket', socket]), {
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -991,65 +1021,9 @@ describe('pdfkiln serve', () => {
       });
       server.once('exit', () => fail(new Error(`pdfkiln serve exited: ${log}`)));
     });
-    return {
-      socket,
-      log: () => log,
-      stop: async () => {
-        const exited = new Promise((ok) => server.once('exit', ok));
-        // Windows has no SIGTERM: the tree is killed.
-        if (process.platform === 'win32') (await import('../src/engine/browser.js')).killTree(server.pid);
-        else server.kill('SIGTERM');
-        await exited;
-        // The killed Chromium holds its files a few seconds more on Windows.
-        await (await import('../src/engine/browser.js')).removeWhenFree(tmp, 30000);
-      },
-    };
-  };
-
-  test('pdfkiln uses it too, on a socket of its own, with the same refusals', async () => {
-    const { nativeSocket } = await import('../src/engine/server.js');
-    const serve = await startServe('native');
-    const convert = (args: string[], env: NodeJS.ProcessEnv): Promise<Run> => new Promise((ok) => {
-      const child = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, args), { cwd: dir, env: { ...process.env, PDFKILN_TIMINGS: '1', ...env } });
-      let err = '';
-      child.stderr.on('data', (d) => (err += d));
-      child.on('close', (code) => ok({ code, stdout: Buffer.alloc(0), stderr: err, ms: 0 }));
-    });
     try {
-      const env = { PDFKILN_SERVER: serve.socket };
-      const page = file('serve/native.html', '<h1>Served</h1>');
-      const out = join(dir, 'serve-native.pdf');
-      const [a, b] = await Promise.all([
-        convert([page, out], env),
-        convert(['--allow-private-network', `${base}/ok`, join(dir, 'serve-native-b.pdf')], env),
-      ]);
-      assert.equal(a.code, 0, a.stderr);
-      assert.match(a.stderr, /"served":1/);
-      assert.equal(b.code, 0, b.stderr);
-      assert.match(b.stderr, /"served":1/);
-      assert.ok(readFileSync(out).subarray(0, 5).equals(Buffer.from('%PDF-')));
-      // Private addresses stay refused by default through the server.
-      const c = await convert([`${base}/ok`, join(dir, 'serve-native-c.pdf')], env);
-      assert.equal(c.code, 1);
-      assert.match(c.stderr, /could not load http:\/\/127\.0\.0\.1:\d+\/ok: 127\.0\.0\.1 is a private address \(--allow-private-network to reach it\)\n/);
-      assert.match(c.stderr, /"served":1/);
-      if (process.platform !== 'win32') assert.ok(existsSync(nativeSocket(serve.socket)), 'native socket beside the other');
-      // A Chromium of its own on Linux, where the fonts differ; the same one elsewhere.
-      if (process.platform === 'linux' && (await import('../src/engine/fonts.js')).qtDefaultFamily()) assert.match(serve.log(), /Chromium started for pdfkiln/);
-      else assert.doesNotMatch(serve.log(), /Chromium started for pdfkiln/);
-      // No server on its socket, as with a server of 1.1 that has none: its own Chromium.
-      const d = await convert([page, join(dir, 'serve-native-d.pdf')], { PDFKILN_SERVER: join(dir, 'nowhere.sock') });
-      assert.equal(d.code, 0, d.stderr);
-      assert.doesNotMatch(d.stderr, /"served"/);
-    } finally {
-      await serve.stop();
-    }
-  });
-
-  test('conversions use the Chromium kept open, each in a context of its own', async (t) => {
-    const serve = await startServe('compat');
-    const socket = serve.socket;
-    try {
+      assert.equal(statSync(folder).mode & 0o777, 0o755);
+      assert.equal(statSync(socket).mode & 0o777, 0o600);
       const env = { PDFKILN_SERVER: socket, PDFKILN_TIMINGS: '1' };
       const [a, b] = await Promise.all([
         run(['-q', `${base}/set-cookie`, join(dir, 'serve-a.pdf')], { env }),
@@ -1065,10 +1039,21 @@ describe('pdfkiln serve', () => {
       const d = await run(['-q', `${base}/ok`, join(dir, 'serve-d.pdf')], { env: { PDFKILN_SERVER: join(dir, 'nowhere.sock'), PDFKILN_TIMINGS: '1' } });
       assert.equal(d.code, 0, d.stderr);
       assert.doesNotMatch(d.stderr, /"served"/);
+      // A second server on that socket does not start, and leaves the first one's.
+      const second = await serveOnce(['--socket', socket]);
+      assert.equal(second.code, 1);
+      assert.match(second.stderr, /^pdfkiln serve: a server already listens on /);
+      assert.ok(existsSync(socket), "the first server's socket stays");
+      const e = await run(['-q', `${base}/ok`, join(dir, 'serve-e.pdf')], { env });
+      assert.equal(e.code, 0, e.stderr);
+      assert.match(e.stderr, /"served":1/);
     } finally {
-      await serve.stop();
+      const exited = new Promise((ok) => server.once('exit', ok));
+      server.kill('SIGTERM');
+      await exited;
+      rmSync(tmp, { recursive: true, force: true });
     }
-    if (process.platform !== 'win32') assert.ok(!existsSync(socket), 'socket removed');
+    assert.ok(!existsSync(socket), 'socket removed');
     if (!hasPyMuPDF) t.skip('PyMuPDF missing');
   });
 });

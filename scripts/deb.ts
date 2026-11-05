@@ -168,17 +168,27 @@ ${profile}EOF
 fi
 # A pdfkiln serve that runs keeps the Chromium it started with, its flaws
 # with it: on an update, those that run restart (try-restart leaves the
-# others stopped). A conversion under way at that moment fails.
+# others stopped). A conversion under way at that moment fails. Through
+# deb-systemd-invoke, as Debian's own packages do, which honours
+# policy-rc.d; systemctl where it is missing.
 if [ "$1" = configure ] && [ -n "$2" ] && [ -d /run/systemd/system ]; then
-  systemctl daemon-reload || true
-  systemctl try-restart 'pdfkiln@*.service' || true
+  systemctl --system daemon-reload > /dev/null || true
+  if command -v deb-systemd-invoke > /dev/null; then
+    deb-systemd-invoke try-restart 'pdfkiln@*.service' > /dev/null || true
+  else
+    systemctl try-restart 'pdfkiln@*.service' || true
+  fi
 fi
 `);
 // Removed, the program is gone: the servers that run stop with it.
 writeFileSync(join(debian, 'prerm'), `#!/bin/sh
 set -e
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
-  systemctl stop 'pdfkiln@*.service' || true
+  if command -v deb-systemd-invoke > /dev/null; then
+    deb-systemd-invoke stop 'pdfkiln@*.service' > /dev/null || true
+  else
+    systemctl stop 'pdfkiln@*.service' || true
+  fi
 fi
 `);
 writeFileSync(join(debian, 'postrm'), `#!/bin/sh

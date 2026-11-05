@@ -2,25 +2,34 @@
 
 What each version changes, for those who use it. A version's release notes
 open with its section here (scripts/release.ts): no release without one.
-They name Chromium only when the version changes it, with its new version
-first. Up to 1.0.2, see each version's GitHub release.
+A version that changes Chromium says so under Security: the two versions,
+and a link to Google's release notes. Up to 1.0.2, see each version's
+GitHub release.
 
-## 1.2.0
+## 1.1.2
 
 Security:
 
-- The 213 fixes of Chrome 157.0.8103.38, 7 of them rated Critical by Google (Dawn, ANGLE, WebGL, Prerender, Geometry, Core) and 77 High: [Google's announcement](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html). PDFKiln renders the pages it is given with this Chromium: update.
-- The Debian package restarts the `pdfkiln serve` units that run (`pdfkiln@<user>`) when it is updated, this update included: up to 1.1.1, a server kept the Chromium it had started with, its flaws with it, until restarted by hand. A conversion under way at that moment fails. Removed, the package stops them. A `pdfkiln serve` started otherwise (archive, script of your own) keeps its Chromium until you restart it.
+- Chromium 156.0.8078.80 → 157.0.8103.38 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html)).
+- `wkhtmltopdf` and `wkhtmltoimage` ignore a `pdfkiln serve` that runs another Chromium version than theirs, one started before an update for example, and start their own; restart the server to use it again.
+- On Windows, `pdfkiln serve` is off: another account on the machine could pose as it. It comes back once a command can check that the server is its own.
+- Debian package: a running `pdfkiln@<user>` restarts on update, so it runs the new Chromium; up to 1.1.1, it kept the old one. A conversion under way at that moment fails. Removing the package stops it.
 
 In every mode:
 
-- The program runs on Node.js 24.22.2, where 1.1.1 ran on 24.22.1.
+- Node.js 24.22.1 → 24.22.2 on Linux and macOS; Windows already had 24.22.2.
 
-Called as `pdfkiln`, what is new:
+Bugs fixed:
 
-- `pdfkiln serve` serves `pdfkiln` too: its conversions skip Chromium's start-up, as those of `wkhtmltopdf` and `wkhtmltoimage` do, and nothing changes in the commands. On the two-page Odoo invoice, 0.76 s less per conversion on a Debian 13 server (0.63 s instead of 1.39 s), 0.71 s on a Windows 11 PC (1.06 s instead of 1.77 s), measured with `node dist/bench/call.js --native --server --no-wkhtmltopdf --delay 200 --runs 9`.
-- On Linux, `pdfkiln serve` starts a second Chromium for `pdfkiln`, at its first conversion, with the system's fonts: the Chromium of `wkhtmltopdf` emulates wkhtmltopdf's fonts, a setting of the whole process. `pdfkiln` renders the same pages through the server as without it. Its socket is beside the other: `chromium-native.sock`, or the path of `--socket` and `PDFKILN_SERVER` with `-native` added. A `pdfkiln serve` of 1.1 has no such socket, and `pdfkiln` starts its own Chromium, as before, until the server restarts.
-- `pdfkiln --help` opens with examples, groups the options by what they do and lists the commands (`serve`, `wkhtmltopdf`, `wkhtmltoimage`).
+- `--kiln-timeout` also bounds the wait for `pdfkiln serve`: a server whose Chromium no longer answered held each conversion forever.
+- `pdfkiln serve --socket` no longer sets an existing folder to mode 0700 (a home folder, for example); the socket itself is private.
+- `pdfkiln serve` no longer grows in memory as it runs: it kept all that Chromium wrote on its error output, and the browser contexts of conversions stopped while they began.
+- A `pdfkiln serve` that fails to start because another one runs no longer removes that one's socket.
+- `pdfkiln serve` says why it cannot listen on its socket, instead of a stack trace.
+
+Called as `pdfkiln`:
+
+- `pdfkiln --help` is easier to read: examples first, options grouped, commands listed.
 
 ## 1.1.1
 
@@ -80,7 +89,7 @@ Called as `pdfkiln`, what is new:
 
 ## 1.0.4
 
-- Security: the 21 fixes of Chrome 156.0.8078.79, 1 of them rated Critical by Google (MediaStream) and 19 High: [Google's announcement](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02107719452.html). pdfkiln renders the pages it is given with this Chromium: update.
+- Security: Chromium 156.0.8078.73 → 156.0.8078.80 ([release notes](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02107719452.html)).
 - `--no-custom-header-propagation` turns the propagation on, as in wkhtmltopdf 0.12.6, where it does what `--custom-header-propagation` does; up to 1.0.3, pdfkiln turned it off. Commands written for wkhtmltopdf that pass it send their `--custom-header` with every request again.
 - On Windows Server Core, where pdfkiln cannot render, the conversion fails with a message that says so, instead of "Target closed". Windows Server with the Desktop Experience runs pdfkiln, IIS included: now tested as the application pool's identity.
 - On Linux, a missing system library (the archive and the Composer package do not carry them) is named in the error, instead of "Target closed"; the README lists the Debian and Ubuntu packages.
@@ -89,4 +98,4 @@ Called as `pdfkiln`, what is new:
 
 ## 1.0.3
 
-- Security: the 52 fixes of Chrome 156.0.8078.73, 4 of them rated Critical by Google (Layout, Skia, FileSystem, FileAPI) and 46 High: [Google's announcement](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_0562499947.html). pdfkiln renders the pages it is given with this Chromium: update.
+- Security: Chromium 156.0.8078.47 → 156.0.8078.73 ([release notes](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_0562499947.html)).

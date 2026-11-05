@@ -1,11 +1,12 @@
 // The Chromium of one conversion, as both commands start it: the one
-// pdfkiln serve keeps open if it answers, in a browser context of its own,
-// else a Chromium of its own; through the relay with
-// --kiln-block-private-network, else through --proxy; with Qt's default
-// font; stopped at --kiln-timeout.
+// pdfkiln serve keeps open if it answers and runs the Chromium this command
+// would start, in a browser context of its own, else a Chromium of its own;
+// through the relay with --kiln-block-private-network, else through
+// --proxy; with Qt's default font; stopped at --kiln-timeout.
 import type { Browser, BrowserContext } from 'puppeteer-core';
-import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
+import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { connectServer } from '../engine/server.js';
+import { chromiumVersion } from '../version.js';
 import { noAliasEnv, qtDefaultFamily } from '../engine/fonts.js';
 import { startRelay, type Relay } from '../engine/relay.js';
 import { readJar, writeJar } from './cookiejar.js';
@@ -37,9 +38,14 @@ export class Chromium {
     // Even loopback addresses go through the relay.
     const proxyServer = relay?.url ?? (proxy ? `${proxy.type}://${proxy.host}:${proxy.port}` : undefined);
     const proxyBypass = relay ? ['<-loopback>'] : proxy?.host ? bypass : [];
-    this.remote = (await connectServer()) ?? undefined;
+    const found = await connectServer();
+    // A server that runs another Chromium is left aside, and named if this
+    // command's own cannot start.
+    const stale = typeof found === 'string' ? found : undefined;
+    this.remote = typeof found === 'string' ? undefined : found ?? undefined;
     if (this.remote) {
-      this.context = await this.remote.createBrowserContext({ proxyServer, proxyBypassList: proxyBypass.length ? proxyBypass : undefined });
+      // From the connection on: a server whose Chromium no longer answers
+      // would otherwise hold the conversion forever.
       if (g.kiln.timeout) {
         const timer = setTimeout(() => {
           this.context?.close().catch(() => {});
@@ -49,15 +55,21 @@ export class Chromium {
         timer.unref();
         this.stopDeadline = () => clearTimeout(timer);
       }
+      this.context = await this.remote.createBrowserContext({ proxyServer, proxyBypassList: proxyBypass.length ? proxyBypass : undefined });
       return this.context;
     }
-    this.session = await launch({
-      dir: work,
-      noSandbox: g.kiln.noSandbox,
-      proxyServer,
-      proxyBypassList: proxyBypass.join(';') || undefined,
-      env: this.fontFamily ? noAliasEnv(work) : {},
-    });
+    try {
+      this.session = await launch({
+        dir: work,
+        noSandbox: g.kiln.noSandbox,
+        proxyServer,
+        proxyBypassList: proxyBypass.join(';') || undefined,
+        env: this.fontFamily ? noAliasEnv(work) : {},
+      });
+    } catch (e) {
+      if (stale && e instanceof LaunchError) throw new LaunchError(`${e.message} (pdfkiln serve runs Chromium ${stale}, not ${chromiumVersion}: restart it to use it)`);
+      throw e;
+    }
     this.stopDeadline = deadline(this.session, g.kiln.timeout, () => {
       // Written even with --quiet, as wkhtmltopdf's last line.
       removeQuietly(work);

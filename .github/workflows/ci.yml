@@ -87,8 +87,9 @@ jobs:
 
       # A measure: the two-page Odoo invoice with and without pdfkiln serve,
       # alternated (wkhtmltopdf 0.12.6 is compared in the compat job; there
-      # is none for macOS).
+      # is none for macOS). pdfkiln serve is off on Windows.
       - name: Chromium kept open, two-page Odoo invoice
+        if: runner.os != 'Windows'
         run: |
           node dist/bench/call.js --server --no-wkhtmltopdf --delay 200 --runs 9 | tee serve.txt
           { echo '## pdfkiln serve, two-page Odoo invoice'; echo; echo '```'; cat serve.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -487,7 +488,9 @@ jobs:
           served
           after=$(systemctl show -p MainPID --value "pdfkiln@$USER")
           echo "pdfkiln@$USER: $before, then $after"
-          if [ "$before" = 0 ] || [ "$after" = 0 ] || [ "$after" = "$before" ]; then echo "pdfkiln@$USER did not restart"; exit 1; fi
+          # Restarted by the upgrade, not by systemd after a crash (NRestarts counts those).
+          restarts=$(systemctl show -p NRestarts --value "pdfkiln@$USER")
+          if [ "$before" = 0 ] || [ "$after" = 0 ] || [ "$after" = "$before" ] || [ "$restarts" != 0 ]; then echo "pdfkiln@$USER did not restart"; exit 1; fi
           sed -i 's/^Label: pdfkiln$/Label: pdfkilm/' "$repo/dists/stable/InRelease"
           if update; then echo 'a tampered index was accepted'; exit 1; fi
           sudo apt-get purge -y pdfkiln

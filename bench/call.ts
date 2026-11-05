@@ -2,17 +2,16 @@
 // wkhtmltopdf 0.12.6, on a corpus entry: the README figure.
 //
 //   npm run bundle && node dist/bench/call.js [--entry odoo17-invoice-long] [--delay 200] [--runs 15] [--exe path/to/wkhtmltopdf]
-//                                             [--server] [--no-wkhtmltopdf] [--native]
+//                                             [--server] [--no-wkhtmltopdf]
 //
 // --server: pdfkiln serve is started on a socket of the bench's own, and
 // each round also runs the command through it, against the command alone
-// (PDFKILN_SERVER=off). --no-wkhtmltopdf: pdfkiln only, where there is no
-// wkhtmltopdf 0.12.6 to run (macOS). --native: pdfkiln's own interface on
-// the entry's pages (pdfkiln -q --allow-private-network --javascript-delay
-// <ms> <pages> <out>) in place of the wkhtmltopdf command line.
+// (PDFKILN_SERVER=off); not on Windows, where pdfkiln serve is off.
+// --no-wkhtmltopdf: pdfkiln only, where there is no
+// wkhtmltopdf 0.12.6 to run (macOS).
 //
-// Output: bench/out/call/call-<entry>-delay<ms>[-native][-server].json,
-// with the median of each step of the command (PDFKILN_TIMINGS).
+// Output: bench/out/call/call-<entry>-delay<ms>[-server].json, with the
+// median of each step of the command (PDFKILN_TIMINGS).
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +29,6 @@ const { values } = parseArgs({
     exe: { type: 'string' },
     server: { type: 'boolean' },
     'no-wkhtmltopdf': { type: 'boolean' },
-    native: { type: 'boolean' },
   },
 });
 const out = join(repoRoot, 'bench', 'out', 'call');
@@ -82,6 +80,7 @@ if (values.delay) {
 const delay = args[args.indexOf('--javascript-delay') + 1] ?? '200';
 const withOut = (f: string) => args.map((a) => (a === '{out}' ? join(out, f) : a));
 
+if (values.server && process.platform === 'win32') throw new Error('--server: pdfkiln serve is off on Windows');
 const server = values.server ? await startServer() : undefined;
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 const wk: number[] = [];
@@ -89,13 +88,8 @@ const ours: number[] = [];
 const served: number[] = [];
 const steps: Record<string, number>[] = [];
 const servedSteps: Record<string, number>[] = [];
-// The entry's pages, served from 127.0.0.1, which the native interface
-// refuses by default.
-const ourCommand = (f: string): [string, string[]] => values.native
-  ? pdfkiln(['-q', '--allow-private-network', '--javascript-delay', delay, ...e.call.pages, join(out, f)])
-  : command(withOut(f));
 const ourCall = async (env: NodeJS.ProcessEnv, f: string) => {
-  const p = await run(...ourCommand(f), { cwd: e.dir, stdin: e.stdin, env: { ...process.env, PDFKILN_TIMINGS: '1', ...env } });
+  const p = await run(...command(withOut(f)), { cwd: e.dir, stdin: e.stdin, env: { ...process.env, PDFKILN_TIMINGS: '1', ...env } });
   if (p.code !== 0) throw new Error(`pdfkiln: ${p.stderr}`);
   return { ms: p.ms, steps: JSON.parse(p.stderr.trim().split('\n').pop()!) as Record<string, number> };
 };
@@ -124,7 +118,6 @@ try {
 const medians = (xs: Record<string, number>[]) => Object.fromEntries(Object.keys(xs[0]!).map((k) => [k, median(xs.map((s) => s[k]!))]));
 const result = {
   entry: values.entry,
-  ...(values.native ? { native: true } : {}),
   delay: Number(delay),
   runs: ours.length,
   median: {
@@ -137,6 +130,6 @@ const result = {
   steps: medians(steps),
   ...(served.length ? { servedSteps: medians(servedSteps) } : {}),
 };
-writeJson(join(out, `call-${values.entry}-delay${delay}${values.native ? '-native' : ''}${server ? '-server' : ''}.json`), result);
+writeJson(join(out, `call-${values.entry}-delay${delay}${server ? '-server' : ''}.json`), result);
 console.log(JSON.stringify(result));
 e.close();
