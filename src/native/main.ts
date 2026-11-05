@@ -62,6 +62,12 @@ Rendering:
   --outline                   Bookmarks from the headings
   --tagged                    Tagged PDF, for screen readers (one input)
 
+Document properties:
+  --title <text>              Title (default: the page's <title>)
+  --author <text>             Author
+  --subject <text>            Subject
+  --keywords <text>           Keywords
+
 Waiting for the page:
   --javascript-delay <ms>     Wait up to this long after loading, less once
                               the page stops changing (default: 1000; 0: none)
@@ -80,6 +86,8 @@ Access, refused by default:
                               link-local addresses
 
 Other:
+  --fail-on-resource-error    Fail, without a PDF, when an image, font, style
+                              sheet or other resource does not load
   -q, --quiet                 No warnings
   --no-sandbox                Run Chromium without its sandbox (not advised)
   -V, --version               Show the version

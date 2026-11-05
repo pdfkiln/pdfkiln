@@ -930,6 +930,10 @@ describe('native interface', () => {
     assert.equal(r.code, 0);
     assert.match(r.stdout.toString(), /^PDFKiln: HTML to PDF with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
+    assert.match(r.stdout.toString(), /\nDocument properties:\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
+    assert.match(r.stdout.toString(), /\n {2}--fail-on-resource-error {4}Fail, without a PDF, /);
+    // pdfkiln serve is gone (1.2.0).
+    assert.doesNotMatch(r.stdout.toString(), /\bserve\b/);
     // Every line fits in 80 columns.
     assert.deepEqual(r.stdout.toString().split('\n').filter((l) => l.length > 80), []);
     r = await native(['--version']);

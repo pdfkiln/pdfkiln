@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`); `pdfkiln --help` lists them all. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`); `pdfkiln --help` lists them all. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -148,7 +148,7 @@ Called as `wkhtmltopdf`, the defaults of wkhtmltopdf are kept, it is the compati
 - `--kiln-timeout <seconds>`: the conversion and Chromium are stopped after 120 s by default;
 - Chromium's sandbox is on; `--kiln-no-sandbox` turns it off, not recommended.
 
-Called as `pdfkiln`, the defaults are secure: a page reads no local file but itself unless `--enable-local-file-access` or `--allow <path>` says so, and reaches no loopback, private or link-local address, checked after DNS resolution, unless `--allow-private-network` is given. `--header` and `--cookie` go with the requests to the input's host only, never to another site. An input that does not load, refused or in HTTP error, fails the conversion: exit 1, no PDF. The conversion stops after 120 s (`--timeout`), and Chromium's sandbox is on (`--no-sandbox`, not recommended).
+Called as `pdfkiln`, the defaults are secure: a page reads no local file but itself unless `--enable-local-file-access` or `--allow <path>` says so, and reaches no loopback, private or link-local address, checked after DNS resolution, unless `--allow-private-network` is given. `--header` and `--cookie` go with the requests to the input's host only, never to another site. An input that does not load, refused or in HTTP error, fails the conversion: exit 1, no PDF; with `--fail-on-resource-error`, so does a resource of the page. The conversion stops after 120 s (`--timeout`), and Chromium's sandbox is on (`--no-sandbox`, not recommended).
 
 ## Compatibility and speed
 
