@@ -16,6 +16,11 @@ GitHub release.
 - `wkhtmltopdf` and `wkhtmltoimage` no longer look for a server: `PDFKILN_SERVER` has no effect any more, and a 1.1 server that still runs is ignored; stop it. Pages render with the command's time zone and language (`TZ`, `LANG`) again: through a server, they had the server's.
 - Debian package: the `pdfkiln@.service` unit is gone. The update stops the `pdfkiln@` units that run and disables those that are enabled: nothing to do.
 
+Called as `pdfkiln`, what is new:
+
+- `--fail-on-resource-error`: a resource that does not load (image, font, style sheet, frame, request of a script) fails the conversion, where it was a warning and the PDF went without it: exit 1, no PDF, and an error for each, `could not load <url>: <why>`, once the page has loaded and printed, so that all are listed, lazy images included; `-q` does not hide them.
+- `--title`, `--author`, `--subject` and `--keywords`: the PDF's properties, `--title` named as in wkhtmltopdf. Without them, nothing changes: the title is the page's `<title>`, the others are not set.
+
 ## 1.1.2
 
 Security:

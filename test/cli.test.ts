@@ -819,6 +819,52 @@ describe('native interface', () => {
     assert.equal(r.stderr, `pdfkiln: warning: could not load ${pathToFileURL(join(link, 'missing.png')).href}: no such file\n`);
   });
 
+  test('--fail-on-resource-error: no PDF, an error for each resource that does not load, -q or not', async () => {
+    const out = join(dir, 'native-strict.pdf');
+    rmSync(out, { force: true });
+    const errors = ['data', 'font', 'frame', 'image', 'image.png', 'style.css'].map((p) => `pdfkiln: error: could not load ${base}/${p}: HTTP 404`).sort();
+    for (const quiet of [[], ['-q']]) {
+      const r = await native([...quiet, '--fail-on-resource-error', '--allow-private-network', `${base}/resources`, out]);
+      assert.equal(r.code, 1);
+      assert.deepEqual(r.stderr.trim().split(/\r?\n/).sort(), errors);
+      assert.ok(!existsSync(out), 'no PDF');
+    }
+    // Every one, those printing asks for included: an image added after
+    // the load, a lazy one far below, which only printing loads; the reasons
+    // of the warnings.
+    const page = file('native/strict/page.html', `<p>strict</p><img src="refused.png"><div style="height: 6000px"></div><img loading="lazy" src="lazy.png">
+      <script>setTimeout(() => document.body.append(Object.assign(new Image(), { src: 'late.png' })), 300);</script>`);
+    const url = (name: string) => pathToFileURL(join(dir, 'native', 'strict', name)).href;
+    let r = await native(['--fail-on-resource-error', page, out]);
+    assert.equal(r.code, 1);
+    assert.deepEqual(r.stderr.trim().split(/\r?\n/).sort(), ['late.png', 'lazy.png', 'refused.png']
+      .map((n) => `pdfkiln: error: could not load ${url(n)}: not an allowed file (--allow <path> or --enable-local-file-access to read it)`));
+    r = await native(['--fail-on-resource-error', '--allow', join(dir, 'native', 'strict'), page, out]);
+    assert.equal(r.code, 1);
+    assert.deepEqual(r.stderr.trim().split(/\r?\n/).sort(), ['late.png', 'lazy.png', 'refused.png'].map((n) => `pdfkiln: error: could not load ${url(n)}: no such file`));
+    assert.ok(!existsSync(out), 'no PDF');
+    // Everything loaded: the PDF, as without it.
+    r = await native(['--fail-on-resource-error', '--allow-private-network', `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, '');
+    assert.ok(existsSync(out));
+  });
+
+  test('--title, --author, --subject and --keywords: the PDF\'s properties, the page\'s title otherwise', async () => {
+    const page = file('native/properties.html', '<title>The page</title><p>properties</p>');
+    const out = join(dir, 'native-properties.pdf');
+    const properties = async () => {
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      return [doc.getTitle(), doc.getAuthor(), doc.getSubject(), doc.getKeywords(), doc.getCreator(), doc.getProducer()];
+    };
+    let r = await native([page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await properties(), ['The page', undefined, undefined, undefined, `PDFKiln ${version}`, 'pdfkiln.org']);
+    r = await native(['--title', 'Facture n° 42 — été', '--author', 'ACME SARL', '--subject', 'Invoice', '--keywords', 'invoice, 2026', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await properties(), ['Facture n° 42 — été', 'ACME SARL', 'Invoice', 'invoice, 2026', `PDFKiln ${version}`, 'pdfkiln.org']);
+  });
+
   test('--header and --cookie go with the requests to the input\'s host, and no other', async () => {
     const out = join(dir, 'native-site.pdf');
     const send = ['--allow-private-network', '--header', 'X-Test: yes', '--cookie', 'session=abc'];

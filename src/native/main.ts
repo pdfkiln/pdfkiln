@@ -15,9 +15,15 @@
 // - secure by default: a page reads no local file but itself unless --allow
 //   or --enable-local-file-access, and reaches no loopback, private or
 //   link-local address unless --allow-private-network;
-// - an input that does not load fails: exit 1, no PDF;
+// - an input that does not load fails: exit 1, no PDF; with
+//   --fail-on-resource-error, so does an input one of whose resources does
+//   not;
 // - its own messages, with why: one error for an input that does not load,
-//   a warning for each resource that does not (-q hides them).
+//   a warning for each resource that does not (-q hides them), or with
+//   --fail-on-resource-error an error for each, once the input has loaded
+//   and printed;
+// - --title, --author, --subject and --keywords: the PDF's properties, the
+//   title being the page's otherwise.
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -166,6 +172,11 @@ export async function nativeMain(args: string[]): Promise<number> {
         'enable-local-file-access': { type: 'boolean' },
         'allow-private-network': { type: 'boolean' },
         timeout: { type: 'string' },
+        'fail-on-resource-error': { type: 'boolean' },
+        title: { type: 'string' },
+        author: { type: 'string' },
+        subject: { type: 'string' },
+        keywords: { type: 'string' },
         'no-sandbox': { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         version: { type: 'boolean', short: 'V' },
@@ -257,15 +268,25 @@ export async function nativeMain(args: string[]): Promise<number> {
   const warning = (m: string) => {
     if (!v.quiet) stderr(`pdfkiln: warning: ${m}\n`);
   };
+  // With --fail-on-resource-error, the resources of the input that did not
+  // load, each once.
+  const unloaded = new Set<string>();
   const out: Reporter = {
     warning,
     error: (m) => stderr(`pdfkiln: error: ${m}\n`),
-    // A resource that does not load is a warning; the input itself, the
-    // error below.
+    // A resource that does not load is a warning, or kept for the errors
+    // below; the input itself, the error below.
     failed: (url, f, page) => {
       if (page) failure ||= why(url, f);
+      else if (v['fail-on-resource-error']) unloaded.add(`could not load ${url}: ${why(url, f)}`);
       else warning(`could not load ${url}: ${why(url, f)}`);
     },
+  };
+  // Whether the input lacks a resource: then all of them, as errors, which
+  // -q does not hide.
+  const incomplete = (): boolean => {
+    for (const m of unloaded) out.error(m);
+    return unloaded.size > 0;
   };
   const work = mkdtempSync(join(tmpdir(), 'pdfkiln-'));
   let session: Session | undefined;
@@ -301,6 +322,8 @@ export async function nativeMain(args: string[]): Promise<number> {
         return 1;
       }
       failure = '';
+      // What the input before asked for once printed is not in the PDF.
+      unloaded.clear();
       const lp = await openPage(context, {
         url,
         web: base.web,
@@ -327,6 +350,9 @@ export async function nativeMain(args: string[]): Promise<number> {
         tagged: Boolean(v.tagged || v.outline),
         outline: Boolean(v.outline),
       });
+      // --fail-on-resource-error: once printed, which asks for what the
+      // load left (lazy images), so that all are told.
+      if (incomplete()) return 1;
       await lp.page.close();
       const doc = await PDFDocument.load(pdf, { updateMetadata: false });
       fixDests(doc, CM_PT, CM_PT, 1);
@@ -342,6 +368,12 @@ export async function nativeMain(args: string[]): Promise<number> {
     }
     merged.doc.setCreator(`PDFKiln ${version}`);
     merged.doc.setProducer('pdfkiln.org');
+    // The title Chromium gave, the page's, unless --title; the others only
+    // when given.
+    if (v.title !== undefined) merged.doc.setTitle(v.title);
+    if (v.author !== undefined) merged.doc.setAuthor(v.author);
+    if (v.subject !== undefined) merged.doc.setSubject(v.subject);
+    if (v.keywords !== undefined) merged.doc.setKeywords([v.keywords]);
     const bytes = await merged.doc.save();
     if (output === '-') writeAll(1, bytes);
     else writeFileSync(output, bytes);
