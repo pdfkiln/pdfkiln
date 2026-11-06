@@ -642,6 +642,47 @@ describe('security', () => {
     for (let i = 0; i < 50 && readdirSync(tmp).some((f) => f.startsWith('pdfkiln-')); i++) await new Promise((ok) => setTimeout(ok, 100));
     assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), []);
   });
+
+  // The header's measure, started with the page, outlives it: Chromium
+  // closes under it.
+  test('a header measured while the page fails to load: wkhtmltopdf\'s last line, no folder left', async () => {
+    const tmp = mkdtempSync(join(dir, 'tmp-'));
+    const header = file('measured-header.html', '<p>Header</p>');
+    const r = await run(['-q', '--header-html', header, '-T', '20mm', 'http://pdfkiln-nonexistent.invalid/', join(dir, 'measured.pdf')], { env: { TEMP: tmp, TMP: tmp, TMPDIR: tmp } });
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /Exit with code 1 due to network error: HostNotFoundError\n$/);
+    assert.doesNotMatch(r.stderr, /\n\s+at /);
+    for (let i = 0; i < 50 && readdirSync(tmp).some((f) => f.startsWith('pdfkiln-')); i++) await new Promise((ok) => setTimeout(ok, 100));
+    assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), []);
+  });
+
+  test('a failure of PDFKiln\'s own ends on wkhtmltopdf\'s last line, not on a stack trace', async () => {
+    const r = await run(['-q', '--header-html', 'no such header.html', `${base}/ok`, join(dir, 'own.pdf')]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^Error: .+\n(.+\n)*Exit with code 1, due to unknown error\.\n$/);
+    assert.doesNotMatch(r.stderr, /\n\s+at /);
+  });
+
+  test('Ctrl+C or SIGTERM: Chromium and the temporary folder go too', { skip: process.platform === 'win32' && 'POSIX signals' }, async () => {
+    const tmp = mkdtempSync(join(dir, 'tmp-'));
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      const [exe, argv] = command(process.env.PDFKILN_TEST_WKHTMLTOPDF, cli, ['-q', `${base}/hang`, join(dir, 'signal.pdf')]);
+      const child = spawn(exe, argv, { cwd: dir, env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp }, stdio: 'ignore' });
+      const exited = new Promise<{ code: number | null; s: NodeJS.Signals | null }>((ok) => child.on('exit', (code, s) => ok({ code, s })));
+      // Once Chromium runs: its profile is in the conversion's folder.
+      const running = () => readdirSync(tmp).some((f) => f.startsWith('pdfkiln-') && existsSync(join(tmp, f, 'chromium')));
+      for (let i = 0; i < 150 && !running(); i++) await new Promise((ok) => setTimeout(ok, 100));
+      assert.ok(running(), 'Chromium started');
+      child.kill(signal);
+      // Ended by the signal, once its folder is removed; or by the
+      // conversion's own failure, should Chromium's end reach it first.
+      const end = await exited;
+      assert.ok(end.s === signal || (end.code ?? 0) > 0, JSON.stringify(end));
+      for (const h of hangs) h();
+      hangs = [];
+      assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), [], signal);
+    }
+  });
 });
 
 describe('native interface', () => {

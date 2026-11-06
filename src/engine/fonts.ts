@@ -2,22 +2,34 @@
 // installed, and its default font for any other family, generic ones
 // included. Chromium is given a fontconfig setup without the substitution
 // rules, and the default font for every generic family.
-import { execFileSync } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-let qtDefault: string | undefined | null = null;
+export interface DefaultFamily {
+  // Settles once fc-match runs (true) or could not start (false).
+  started: Promise<boolean>;
+  // What fontconfig gives Qt for its default family, "Helvetica".
+  family: Promise<string | undefined>;
+}
 
-// What fontconfig gives Qt for its default family, "Helvetica".
-export function qtDefaultFamily(): string | undefined {
-  if (process.platform !== 'linux') return undefined;
-  if (qtDefault === null) {
-    try {
-      qtDefault = execFileSync('fc-match', ['-f', '%{family[0]}', 'Helvetica'], { encoding: 'utf8', timeout: 5000 }).trim() || undefined;
-    } catch {
-      qtDefault = undefined;
-    }
+let qtDefault: DefaultFamily | undefined;
+
+// fc-match, in the background: it takes 0.3 s on a server with ten
+// thousand fonts, which it spends while Chromium starts.
+export function qtDefaultFamily(): DefaultFamily {
+  if (process.platform !== 'linux') return { started: Promise.resolve(false), family: Promise.resolve(undefined) };
+  if (!qtDefault) {
+    let child!: ChildProcess;
+    const family = new Promise<string | undefined>((resolve) => {
+      child = execFile('fc-match', ['-f', '%{family[0]}', 'Helvetica'], { encoding: 'utf8', timeout: 5000 }, (e, out) => resolve(e ? undefined : out.trim() || undefined));
+    });
+    const started = new Promise<boolean>((resolve) => {
+      child.once('spawn', () => resolve(true));
+      child.once('error', () => resolve(false));
+    });
+    qtDefault = { started, family };
   }
   return qtDefault;
 }

@@ -25,6 +25,18 @@ In every mode:
 - Faster: on the two-page Odoo invoice, about 0.1 s less per conversion on a Windows 11 PC called as `pdfkiln` (1.22 → 1.12 s) and 0.05 s as `wkhtmltopdf` (2.00 → 1.95 s); 0.04 s less on a Debian 13 server (0.75 → 0.70 s, 1.72 → 1.68 s). Two changes:
   - the first page of a conversion opens in the blank tab Chromium starts with, rather than in a new one;
   - each mode loads only its own code, and the code that writes the PDF loads while Chromium starts.
+- Much faster on long documents and tagged PDFs: the code that reads and writes the PDF no longer pauses every 100 objects it reads and every 50 it writes, 15 ms a pause on Windows and 1 ms on Linux. On a Windows 11 PC, 72 pages as `wkhtmltopdf` take 2.5 s instead of 7.2 s, and 87 pages as `pdfkiln --tagged` take 2.1 s instead of 26.8 s.
+
+Called as `wkhtmltopdf`:
+
+- Several pages in one call (Odoo passes one per record) take half the memory: a header or footer they share is measured once, at most 8 pages print and 8 headers or footers render at a time, and each page closes once printed. 20 one-page invoices with a header and a footer: 0.74 GB instead of 1.6 GB, 4.1 s instead of 5.1 s, on a Windows 11 PC. Each page still stays open from its load to its print.
+- Faster on the two-page Odoo invoice: 1.63 s instead of 1.81 s on a Windows 11 PC, with the changes above. On Linux, fontconfig's default font is also looked up while Chromium starts, not before it: on a Debian 13 server with ten thousand fonts, Chromium's start takes 0.43 s instead of 0.64 s.
+
+Bugs fixed:
+
+- A long document no longer fails after 30 s of printing with "Timed out after waiting 30000ms": only `--timeout` and `--kiln-timeout` bound a conversion.
+- Ctrl+C, SIGTERM or SIGHUP during a conversion: its temporary folder goes too, as Chromium does; it stayed behind.
+- `wkhtmltopdf` with `--header-html` or `--footer-html`, whose page failed to load: a stack trace instead of wkhtmltopdf's last line, and the temporary folder left. The same for a failure of PDFKiln's own, such as a `--header-html` that names no file: it ends on `Error: …` and `Exit with code 1, due to unknown error.`
 
 Called as `pdfkiln`, what is new:
 

@@ -21,7 +21,12 @@ export class Chromium {
       this.relay = await startRelay();
       if (proxy) fb.warning('--proxy is ignored with --kiln-block-private-network');
     }
-    this.fontFamily = qtDefaultFamily();
+    // fc-match runs while Chromium starts: the setup without substitutions
+    // only needs fontconfig to answer, the family itself serves the pages.
+    // If fc-match starts but finds nothing, Chromium keeps that setup and
+    // the pages their own generic families.
+    const fonts = qtDefaultFamily();
+    const withFonts = await fonts.started;
     const relay = this.relay;
     // Even loopback addresses go through the relay.
     const proxyServer = relay?.url ?? (proxy ? `${proxy.type}://${proxy.host}:${proxy.port}` : undefined);
@@ -31,9 +36,10 @@ export class Chromium {
       noSandbox: g.kiln.noSandbox,
       proxyServer,
       proxyBypassList: proxyBypass.join(';') || undefined,
-      env: this.fontFamily ? noAliasEnv(work) : {},
+      env: withFonts ? noAliasEnv(work) : {},
       meanwhile,
     });
+    this.fontFamily = await fonts.family;
     this.stopDeadline = deadline(this.session, g.kiln.timeout, () => {
       // Written even with --quiet, as wkhtmltopdf's last line.
       removeQuietly(work);

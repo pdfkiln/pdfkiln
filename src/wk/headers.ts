@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PDFDocument, PDFPage } from '@cantoo/pdf-lib';
 import type { BrowserContext } from 'puppeteer-core';
 import { emulate, openPage, type LoadSpec, type Reporter } from '../engine/loader.js';
-import { pdfModules } from '../pdf/modules.js';
+import { pdfModules, READ } from '../pdf/modules.js';
 import type { HeaderFooter } from './settings.js';
 
 const PT_PER_MM = 72 / 25.4;
@@ -92,7 +92,7 @@ export async function printDocument(context: BrowserContext, html: string, dir: 
   }, out);
   const pdf = await lp.page.pdf({
     width: `${g.width}mm`, height: `${g.height}mm`, margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    printBackground: false, preferCSSPageSize: false, tagged: false, outline: false,
+    printBackground: false, preferCSSPageSize: false, tagged: false, outline: false, timeout: 0,
   });
   await lp.page.close();
   return pdf;
@@ -167,7 +167,7 @@ export async function renderHtml(context: BrowserContext, urls: string[], b: Box
   await emulate(lp);
   const pdf = await lp.page.pdf({
     width: `${b.width}mm`, height: `${Math.max(height, 0.1)}mm`, margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    printBackground: true, scale: b.scale, preferCSSPageSize: false, tagged: false, outline: false,
+    printBackground: true, scale: b.scale, preferCSSPageSize: false, tagged: false, outline: false, timeout: 0,
   });
   await lp.page.close();
   return { pdf, errorCode: lp.errorCode };
@@ -183,7 +183,7 @@ export interface Layer {
 
 export async function stamp(doc: PDFDocument, pages: PDFPage[], layers: Layer[]): Promise<void> {
   for (const layer of layers) {
-    const src = await (await pdfModules())[0].PDFDocument.load(layer.pdf);
+    const src = await (await pdfModules())[0].PDFDocument.load(layer.pdf, READ);
     const n = Math.min(src.getPageCount(), layer.targets.length);
     // A page Chromium left blank has no content stream: nothing to draw.
     const indices = Array.from({ length: n }, (_, i) => i).filter((i) => src.getPage(i).node.normalizedEntries().Contents);

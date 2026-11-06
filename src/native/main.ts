@@ -36,7 +36,7 @@ import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
 import type { FinalItem, OutlineItem } from '../pdf/assemble.js';
-import { pdfModules } from '../pdf/modules.js';
+import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
 
@@ -382,12 +382,14 @@ export async function nativeMain(args: string[]): Promise<number> {
         printBackground: true,
         tagged: Boolean(v.tagged || v.outline),
         outline: Boolean(v.outline),
+        // Puppeteer's own 30 s would cut a long document: --timeout decides.
+        timeout: 0,
       });
       // --fail-on-resource-error: once printed, which asks for what the
       // load left (lazy images), so that all are told.
       if (incomplete()) return 1;
       await lp.page.close();
-      const doc = await PDFDocument.load(pdf, { updateMetadata: false });
+      const doc = await PDFDocument.load(pdf, READ);
       fixDests(doc, CM_PT, CM_PT, 1);
       parts.push({ doc, outline: v.outline ? readOutline(doc) : [] });
       step('print');
@@ -408,7 +410,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     if (v.author !== undefined) merged.doc.setAuthor(v.author);
     if (v.subject !== undefined) merged.doc.setSubject(v.subject);
     if (v.keywords !== undefined) merged.doc.setKeywords([v.keywords]);
-    const bytes = await merged.doc.save();
+    const bytes = await merged.doc.save(WRITE);
     step('assemble');
     if (output === '-') writeAll(1, bytes);
     else writeFileSync(output, bytes);

@@ -177,14 +177,51 @@ export interface Session {
   close(): Promise<void>;
 }
 
+// Ctrl+C, SIGTERM or SIGHUP during a conversion. Puppeteer's handlers are
+// off, and Node would end without the finally blocks: Chromium leaves with
+// its pipe, but the conversion's folder stayed. The cleanups kill it and
+// remove the folder, then the signal ends the process as it would have.
+const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const cleanups = new Set<() => Promise<void>>();
+
+async function onSignal(signal: NodeJS.Signals): Promise<void> {
+  // A second signal ends the process at once.
+  for (const s of SIGNALS) process.off(s, onSignal);
+  await Promise.allSettled([...cleanups].map((c) => c()));
+  cleanups.clear();
+  process.kill(process.pid, signal);
+}
+
+function cleanupOnSignal(cleanup: () => Promise<void>): () => void {
+  if (!cleanups.size) for (const s of SIGNALS) process.on(s, onSignal);
+  cleanups.add(cleanup);
+  return () => {
+    cleanups.delete(cleanup);
+    if (!cleanups.size) for (const s of SIGNALS) process.off(s, onSignal);
+  };
+}
+
 export async function launch(opts: LaunchOptions): Promise<Session> {
+  let pid: number | undefined;
+  let launching: Promise<Browser> | undefined;
+  // The conversion's whole folder: Chromium's profile and the files beside.
+  // A Chromium still starting has no pid here yet: its start is awaited.
+  const forget = cleanupOnSignal(async () => {
+    if (pid === undefined && launching) pid = (await launching.catch(() => undefined))?.process()?.pid;
+    killTree(pid);
+    await removeWhenFree(opts.dir, 5000);
+  });
   let exe: string;
   try {
     exe = await ensureChromium();
   } catch (e) {
+    forget();
     throw new LaunchError(`Chromium could not be downloaded: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!existsSync(exe)) throw new LaunchError(`Chromium is missing: ${exe}`);
+  if (!existsSync(exe)) {
+    forget();
+    throw new LaunchError(`Chromium is missing: ${exe}`);
+  }
   const profile = join(opts.dir, 'chromium');
   const args = [
     `--user-data-dir=${profile}`,
@@ -200,7 +237,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     // Puppeteer gets every argument, its defaults included: under a cap on
     // the address space, the program it starts is a shell.
     const [file, argv] = chromiumCommand(exe, await puppeteer.defaultArgs({ headless: 'shell', args }));
-    const launching = puppeteer.launch({
+    launching = puppeteer.launch({
       executablePath: file,
       ignoreDefaultArgs: true,
       headless: 'shell',
@@ -217,10 +254,11 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     if (opts.meanwhile) setTimeout(opts.meanwhile, 0);
     browser = await launching;
   } catch (e) {
+    forget();
     removeQuietly(profile);
     throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces));
   }
-  const pid = browser.process()?.pid;
+  pid = browser.process()?.pid;
   let closed = false;
   const session: Session = {
     browser,
@@ -243,6 +281,8 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
         killTree(pid);
         removeQuietly(profile);
       }
+      // The callers remove the rest of the folder themselves.
+      forget();
     },
   };
   return session;

@@ -1,7 +1,6 @@
 // The compatible mode: called as wkhtmltopdf or wkhtmltoimage, or as
 // "pdfkiln wkhtmltopdf" or "pdfkiln wkhtmltoimage".
 import { readFileSync, writeSync } from 'node:fs';
-import { LaunchError } from '../engine/browser.js';
 import { convert, type Io } from './convert.js';
 import { Feedback, IMAGE_PHASES } from './feedback.js';
 import { license, usage, versionLine } from './help.js';
@@ -64,13 +63,12 @@ async function run(conversion: (fb: Feedback, io: Io) => Promise<{ success: bool
       process.exit(1);
     }));
   } catch (e) {
-    if (e instanceof LaunchError) {
-      // wkhtmltopdf has no such failure: its cause is written even with
-      // --quiet, or nothing would explain the exit code.
-      stderr(`Error: ${e.message}\n`);
-      return { success: false, errorCode: 0 };
-    }
-    throw e;
+    // wkhtmltopdf has no such failures: their cause is written even with
+    // --quiet, or nothing would explain the exit code; then its last line,
+    // which callers read, never a stack trace. A launch failure says what
+    // to do about it.
+    stderr(`Error: ${e instanceof Error ? e.message : String(e)}\n`);
+    return { success: false, errorCode: 0 };
   }
 }
 

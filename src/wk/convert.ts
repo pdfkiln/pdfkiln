@@ -11,7 +11,7 @@ import type { Emulation } from '../engine/emulation.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
 import { relayGet } from '../engine/relay.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
-import { pdfModules } from '../pdf/modules.js';
+import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
 import type { Feedback } from './feedback.js';
@@ -93,6 +93,32 @@ const step = (name: string) => {
   timings[name] = Math.round(now - mark);
   mark = now;
 };
+
+// At most this many pages printed, or headers and footers rendered, at
+// once. All together, a batch held every page in memory: about 70 MB an
+// object for Odoo's, which passes one object per record.
+const AT_ONCE = 8;
+
+// `job` on each item, AT_ONCE at a time, the results in the items' order;
+// after a failure, no new job starts.
+async function pooled<T, R>(items: T[], job: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < items.length) {
+      const i = next++;
+      try {
+        results[i] = await job(items[i]!, i);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(AT_ONCE, items.length) }, worker));
+  return results;
+}
 
 export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> {
   const { g } = p;
@@ -201,8 +227,24 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     // Headers and footers are measured first: their size places them, and
     // gives the margins when --margin-top or --margin-bottom is not given.
     const needCalc = objects.some((o) => (o.header.htmlUrl && unset(g.margin.top)) || (o.footer.htmlUrl && unset(g.margin.bottom)));
-    const measureAt = (o: PdfObject, h: HeaderFooter, scale: number) =>
-      measure(context, guessUrlFromString(h.htmlUrl), { width: contentWidth, scale, spec: specOf(o, false) }, fb);
+    // A header that the objects share (Odoo passes one for all its records)
+    // is measured once: same URL, scale and settings, same measure.
+    const measured = new Map<string, ReturnType<typeof measure>>();
+    const measureAt = (o: PdfObject, h: HeaderFooter, scale: number) => {
+      const url = guessUrlFromString(h.htmlUrl);
+      const spec = specOf(o, false);
+      const key = JSON.stringify([url, scale, spec]);
+      let m = measured.get(key);
+      if (!m) {
+        m = measure(context, url, { width: contentWidth, scale, spec }, fb);
+        // Awaited later. A conversion that ends first closes Chromium under
+        // it, and a rejection that nothing waits for would end the process
+        // before its folder is removed.
+        m.catch(() => {});
+        measured.set(key, m);
+      }
+      return m;
+    };
     const measures = objects.map((o) => {
       const one = (h: HeaderFooter) => (h.htmlUrl ? measureAt(o, h, scaleOf(o)) : undefined);
       return { header: one(o.header), footer: one(o.footer) };
@@ -287,19 +329,27 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         preferCSSPageSize: false,
         tagged: withOutline,
         outline: withOutline,
+        // Puppeteer's own 30 s would cut a long document: --kiln-timeout
+        // decides.
+        timeout: 0,
       });
-      const doc = await PDFDocument.load(pdf, { updateMetadata: false });
+      const doc = await PDFDocument.load(pdf, READ);
       fixDests(doc, left * PT_PER_MM, top * PT_PER_MM, scaleOf(o));
       return { doc, outline: withOutline ? readOutline(doc) : [], pages: doc.getPageCount() };
     };
     let done = 0;
     const toPrint = live.filter(({ o }) => !isToc(o));
-    const printed: ({ doc: PDFDocument; outline: OutlineItem[]; pages: number } | undefined)[] = await Promise.all(live.map(async ({ l, o }, k) => {
+    // A few at a time, each page closed once printed: its PDF is all that
+    // is needed from then on. The first stays, for the XSL of a table of
+    // contents.
+    const firstBody = live.findIndex(({ o }) => !isToc(o));
+    const printed: ({ doc: PDFDocument; outline: OutlineItem[]; pages: number } | undefined)[] = await pooled(live, async ({ l, o }, k) => {
       if (isToc(o)) return undefined;
       const r = await printOne(l, o, needOutline, k);
+      if (k !== firstBody) await l.page.close().catch(() => {});
       fb.progressChanged((++done * 100) / toPrint.length, `Object ${done} of ${toPrint.length}`);
       return r;
-    }));
+    });
 
     // The outline as wkhtmltopdf keeps it, and the tables of contents made
     // from it, printed again until their page count and headings settle
@@ -394,7 +444,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     // Headers and footers.
     fb.phaseChanged(4);
     const geometry: Geometry = { width, height, top, bottom, left, right };
-    const layerJobs: Promise<Layer | null>[] = [];
+    // Run a few at a time, as the prints: each is a page of its own.
+    const layerJobs: (() => Promise<Layer | null>)[] = [];
     const textPages: { header: HeaderFooter; footer: HeaderFooter; parms: Parms }[] = [];
     const textTargets: number[] = [];
     live.forEach(({ o }, k) => {
@@ -405,7 +456,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       }
     });
     if (textPages.length) {
-      layerJobs.push(printDocument(context, textDocument(geometry, textPages), work, geometry, specOf(objects[0]!, false), fb)
+      layerJobs.push(() => printDocument(context, textDocument(geometry, textPages), work, geometry, specOf(objects[0]!, false), fb)
         .then((pdf) => ({ pdf, targets: textTargets, place: { left: 0, top: 0, width, height } })));
     }
     const hfErrors: number[] = [];
@@ -415,7 +466,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         const h = o[which];
         const m = measures[index]![which];
         if (!h.htmlUrl || !m) continue;
-        layerJobs.push((async () => {
+        layerJobs.push(async () => {
           const { m: size, errorCode: e1 } = await m;
           hfErrors.push(e1);
           const targets = Array.from({ length: done_[k]!.pages }, (_, i) => prefix[k]! + i);
@@ -427,10 +478,10 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
             ? { left, top: top - h.spacing - size.box, width: contentWidth, height: size.extent }
             : { left, top: height - bottom + h.spacing, width: contentWidth, height: size.extent };
           return { pdf, targets, place } satisfies Layer;
-        })());
+        });
       }
     });
-    const layers = (await Promise.all(layerJobs)).filter((x): x is Layer => x !== null);
+    const layers = (await pooled(layerJobs, (job) => job())).filter((x): x is Layer => x !== null);
     if (errorCode === 0) errorCode = Math.max(0, ...hfErrors);
     step('headers');
 
@@ -519,7 +570,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     outDoc.doc.setTitle(title);
     outDoc.doc.setCreator(`PDFKiln ${version}`);
     outDoc.doc.setProducer('pdfkiln.org');
-    const bytes = await outDoc.doc.save();
+    const bytes = await outDoc.doc.save(WRITE);
     outDoc.pages.forEach((_, i) => fb.progressChanged(((i + 1) * 100) / outDoc.pages.length, `Page ${i + 1} of ${outDoc.pages.length}`));
     try {
       if (g.out === '-') io.stdout(bytes);
