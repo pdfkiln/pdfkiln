@@ -15,7 +15,8 @@
 // (its GNUPGHOME; APT_GPG_PASSPHRASE when the key has one). Linux only:
 // apt-ftparchive (apt-utils), dpkg-deb and gpg.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { gzipSync } from 'node:zlib';
@@ -36,7 +37,18 @@ const run = (cmd: string, args: string[], opts: { cwd?: string; input?: string }
 
 const pool = join(repo, 'pool', 'main', 'p', 'pdfkiln');
 mkdirSync(pool, { recursive: true });
-for (const deb of added) copyFileSync(resolve(deb), join(pool, basename(deb)));
+// A package already published is never replaced by other bytes: the pool
+// is served as immutable, and the builds are not reproducible, so the CDN
+// would keep serving the old file under the new index.
+const sha256 = (f: string) => createHash('sha256').update(readFileSync(f)).digest('hex');
+for (const deb of added) {
+  const target = join(pool, basename(deb));
+  if (existsSync(target)) {
+    if (sha256(target) !== sha256(resolve(deb))) throw new Error(`${basename(deb)} is already in the pool, with other bytes: a published version is not built again`);
+    continue;
+  }
+  copyFileSync(resolve(deb), target);
+}
 
 // The newest --keep versions of each architecture stay, in dpkg's order.
 const field = (deb: string, name: string) => run('dpkg-deb', ['--field', deb, name]).trim();

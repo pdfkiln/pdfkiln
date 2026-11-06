@@ -81,13 +81,18 @@ let hangs: (() => void)[] = [];
 let imgHeader = '';
 // And its Cookie.
 let imgCookie = '';
+// The Cookie of the last /show-cookie request.
+let shownCookie = '';
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     const html = (body: string, status = 200) => res.writeHead(status, { 'content-type': 'text/html' }).end(`<!doctype html><html><head><title>T</title></head><body>${body}</body></html>`);
     if (path === '/ok') return html('<h1>Hello</h1>');
     if (path === '/set-cookie') return res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'secret=1; Path=/' }).end('<p>set</p>');
-    if (path === '/show-cookie') return html(`<p>Cookie: ${req.headers.cookie ?? 'none'}</p>`);
+    if (path === '/show-cookie') {
+      shownCookie = String(req.headers.cookie ?? 'none');
+      return html(`<p>Cookie: ${shownCookie}</p>`);
+    }
     if (path === '/post') {
       let body = '';
       req.on('data', (d) => (body += d));
@@ -115,7 +120,10 @@ before(async () => {
         <img src="/image"><img src="/image.png"><link rel="stylesheet" href="/style.css"><iframe src="/frame"></iframe>
         <script>const x = new XMLHttpRequest(); x.open('GET', '/data'); x.send();</script>`);
     }
-    if (path === '/auth') return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
+    if (path === '/auth') {
+      if (req.headers.authorization === `Basic ${Buffer.from('user:pass').toString('base64')}`) return html('<p>authorized</p>');
+      return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
+    }
     if (path === '/headers') return html(`<p>X-Test=${req.headers['x-test'] ?? 'none'}</p><img src="/img">`);
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
@@ -249,6 +257,103 @@ describe('interface', () => {
     const r = await run(['-q', '--read-args-from-stdin'], { stdin: `${base}/ok ${slash(a)}\n${base}/ok "${slash(b)}"\n` });
     assert.equal(r.code, 0);
     assert.ok(readFileSync(a).length && readFileSync(b).length);
+  });
+
+  test('--read-args-from-stdin converts each line as it arrives', async () => {
+    const a = join(dir, 'rc.pdf');
+    const b = join(dir, 'rd.pdf');
+    const slash = (p: string) => p.replace(/\\/g, '/');
+    const [exe, argv] = command(process.env.PDFKILN_TEST_WKHTMLTOPDF, cli, ['-q', '--read-args-from-stdin']);
+    const child = spawn(exe, argv, { cwd: dir, stdio: ['pipe', 'ignore', 'ignore'] });
+    const exited = new Promise<number | null>((ok) => child.on('exit', (code) => ok(code)));
+    // A caller that waits for the first PDF before it writes the next line.
+    child.stdin.write(`${base}/ok ${slash(a)}\n`);
+    for (let i = 0; i < 300 && !existsSync(a); i++) await new Promise((ok) => setTimeout(ok, 100));
+    assert.ok(existsSync(a), 'the first PDF, before the end of the input');
+    child.stdin.end(`${base}/ok ${slash(b)}\n`);
+    assert.equal(await exited, 0);
+    assert.ok(readFileSync(b).length);
+  });
+
+  test('--cookie-jar: the cookies of one conversion for the next; a jar that cannot be written is left, as in wkhtmltopdf', async () => {
+    const jar = join(dir, 'jar.txt');
+    let r = await run(['-q', '--cookie-jar', jar, `${base}/set-cookie`, join(dir, 'jar1.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(jar, 'utf8'), /^secret=1;/m);
+    r = await run(['-q', '--cookie-jar', jar, `${base}/show-cookie`, join(dir, 'jar2.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(shownCookie, 'secret=1');
+    const out = join(dir, 'jar3.pdf');
+    r = await run(['-q', '--cookie-jar', join(dir, 'no-such-folder', 'jar.txt'), `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(existsSync(out));
+  });
+
+  test('--load-error-handling: a page that does not load aborts, is skipped or is kept', async () => {
+    const bad = await new Promise<string>((ok) => {
+      const s = createTcpServer();
+      s.listen(0, '127.0.0.1', () => {
+        const port = (s.address() as AddressInfo).port;
+        s.close(() => ok(`http://127.0.0.1:${port}/`));
+      });
+    });
+    const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
+    const out = (m: string) => join(dir, `leh-${m}.pdf`);
+    let r = await run(['--log-level', 'warn', `${base}/ok`, bad, out('abort')]);
+    assert.equal(r.code, 1);
+    assert.ok(!existsSync(out('abort')));
+    assert.match(r.stderr, /^Error: Failed loading page /m);
+    r = await run(['--log-level', 'warn', '--load-error-handling', 'skip', `${base}/ok`, bad, out('skip')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (skipped)\n`);
+    assert.equal(await pages(out('skip')), 1);
+    r = await run(['--log-level', 'warn', '--load-error-handling', 'ignore', `${base}/ok`, bad, out('ignore')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (ignored)\n`);
+    assert.equal(await pages(out('ignore')), 2);
+  });
+
+  test('--proxy: the pages go through it', async () => {
+    const seen: string[] = [];
+    const proxy = createServer((req, res) => {
+      seen.push(req.url ?? '');
+      res.writeHead(200, { 'content-type': 'text/html' }).end('<p>proxied</p>');
+    });
+    await new Promise<void>((ok) => proxy.listen(0, '127.0.0.1', ok));
+    try {
+      // A host that resolves nowhere: only the proxy can answer for it.
+      const r = await run(['-q', '--proxy', `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`, 'http://pdfkiln-proxied.invalid/page', join(dir, 'proxy.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(seen.includes('http://pdfkiln-proxied.invalid/page'), JSON.stringify(seen));
+    } finally {
+      proxy.close();
+    }
+  });
+
+  test('--user-style-sheet: a file or a data: URL', async () => {
+    const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
+    const css = 'h1 { height: 2000px }';
+    const out = join(dir, 'user-css.pdf');
+    assert.equal((await run(['-q', `${base}/ok`, out])).code, 0);
+    assert.equal(await pages(out), 1);
+    for (const sheet of [file('user.css', css), `data:text/css;base64,${Buffer.from(css).toString('base64')}`]) {
+      const r = await run(['-q', '--user-style-sheet', sheet, `${base}/ok`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(await pages(out) > 1, sheet.slice(0, 30));
+    }
+  });
+
+  test('--username and --password answer the server\'s HTTP authentication', async () => {
+    const r = await run(['-q', '--username', 'user', '--password', 'pass', `${base}/auth`, join(dir, 'auth.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+  });
+
+  test('--replace fills a header variable of its own', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const out = join(dir, 'replace.pdf');
+    const r = await run(['-q', '--header-center', '[who]', '--replace', 'who', 'World', `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(pagesText(out)[0]!, /World/);
   });
 });
 
@@ -473,9 +578,11 @@ print(json.dumps(out))`;
     const out = join(dir, 'delay.pdf');
     assert.equal((await run(['-q', '--javascript-delay', '400', page, out])).code, 0);
     const quiet = file('delay/quiet.html', '<p>quiet</p>');
+    // Against the same page without a delay: Chromium's start is in both.
+    const plain = await run(['-q', '--javascript-delay', '0', quiet, join(dir, 'quiet.pdf')]);
     const r = await run(['-q', '--javascript-delay', '5000', quiet, join(dir, 'quiet.pdf')]);
     assert.equal(r.code, 0);
-    assert.ok(r.ms < 4000, `a quiet page waited ${Math.round(r.ms)} ms`);
+    assert.ok(r.ms < plain.ms + 2500, `a quiet page waited ${Math.round(r.ms - plain.ms)} ms more`);
     if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
     const text = pagesText(out)[0]!;
     assert.match(text, /start early/);
@@ -574,16 +681,23 @@ describe('security', () => {
     file('secret/key.png', 'secret');
     const allowed = join(dir, 'jail');
     mkdirSync(allowed, { recursive: true });
+    let linked = true;
     try {
       symlinkSync(join(dir, 'secret', 'key.png'), join(allowed, 'link.png'));
     } catch {
       // Windows without the right to create links.
+      linked = false;
     }
-    const page = file('jail/page.html', '<img src="../secret/key.png"><img src="link.png"><img src="/etc/passwd">');
-    const r = await run(['--log-level', 'warn', '--allow', allowed, page, join(dir, 'j.pdf')]);
-    const blocked = r.stderr.split('\n').filter((l) => l.startsWith('Warning: Blocked access to file'));
-    assert.ok(blocked.length >= 2, r.stderr);
-    assert.equal(r.code, 1);
+    // Each way out on its own page: one that got through would leave its
+    // page without a warning.
+    for (const [name, src] of [['up', '../secret/key.png'], ['link', 'link.png'], ['root', '/etc/passwd']] as const) {
+      if (name === 'link' && !linked) continue;
+      const page = file(`jail/${name}.html`, `<img src="${src}">`);
+      const r = await run(['--log-level', 'warn', '--allow', allowed, page, join(dir, 'j.pdf')]);
+      const blocked = r.stderr.split('\n').filter((l) => l.startsWith('Warning: Blocked access to file'));
+      assert.equal(blocked.length, 1, `${src}: ${r.stderr}`);
+      assert.equal(r.code, 1, src);
+    }
   });
 
   test('--kiln-block-private-network refuses loopback, by address and by name', async () => {
@@ -600,7 +714,10 @@ describe('security', () => {
   });
 
   test('--kiln-timeout stops the conversion and Chromium', async () => {
-    const r = await run(['-q', '--kiln-timeout', '2', `${base}/hang`, join(dir, 't.pdf')]);
+    // A temporary folder of its own: the Chromium looked for is this
+    // conversion's, whatever else runs on the machine.
+    const tmp = mkdtempSync(join(dir, 'tmp-'));
+    const r = await run(['-q', '--kiln-timeout', '2', `${base}/hang`, join(dir, 't.pdf')], { env: { TEMP: tmp, TMP: tmp, TMPDIR: tmp } });
     for (const h of hangs) h();
     hangs = [];
     assert.equal(r.code, 1);
@@ -609,7 +726,7 @@ describe('security', () => {
     if (process.platform !== 'win32') {
       // Killed processes take a moment to disappear from ps.
       const left = () => execFileSync('ps', ['-eo', 'stat,args'], { encoding: 'utf8' }).split('\n')
-        .some((l) => !l.startsWith('Z') && l.includes('chrome-headless-shell') && l.includes(tmpdir()) && l.includes('pdfkiln-') && !l.includes('pdfkiln-test'));
+        .some((l) => !l.startsWith('Z') && l.includes('chrome-headless-shell') && l.includes(tmp));
       for (let i = 0; i < 20 && left(); i++) await new Promise((r) => setTimeout(r, 100));
       assert.ok(!left(), 'no Chromium left');
     }
@@ -638,9 +755,8 @@ describe('security', () => {
       assert.equal(r.code, 0, r.stderr);
       // A caller that removes the folder it ran the command in.
       rmSync(cwd, { recursive: true });
+      assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), [], 'gone when the command returns');
     }
-    for (let i = 0; i < 50 && readdirSync(tmp).some((f) => f.startsWith('pdfkiln-')); i++) await new Promise((ok) => setTimeout(ok, 100));
-    assert.deepEqual(readdirSync(tmp).filter((f) => f.startsWith('pdfkiln-')), []);
   });
 
   // The header's measure, started with the page, outlives it: Chromium
@@ -747,9 +863,11 @@ describe('native interface', () => {
     const out = join(dir, 'native-delay.pdf');
     assert.equal((await native([page, out])).code, 0);
     const quiet = file('native/quiet.html', '<p>quiet</p>');
+    // Against the same page without a delay: Chromium's start is in both.
+    const plain = await native(['--javascript-delay', '0', quiet, join(dir, 'native-quiet.pdf')]);
     const r = await native(['--javascript-delay', '5000', quiet, join(dir, 'native-quiet.pdf')]);
     assert.equal(r.code, 0, r.stderr);
-    assert.ok(r.ms < 4000, `a quiet page waited ${Math.round(r.ms)} ms`);
+    assert.ok(r.ms < plain.ms + 2500, `a quiet page waited ${Math.round(r.ms - plain.ms)} ms more`);
     assert.equal((await native(['--javascript-delay', 'soon', quiet, join(dir, 'native-quiet.pdf')])).code, 1);
     if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
     const text = pagesText(out)[0]!;

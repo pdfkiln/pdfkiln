@@ -69,7 +69,7 @@ jobs:
           [ "$ci_sha" = "$arm_sha" ] || { echo "::error::the two runs built different commits"; exit 1; }
           echo "sha=$ci_sha" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.runs.outputs.sha }}
 
@@ -86,10 +86,10 @@ jobs:
           mv "runs/amd64/pdfkiln_${version}-1_amd64.deb" "runs/arm64/pdfkiln_${version}-1_arm64.deb" context/
           ls -l context
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         if: inputs.confirm == 'publish'
         with:
           registry: ghcr.io
@@ -104,7 +104,7 @@ jobs:
             docker run --rm --platform "linux/$arch" "pdfkiln:$arch" wkhtmltopdf --version
           done
 
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         id: push
         if: inputs.confirm == 'publish'
         with:
@@ -125,7 +125,7 @@ jobs:
             org.opencontainers.image.description=PDFKiln, a drop-in replacement for wkhtmltopdf, powered by Chromium
 
       # GitHub attests in a private repository only with Enterprise Cloud.
-      - uses: actions/attest-build-provenance@v4
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         if: inputs.confirm == 'publish' && !github.event.repository.private
         with:
           subject-name: ${{ steps.image.outputs.name }}

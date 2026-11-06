@@ -18,24 +18,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The newer systems (Ubuntu 26.04, macOS 26) are the newer job's: it runs
+  # the same command tests on the packages built here.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-26.04, windows-2025, macos-15, macos-26]
+        os: [ubuntu-24.04, windows-2025, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
       PDFKILN_PYTHON: python
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
@@ -46,10 +48,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core fontconfig \
             libjpeg-turbo8 libxrender1 libxext6 xfonts-75dpi xfonts-base
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/downloads
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json') }}
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json', 'node.json') }}
 
       - run: npm ci
       - run: npm run build
@@ -72,10 +74,13 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "pinned $(node -p "require('./chromium.json').version"), Stable $(node dist/scripts/update-chromium.js --dry-run)"
 
+      # Every test file but the command's (package.json, test:unit).
       - name: Unit tests
-        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/gate.test.js dist/test/manifests.test.js
+        run: npm run test:unit
 
+      # From dist/src on Linux; every system runs them bundled, as shipped.
       - name: Command tests
+        if: runner.os == 'Linux'
         run: node --test dist/test/cli.test.js
 
       - name: Command tests, bundled
@@ -95,14 +100,14 @@ jobs:
     env:
       PDFKILN_PYTHON: python
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
@@ -113,10 +118,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core fontconfig \
             libjpeg-turbo8 libxrender1 libxext6 xfonts-75dpi xfonts-base
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/downloads
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json') }}
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json', 'node.json') }}
 
       - run: npm ci
       - run: npm run build
@@ -143,12 +148,27 @@ jobs:
           $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); "DpiX $($g.DpiX) DpiY $($g.DpiY)"
         shell: pwsh
 
+      # wkhtmltopdf 0.12.6's results stay as long as the corpus, the bench
+      # and the runner do: kept from one run to the next.
+      - name: The runner, for the cache of wkhtmltopdf's results
+        run: |
+          echo "$ImageOS $ImageVersion" > runner.txt
+          if [ "$RUNNER_OS" = Linux ]; then dpkg-query -W fonts-liberation fonts-dejavu-core fontconfig xfonts-75dpi xfonts-base >> runner.txt; fi
+        shell: bash
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .cache/compat-wk
+          key: compat-wk-${{ runner.os }}-${{ hashFiles('runner.txt', 'corpus/**', 'bench/wkhtmltopdf.json', 'bench/entry.ts', 'bench/wk.ts', 'bench/compat.ts') }}
+
       # On Linux, the job fails below the gate of a release (bench/gate.ts):
-      # every entry keeps its page count, 99 % of the words their page. The
-      # steps after it still run, for their figures.
+      # every entry keeps its exit code and page count, 99 % of the words
+      # their page. The steps after it still run, for their figures.
       - name: Corpus against wkhtmltopdf 0.12.6
         run: node dist/bench/compat.js --gate | tee bench-compat.txt
         shell: bash
+        env:
+          PDFKILN_WK_CACHE: .cache/compat-wk
 
       - name: Details of the entries below 100 %
         if: always()
@@ -177,7 +197,7 @@ jobs:
           { echo '## Corpus, pdfkiln command vs wkhtmltopdf 0.12.6'; echo; echo '```'; cat bench-compat.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         shell: bash
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: compat-${{ matrix.os }}
@@ -193,22 +213,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1
         with:
           ruby-version: '3.3'
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: stable
           cache: false
@@ -219,10 +239,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core fontconfig \
             libjpeg-turbo8 libxrender1 libxext6 xfonts-75dpi xfonts-base libsqlite3-dev
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/downloads
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json') }}
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json', 'node.json') }}
 
       - run: npm ci
       - run: npm run build
@@ -263,7 +283,7 @@ jobs:
         run: |
           { echo '## Library test suites'; echo; echo '```'; cat libraries.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: libraries
@@ -286,21 +306,21 @@ jobs:
     env:
       PDFKILN_PYTHON: python
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/downloads
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json') }}
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json', 'node.json') }}
 
       - run: npm ci
       - run: npm run build
@@ -317,6 +337,15 @@ jobs:
       - name: Archive
         run: node dist/scripts/package.js ${{ runner.os == 'Windows' && '--launcher dist/wkhtmltopdf.exe' || '' }}
         shell: bash
+
+      # Every file of the tar.gz owned by root: unpacked by root, tar gives
+      # them the owners the archive stores.
+      - name: Archive owned by root (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          a="$(ls dist/package/*.tar.gz)"
+          if [ "$RUNNER_OS" = macOS ]; then tar --numeric-owner -tvzf "$a" | awk '$3 != 0 || $4 != 0 { bad = 1; print } END { exit bad }'
+          else tar --numeric-owner -tvzf "$a" | awk '$2 != "0/0" { bad = 1; print } END { exit bad }'; fi
 
       - name: AppArmor profile for the packaged Chromium (Linux)
         if: runner.os == 'Linux'
@@ -523,11 +552,11 @@ jobs:
         shell: bash
 
       - if: ${{ !github.event.repository.private }}
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-checksums: ${{ runner.temp }}/subjects.sha256
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: package-${{ matrix.os }}
           path: |
@@ -539,7 +568,7 @@ jobs:
             dist/package/*.sha256
           retention-days: 2
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sums-${{ matrix.os }}
           path: dist/package/*.sha256
@@ -564,14 +593,14 @@ jobs:
     env:
       PDFKILN_PYTHON: python
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
@@ -579,7 +608,7 @@ jobs:
       - run: npm run build
       - run: pip install -r bench/requirements.txt
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ matrix.package }}
           path: release
@@ -610,10 +639,11 @@ jobs:
   manifests:
     needs: package
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -621,7 +651,7 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sums-*
           path: sums
@@ -629,7 +659,7 @@ jobs:
 
       - run: node dist/scripts/manifests.js --sums sums
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: manifests
           path: dist/manifests
@@ -648,24 +678,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26, windows-2025]
+        os: [macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: package-*
           path: release
           merge-multiple: true
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: manifests
           path: manifests
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: '8.3'
           tools: composer
@@ -828,12 +858,12 @@ jobs:
       image: archlinux:base-devel
       options: --security-opt seccomp=unconfined
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: package-ubuntu-24.04
           path: release
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: manifests
           path: manifests
@@ -868,9 +898,9 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: package-windows-2025
           path: release

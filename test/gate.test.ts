@@ -24,3 +24,12 @@ test('under 99 % of the words on the same page misses the gate', () => {
 test('an entry without both PDFs misses the gate', () => {
   assert.deepEqual(gateFailures([row('a', 1, 1, 100, 1), { id: 'b' }]), ['b: no PDF to compare']);
 });
+
+test('an exit code that differs from wkhtmltopdf\'s misses the gate', () => {
+  const exit = (wk: number, ours: number) => ({ exit: { wkhtmltopdf: wk, pdfkiln: ours } });
+  assert.deepEqual(gateFailures([{ ...row('a', 1, 1, 100, 1), ...exit(1, 1) }, { ...row('b', 1, 1, 100, 1), ...exit(0, 1) }]), ['b: exit 1, wkhtmltopdf 0']);
+});
+
+test('no entry at all misses the gate', () => {
+  assert.deepEqual(gateFailures([]), ['no entry compared']);
+});

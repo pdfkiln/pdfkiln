@@ -25,14 +25,14 @@ jobs:
     env:
       PDFKILN_PYTHON: python
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
 
@@ -41,10 +41,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core fontconfig
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/downloads
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json') }}
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('chromium.json', 'bench/wkhtmltopdf.json', 'node.json') }}
 
       - run: npm ci
       - run: npm run build
@@ -58,8 +58,9 @@ jobs:
             | sudo tee /etc/apparmor.d/pdfkiln-chromium
           sudo apparmor_parser -r /etc/apparmor.d/pdfkiln-chromium
 
+      # Every test file but the command's (package.json, test:unit).
       - name: Unit tests
-        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js
+        run: npm run test:unit
 
       - name: Command tests
         run: node --test dist/test/cli.test.js
@@ -70,6 +71,8 @@ jobs:
           node dist/scripts/sea.js
           node dist/scripts/package.js
           node dist/scripts/deb.js
+          # Every file of the tar.gz owned by root, as in ci.yml.
+          tar --numeric-owner -tvzf dist/package/*.tar.gz | awk '$2 != "0/0" { bad = 1; print } END { exit bad }'
 
       - name: Command tests on the Debian package
         run: |
@@ -78,7 +81,7 @@ jobs:
           # shipped: dpkg leaves the modes of directories that exist alone.
           if dpkg-deb -c ./dist/package/pdfkiln_*_arm64.deb | grep -E '^[^l](....w|.......w)'; then exit 1; fi
           /usr/bin/wkhtmltopdf --version
-          PDFKILN_TEST_WKHTMLTOPDF=/usr/bin/wkhtmltopdf PDFKILN_TEST_PDFKILN=/usr/bin/pdfkiln node --test dist/test/cli.test.js
+          PDFKILN_TEST_WKHTMLTOPDF=/usr/bin/wkhtmltopdf PDFKILN_TEST_PDFKILN=/usr/bin/pdfkiln PDFKILN_TEST_WKHTMLTOIMAGE=/usr/bin/wkhtmltoimage node --test dist/test/cli.test.js
 
       # Provenance, as in ci.yml: skipped while the repository is private.
       - name: Provenance (public repository)
@@ -86,11 +89,11 @@ jobs:
         run: cat dist/package/*.sha256 > "$RUNNER_TEMP/subjects.sha256"
 
       - if: ${{ !github.event.repository.private }}
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-checksums: ${{ runner.temp }}/subjects.sha256
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: package-linux-arm64
           path: |

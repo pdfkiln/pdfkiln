@@ -25,6 +25,7 @@
     "bench:sandbox": "node dist/bench/sandbox.js",
     "bench:summary": "node dist/bench/summarize.js",
     "test": "node --test dist/test/*.test.js",
+    "test:unit": "node --test \"dist/test/!(cli).test.js\"",
     "bench:compat": "node dist/bench/compat.js",
     "bench:image": "node dist/bench/image.js",
     "bundle": "node dist/scripts/bundle.js",

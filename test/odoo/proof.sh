@@ -158,8 +158,6 @@ run pdfkiln wkhtmltopdf
 engine pdfkiln-workers yes "$(wkhtmltopdf --version)" "$how; Odoo with --workers 2"
 run pdfkiln-workers wkhtmltopdf --workers 2
 
-"$home/venv/bin/pip" install -q pymupdf
+"$home/venv/bin/pip" install -q "$(grep -i "^pymupdf==" "$here/../../bench/requirements.txt")"
 "$home/venv/bin/python" -I "$here/summary.py" "$out"
-for name in pdfkiln pdfkiln-workers; do
-  python3 -c 'import json, sys; rows = json.load(open(sys.argv[1])); sys.exit(0 if rows and all(r["pdf"] for r in rows) else 1)' "$out/$name/print.json"
-done
+python3 -I "$here/check.py" "$out" pdfkiln pdfkiln-workers

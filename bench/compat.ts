@@ -7,11 +7,11 @@
 // Output: bench/out/compat/<id>/ (PDFs, result.json, diff PNGs) and
 // bench/out/compat/summary.json. --gate: exits 1 when the corpus misses the
 // gate of a release, on Linux (bench/gate.ts).
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { compare, corpusIds, pageCount, prepare } from './entry.js';
 import { gateFailures } from './gate.js';
-import { repoRoot, run, runWkhtmltopdf, writeJson } from './wk.js';
+import { repoRoot, run, runWkhtmltopdf, writeJson, type RunResult } from './wk.js';
 
 const outRoot = join(repoRoot, 'bench', 'out', 'compat');
 const args = process.argv.slice(2);
@@ -21,6 +21,25 @@ const ids = named.length ? named : corpusIds();
 const cli = join(repoRoot, 'dist', 'src', 'bin', 'wkhtmltopdf.js');
 const strip = (s: string) => s.split(/[\r\n]+/).filter((l) => l.trim() && !l.startsWith('[')).map((l) => l.trimEnd());
 
+// PDFKILN_WK_CACHE: a folder that keeps wkhtmltopdf's results, by entry.
+// They do not change while the corpus, the bench and the system do not,
+// on which ci.yml keys the folder; its time then is the first run's.
+const wkCache = process.env.PDFKILN_WK_CACHE;
+async function wkResult(id: string, pdf: string, runIt: () => Promise<RunResult>): Promise<Pick<RunResult, 'code' | 'ms' | 'stderr'>> {
+  const kept = wkCache ? join(wkCache, id) : undefined;
+  if (kept && existsSync(join(kept, 'result.json'))) {
+    if (existsSync(join(kept, 'wk.pdf'))) copyFileSync(join(kept, 'wk.pdf'), pdf);
+    return JSON.parse(readFileSync(join(kept, 'result.json'), 'utf8')) as Pick<RunResult, 'code' | 'ms' | 'stderr'>;
+  }
+  const r = await runIt();
+  if (kept) {
+    mkdirSync(kept, { recursive: true });
+    if (existsSync(pdf)) copyFileSync(pdf, join(kept, 'wk.pdf'));
+    writeJson(join(kept, 'result.json'), { code: r.code, ms: r.ms, stderr: r.stderr });
+  }
+  return r;
+}
+
 const summary: any[] = [];
 for (const id of ids) {
   const out = join(outRoot, id);
@@ -29,7 +48,7 @@ for (const id of ids) {
   const e = await prepare(id);
   const wkPdf = join(out, 'wk.pdf');
   const ourPdf = join(out, 'pdfkiln.pdf');
-  const wk = await runWkhtmltopdf(e.wkArgs(wkPdf), { cwd: e.dir, stdin: e.stdin });
+  const wk = await wkResult(id, wkPdf, () => runWkhtmltopdf(e.wkArgs(wkPdf), { cwd: e.dir, stdin: e.stdin }));
   const ours = await run(process.execPath, [cli, ...e.wkArgs(ourPdf)], { cwd: e.dir, stdin: e.stdin });
   const row: any = {
     id,
@@ -53,7 +72,10 @@ const compared = summary.filter((r) => r.comparison);
 const matched = compared.reduce((n, r) => n + r.comparison.same_page.matched, 0);
 const same = compared.reduce((n, r) => n + r.comparison.same_page.same_page * r.comparison.same_page.matched, 0);
 const samePages = compared.filter((r) => r.pages.wkhtmltopdf === r.pages.pdfkiln).length;
-if (matched) console.log(`total: ${samePages}/${summary.length} with the same page count, ${((100 * same) / matched).toFixed(2)} % of ${matched} matched words on the same page${process.env.PDFKILN_EMULATION ? ` (PDFKILN_EMULATION=${process.env.PDFKILN_EMULATION})` : ''}`);
+// Of wkhtmltopdf's words, those found in PDFKiln's PDF: what the gate
+// would need to see text lost.
+const wkWords = compared.reduce((n, r) => n + r.comparison.same_page.words[0], 0);
+if (matched) console.log(`total: ${samePages}/${summary.length} with the same page count, ${((100 * same) / matched).toFixed(2)} % of ${matched} matched words on the same page, ${((100 * matched) / wkWords).toFixed(2)} % of wkhtmltopdf's ${wkWords} words found${process.env.PDFKILN_EMULATION ? ` (PDFKILN_EMULATION=${process.env.PDFKILN_EMULATION})` : ''}`);
 if (gate) {
   if (process.platform !== 'linux') console.log(`gate: not applied on ${process.platform}, where the figures are an indicator`);
   else {

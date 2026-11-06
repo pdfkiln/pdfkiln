@@ -102,7 +102,5 @@ grep -h -m 3 -i 'chromium\|sandbox' "$out/pdfkiln-default-seccomp/odoo.log" | cu
 
 python3 "$here/summary.py" "$out"
 cat "$out/pdfkiln-default-seccomp/chromium.txt"
-for name in pdfkiln pdfkiln-workers; do
-  python3 -c 'import json, sys; rows = json.load(open(sys.argv[1])); sys.exit(0 if rows and all(r["pdf"] for r in rows) else 1)' "$out/$name/print.json"
-done
+python3 -I "$here/check.py" "$out" pdfkiln pdfkiln-workers
 grep -q 'refuses the user namespaces' "$out/pdfkiln-default-seccomp/chromium.txt"
