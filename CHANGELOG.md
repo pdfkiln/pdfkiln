@@ -10,6 +10,10 @@ GitHub release.
 
 `pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.
 
+Security:
+
+- The private network block (`pdfkiln` by default, `--kiln-block-private-network` as `wkhtmltopdf`) let through an IPv4 address written in IPv6 form, such as `http://[::ffff:127.0.0.1]/`, since 1.0.2. Such an address is now judged as the IPv4 address it carries.
+
 `pdfkiln serve`, what breaks:
 
 - `pdfkiln serve` exits 1, with "pdfkiln serve was removed in 1.2.0: each conversion starts its own Chromium". Take it out of your scripts and service definitions (Docker, launchd, systemd): conversions work without it, each with a Chromium of its own, as they did whenever no server ran. Those who ran it lose what it saved, Chromium's start-up and shutdown: about 0.17 s per conversion on Linux, 0.06 s on macOS (two-page Odoo invoice). It was off on Windows.

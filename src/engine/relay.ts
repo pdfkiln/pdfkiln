@@ -12,6 +12,24 @@ function v4(ip: string): number[] {
   return ip.split('.').map(Number);
 }
 
+// The eight 16-bit groups of a valid IPv6 address, "::" expanded; an IPv4
+// address written at its end makes its last two. A URL writes the IPv4
+// part in hexadecimal ([::ffff:127.0.0.1] becomes [::ffff:7f00:1]), so the
+// address is judged on its value, never on its text.
+function groups6(ip: string): number[] {
+  let s = ip.toLowerCase().replace(/%.*$/, '');
+  const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  if (tail) {
+    const [a, b, c, d] = tail.slice(1).map(Number) as [number, number, number, number];
+    s = `${s.slice(0, tail.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const parse = (part: string | undefined) => (part ? part.split(':').map((h) => parseInt(h, 16)) : []);
+  const [head, rest] = s.split('::');
+  const left = parse(head);
+  const right = parse(rest);
+  return rest === undefined ? left : [...left, ...new Array<number>(8 - left.length - right.length).fill(0), ...right];
+}
+
 // Loopback, private, link-local (169.254.169.254, the metadata address of
 // the clouds), carrier-grade NAT, multicast, reserved and unspecified.
 export function isPrivateAddress(ip: string): boolean {
@@ -26,11 +44,16 @@ export function isPrivateAddress(ip: string): boolean {
       (a === 198 && (b === 18 || b === 19));
   }
   if (isIP(ip) === 6) {
-    const s = ip.toLowerCase();
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s) ?? /^64:ff9b::(\d+\.\d+\.\d+\.\d+)$/.exec(s);
-    if (mapped) return isPrivateAddress(mapped[1]!);
-    if (s === '::' || s === '::1') return true;
-    const first = parseInt(s.split(':')[0] || '0', 16);
+    const g = groups6(ip);
+    if (g.length !== 8) return true;
+    const zero = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+    // An IPv4 address carried in IPv6 is judged as that address: mapped
+    // (::ffff:0:0/96), compatible (::/96, so :: and ::1 too) and the NAT64
+    // prefix (64:ff9b::/96).
+    if ((zero(0, 5) && (g[5] === 0xffff || g[5] === 0)) || (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6))) {
+      return isPrivateAddress([g[6]! >> 8, g[6]! & 255, g[7]! >> 8, g[7]! & 255].join('.'));
+    }
+    const first = g[0]!;
     return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00;
   }
   return true;

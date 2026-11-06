@@ -587,11 +587,13 @@ describe('security', () => {
   });
 
   test('--kiln-block-private-network refuses loopback, by address and by name', async () => {
-    for (const url of [`${base}/ok`, base.replace('127.0.0.1', 'localhost') + '/ok']) {
+    for (const url of [`${base}/ok`, base.replace('127.0.0.1', 'localhost') + '/ok', base.replace('127.0.0.1', '[::ffff:127.0.0.1]') + '/ok']) {
       const r = await run(['--log-level', 'warn', '--kiln-block-private-network', url, join(dir, 'p.pdf')]);
       assert.equal(r.code, 1, url);
-      // The relay's refusal is a 403, worded as wkhtmltopdf words one.
-      assert.equal(r.stderr, `Error: Failed to load ${url}, with network status code 202 and http status code 403 - Error downloading ${url} - server replied: Forbidden\nExit with code 1 due to network error: ContentOperationNotPermittedError\n`);
+      // The relay's refusal is a 403, worded as wkhtmltopdf words one, with
+      // the URL as Chromium writes it.
+      const shown = new URL(url).href;
+      assert.equal(r.stderr, `Error: Failed to load ${shown}, with network status code 202 and http status code 403 - Error downloading ${shown} - server replied: Forbidden\nExit with code 1 due to network error: ContentOperationNotPermittedError\n`);
     }
     const r = await run(['-q', `${base}/ok`, join(dir, 'p.pdf')]);
     assert.equal(r.code, 0);
@@ -722,8 +724,10 @@ describe('native interface', () => {
 
   test('private addresses are refused by default: such an input fails, without PDF', async () => {
     const out = join(dir, 'native-private.pdf');
-    // An address is private, a name resolves to one.
-    for (const [url, host] of [[`${base}/ok`, '127.0.0.1 is'], [`${other}/ok`, 'localhost resolves to']] as const) {
+    // An address is private, a name resolves to one; so is an IPv4
+    // address in IPv6 form, which the URL writes in hexadecimal.
+    const mapped = base.replace('127.0.0.1', '[::ffff:127.0.0.1]');
+    for (const [url, host] of [[`${base}/ok`, '127.0.0.1 is'], [`${other}/ok`, 'localhost resolves to'], [`${mapped}/ok`, '[::ffff:7f00:1] is']] as const) {
       const r = await native([url, out]);
       assert.equal(r.code, 1, r.stderr);
       assert.ok(!existsSync(out), 'no PDF');

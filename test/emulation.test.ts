@@ -30,10 +30,16 @@ test('@page rules are dropped', () => {
 });
 
 test('private addresses', () => {
-  for (const a of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1']) {
+  for (const a of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::', '::1', 'fe80::1', 'fd00::1', 'FE80::1%eth0']) {
     assert.equal(isPrivateAddress(a), true, a);
   }
-  for (const a of ['93.184.216.34', '172.32.0.1', '2606:4700::1111']) assert.equal(isPrivateAddress(a), false, a);
+  // IPv4 in IPv6, in the forms a URL or a resolver gives: judged as IPv4.
+  for (const a of ['::ffff:127.0.0.1', '::ffff:7f00:1', '0:0:0:0:0:ffff:7f00:1', '::ffff:c0a8:101', '::7f00:1', '64:ff9b::a00:1', '64:ff9b::10.0.0.1']) {
+    assert.equal(isPrivateAddress(a), true, a);
+  }
+  for (const a of ['93.184.216.34', '172.32.0.1', '2606:4700::1111', '::ffff:5db8:d822', '64:ff9b::5db8:d822', '2001:db8::7f00:1']) {
+    assert.equal(isPrivateAddress(a), false, a);
+  }
 });
 
 test('header variables', () => {
