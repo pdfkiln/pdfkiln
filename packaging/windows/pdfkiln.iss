@@ -61,7 +61,7 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  Path, Dir: string;
+  Path, Dir, Wrapped: string;
   P: Integer;
 begin
   if CurUninstallStep <> usPostUninstall then
@@ -69,10 +69,14 @@ begin
   if not RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', Path) then
     exit;
   Dir := ExpandConstant('{app}\bin');
-  P := Pos(';' + Lowercase(Dir), Lowercase(Path));
+  // The entry itself, between separators, wherever it is: never the start
+  // of a longer folder (bin2, bin\other) nor a piece of the next entry.
+  Wrapped := ';' + Path + ';';
+  P := Pos(';' + Lowercase(Dir) + ';', Lowercase(Wrapped));
   if P > 0 then
   begin
-    Delete(Path, P, Length(Dir) + 1);
+    Delete(Wrapped, P, Length(Dir) + 1);
+    Path := Copy(Wrapped, 2, Length(Wrapped) - 2);
     RegWriteExpandStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', Path);
   end;
 end;

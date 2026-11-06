@@ -3,7 +3,8 @@
 // launcher on Windows), it switches to the compatible mode by its name.
 // The compile cache is enabled before the modules are loaded.
 import { enableCompileCache } from 'node:module';
+import { compileCacheDir } from '../cache-dir.js';
 
-enableCompileCache?.();
+enableCompileCache?.(compileCacheDir());
 const name = process.argv0 && !/node(\.exe)?$/i.test(process.argv0) ? process.argv0 : 'pdfkiln';
 void import('../cli.js').then(({ main }) => main(name, process.argv.slice(2))).then((code) => process.exit(code));

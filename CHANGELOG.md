@@ -13,6 +13,10 @@ GitHub release.
 Security:
 
 - The private network block (`pdfkiln` by default, `--kiln-block-private-network` as `wkhtmltopdf`) let through an IPv4 address written in IPv6 form, such as `http://[::ffff:127.0.0.1]/`, since 1.0.2. Such an address is now judged as the IPv4 address it carries.
+- The Linux and macOS archives give their files to root: unpacked by root, they belonged to the account that built them (uid 1001 on Linux, 501 on macOS), which could replace the program.
+- Composer package: without `HOME` (php-fpm's default), the cache no longer goes to the shared temporary folder, where another account could put a program first. The folder of 1.1 is kept when this account alone can change it; else the cache moves to the account's home folder or a private folder, and Chromium is downloaded once more.
+- The program is built on the official Node.js archive of its version, checked against its SHA-256 as Chromium is, rather than on the Node.js of the machine that builds it.
+- The npm package keeps Node's compile cache in PDFKiln's cache folder, no longer in a folder of the temporary folder shared by every account.
 
 `pdfkiln serve`, what breaks:
 
@@ -31,12 +35,20 @@ Called as `wkhtmltopdf`:
 
 - Several pages in one call (Odoo passes one per record) take half the memory: a header or footer they share is measured once, at most 8 pages print and 8 headers or footers render at a time, and each page closes once printed. 20 one-page invoices with a header and a footer: 0.74 GB instead of 1.6 GB, 4.1 s instead of 5.1 s, on a Windows 11 PC. Each page still stays open from its load to its print.
 - Faster on the two-page Odoo invoice: 1.63 s instead of 1.81 s on a Windows 11 PC, with the changes above. On Linux, fontconfig's default font is also looked up while Chromium starts, not before it: on a Debian 13 server with ten thousand fonts, Chromium's start takes 0.43 s instead of 0.64 s.
+- Closer to wkhtmltopdf:
+  - `--dpi` no longer warns that it has no effect: it sets the resolution of lengths in pixels and of the automatic header and footer margins, as it did. Odoo passes it on every call.
+  - The parameters a `--header-html` or `--footer-html` page receives are encoded as wkhtmltopdf encodes them: `/ : , + ( ) $ @ ? ;` stay as they are, so a script that decodes them with `decodeURI` reads `[date]` and `[time]`. A `+` in the page's path no longer stops it from loading.
+  - `--user-style-sheet` takes a `data:` URL.
+  - `--read-args-from-stdin` converts each line as it arrives: a caller may wait for a PDF before it writes the next line.
+  - A `--cookie-jar` that cannot be read or written is left as it is, and the conversion goes on; it failed.
 
 Bugs fixed:
 
-- A long document no longer fails after 30 s of printing with "Timed out after waiting 30000ms": only `--timeout` and `--kiln-timeout` bound a conversion.
+- A long document no longer fails after 30 s of printing with "Timed out after waiting 30000ms": only `--timeout` and `--kiln-timeout` bound a conversion. Beyond 24 days, they mean no limit; they stopped the conversion at once.
 - Ctrl+C, SIGTERM or SIGHUP during a conversion: its temporary folder goes too, as Chromium does; it stayed behind.
 - `wkhtmltopdf` with `--header-html` or `--footer-html`, whose page failed to load: a stack trace instead of wkhtmltopdf's last line, and the temporary folder left. The same for a failure of PDFKiln's own, such as a `--header-html` that names no file: it ends on `Error: …` and `Exit with code 1, due to unknown error.`
+- Windows installer: uninstalling removes its own entry from the PATH only; it could cut another one that started the same way.
+- Docker image: about 100 MB smaller, the Debian package no longer staying in a layer of its own.
 
 Called as `pdfkiln`, what is new:
 

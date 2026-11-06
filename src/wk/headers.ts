@@ -37,11 +37,20 @@ export function hfreplace(q: string, parms: Parms): string {
   return r;
 }
 
-// The query of a header-html URL. wkhtmltopdf encodes spaces as %20.
+// A key or a value of the query, as Qt 4.8's QUrl::addQueryItem writes it
+// (qurl.cpp, queryExcludeChars): !$'()*+,;:@/? stay as they are, = and &
+// are encoded, being its delimiters, and so is a space, as %20.
+const queryItem = (s: string) => encodeURIComponent(s).replace(/%(24|2B|2C|3B|3A|40|2F|3F)/g, (m) => decodeURIComponent(m));
+
+// The URL of a header-html page with the page's parameters added to its
+// query (pdfconverter.cc loadHeaderFooter); the rest of the URL as given.
 export function withParms(url: string, parms: Parms): string {
   const u = new URL(url);
-  for (const [k, v] of Object.entries(parms)) u.searchParams.append(k, v);
-  return u.href.replace(/\+/g, '%20');
+  const hash = u.hash;
+  u.hash = '';
+  const query = Object.entries(parms).map(([k, v]) => `${queryItem(k)}=${queryItem(v)}`).join('&');
+  const href = u.href;
+  return `${href}${u.search ? '&' : href.endsWith('?') ? '' : '?'}${query}${hash}`;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

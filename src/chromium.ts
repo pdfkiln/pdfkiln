@@ -3,10 +3,10 @@
 // the user's cache for the npm package, which downloads it on first use.
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
+import { userCacheDir } from './cache-dir.js';
 import { extractZip } from './engine/unzip.js';
 import { chromiumVersion } from './version.js';
 
@@ -50,14 +50,6 @@ function isSea(): boolean {
   } catch {
     return false;
   }
-}
-
-// PDFKILN_CACHE_DIR, or the platform's cache folder.
-export function userCacheDir(): string {
-  if (process.env.PDFKILN_CACHE_DIR) return process.env.PDFKILN_CACHE_DIR;
-  if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'pdfkiln');
-  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Caches', 'pdfkiln');
-  return join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'pdfkiln');
 }
 
 const userInstall = () => join(userCacheDir(), 'chromium', chromiumVersion, `chrome-headless-shell-${platformKey()}`, exeName());

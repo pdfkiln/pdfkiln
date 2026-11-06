@@ -21,14 +21,51 @@ function say(string $message): void
     if (\defined('STDERR')) fwrite(STDERR, "pdfkiln: $message\n");
 }
 
+// The account's uid: posix's, or the owner of a file it just made.
+function ownUid(): ?int
+{
+    if (\function_exists('posix_geteuid')) return posix_geteuid();
+    $probe = @tempnam(sys_get_temp_dir(), 'pdfkiln');
+    if ($probe === false) return null;
+    $uid = @fileowner($probe);
+    @unlink($probe);
+    return $uid === false ? null : $uid;
+}
+
+// A real folder that this account alone can change.
+function ownFolder(string $path, ?int $uid): bool
+{
+    return $uid !== null && is_dir($path) && !is_link($path) && @fileowner($path) === $uid && (@fileperms($path) & 0022) === 0;
+}
+
+function cacheUnder(string $home): string
+{
+    return PHP_OS_FAMILY === 'Darwin' ? "$home/Library/Caches/pdfkiln" : "$home/.cache/pdfkiln";
+}
+
 function cacheDir(): string
 {
     $env = getenv('PDFKILN_CACHE_DIR');
     if ($env) return $env;
     if (PHP_OS_FAMILY === 'Windows') return (getenv('LOCALAPPDATA') ?: getenv('USERPROFILE') . '\\AppData\\Local') . '\\pdfkiln';
-    $home = getenv('HOME') ?: sys_get_temp_dir();
-    if (PHP_OS_FAMILY === 'Darwin') return "$home/Library/Caches/pdfkiln";
-    return (getenv('XDG_CACHE_HOME') ?: "$home/.cache") . '/pdfkiln';
+    $xdg = getenv('XDG_CACHE_HOME');
+    if ($xdg && PHP_OS_FAMILY !== 'Darwin') return "$xdg/pdfkiln";
+    $home = getenv('HOME');
+    if ($home) return cacheUnder($home);
+    // No HOME: php-fpm clears the environment by default. Up to 1.1, the
+    // cache then went to the shared temporary folder, where another account
+    // could have put its own program first. That folder stays in use only
+    // when this account alone can change it; else the account's home
+    // folder, or a private folder of the temporary folder.
+    $uid = ownUid();
+    $tmp = sys_get_temp_dir();
+    if (PHP_OS_FAMILY !== 'Darwin' && ownFolder("$tmp/.cache", $uid) && ownFolder("$tmp/.cache/pdfkiln", $uid)) return "$tmp/.cache/pdfkiln";
+    $account = $uid !== null && \function_exists('posix_getpwuid') ? posix_getpwuid($uid) : false;
+    if ($account && !empty($account['dir']) && is_dir($account['dir']) && is_writable($account['dir'])) return cacheUnder($account['dir']);
+    $own = "$tmp/pdfkiln-$uid";
+    if ($uid !== null && !file_exists($own)) @mkdir($own, 0700);
+    if (!ownFolder($own, $uid)) throw new \RuntimeException("pdfkiln: no private cache folder: set HOME or PDFKILN_CACHE_DIR");
+    return $own;
 }
 
 // The platform names of the archives (scripts/package.ts).

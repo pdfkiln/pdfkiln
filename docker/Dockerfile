@@ -14,10 +14,12 @@
 FROM debian:13-slim
 ARG TARGETARCH
 
-COPY pdfkiln_*_${TARGETARCH}.deb /tmp/
-RUN apt-get update \
- && apt-get install -y --no-install-recommends /tmp/pdfkiln_*.deb fonts-dejavu-core \
- && rm -rf /var/lib/apt/lists/* /tmp/pdfkiln_*.deb \
+# The package is mounted for the install, not copied: a COPY would keep its
+# 100 MB in a layer of its own, whatever removes it after.
+RUN --mount=type=bind,target=/context \
+    apt-get update \
+ && apt-get install -y --no-install-recommends /context/pdfkiln_*_${TARGETARCH}.deb fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 pdfkiln
 
 USER pdfkiln

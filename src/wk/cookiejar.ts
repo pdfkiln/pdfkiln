@@ -13,10 +13,19 @@ export interface JarCookie {
   httpOnly?: boolean;
 }
 
+// A jar that cannot be read or written is left as it is, without a word
+// (multipageloader.cc MyCookieJar: loadFromFile, saveToFile).
+function readable(path: string): string {
+  try {
+    return existsSync(path) ? readFileSync(path, 'utf8') : '';
+  } catch {
+    return '';
+  }
+}
+
 export function readJar(path: string): JarCookie[] {
-  if (!existsSync(path)) return [];
   const out: JarCookie[] = [];
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
+  for (const line of readable(path).split('\n')) {
     const parts = line.trim().replace(/;$/, '').split(';').map((p) => p.trim()).filter(Boolean);
     const first = parts.shift();
     if (!first || !first.includes('=')) continue;
@@ -49,5 +58,9 @@ export function writeJar(path: string, cookies: JarCookie[]): void {
     if (c.path) s += `; path=${c.path}`;
     return `${s};\n`;
   });
-  writeFileSync(path, lines.join(''));
+  try {
+    writeFileSync(path, lines.join(''));
+  } catch {
+    // As wkhtmltopdf: the conversion goes on.
+  }
 }

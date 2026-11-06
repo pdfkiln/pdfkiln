@@ -115,7 +115,7 @@ export const OPTIONS: OptionSpec[] = [
   { name: 'margin-left', short: 'L', mode: G, args: ['unitreal'], support: 'yes', desc: 'Left margin (default 10mm)', apply: set((t, v) => (t.g.margin.left = v), unit) },
   { name: 'margin-right', short: 'R', mode: G, args: ['unitreal'], support: 'yes', desc: 'Right margin (default 10mm)', apply: set((t, v) => (t.g.margin.right = v), unit) },
   { name: 'margin-top', short: 'T', mode: G, args: ['unitreal'], support: 'yes', desc: 'Top margin', apply: set((t, v) => (t.g.margin.top = v), unit) },
-  { name: 'dpi', short: 'd', mode: G, args: ['dpi'], support: 'noop', desc: 'Accepted, no effect', apply: set((t, v) => (t.g.dpi = v), int) },
+  { name: 'dpi', short: 'd', mode: G, args: ['dpi'], support: 'yes', desc: 'Resolution of lengths in pixels and of automatic header and footer margins (default 96)', apply: set((t, v) => (t.g.dpi = v), int) },
   { name: 'page-height', mode: G, args: ['unitreal'], support: 'yes', desc: 'Page height', apply: set((t, v) => (t.g.pageHeight = v), unit) },
   { name: 'page-width', mode: G, args: ['unitreal'], support: 'yes', desc: 'Page width', apply: set((t, v) => (t.g.pageWidth = v), unit) },
   { name: 'cookie-jar', mode: G, args: ['path'], support: 'yes', desc: 'Read and write cookies from and to this file', apply: set((t, v) => (t.g.cookieJar = v), str) },

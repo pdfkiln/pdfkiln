@@ -75,7 +75,10 @@ const archive = join(out, `${name}${win ? '.zip' : '.tar.gz'}`);
 // Windows' own tar (bsdtar) writes zip files; Git's GNU tar, first in the
 // PATH of a bash step, takes "D:" for a remote host.
 if (win) execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-a', '-c', '-f', archive, '-C', root, 'wkhtmltopdf']);
-else execFileSync('tar', ['-czf', archive, '-C', out, name]);
+// Owned by root in the archive: tar run by root gives the files the owners
+// the archive stores, and the runner's account (1001, 501) could then
+// replace the program.
+else execFileSync('tar', [...(process.platform === 'darwin' ? ['--uid', '0', '--gid', '0'] : ['--owner=0', '--group=0']), '--numeric-owner', '-czf', archive, '-C', out, name]);
 const sha = createHash('sha256').update(readFileSync(archive)).digest('hex');
 writeFileSync(`${archive}.sha256`, `${sha}  ${archive.split(/[\\/]/).pop()}\n`);
 console.log(`${archive} ${(readFileSync(archive).length / 1e6).toFixed(1)} MB ${sha}`);

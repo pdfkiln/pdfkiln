@@ -288,10 +288,11 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   return session;
 }
 
-// Kills Chromium if the conversion outlives `seconds`; 0 disables it.
-// onTimeout ends the process, once Chromium's folder is removed.
+// Kills Chromium if the conversion outlives `seconds`; 0 disables it, and
+// so does more than a timer can hold (24.8 days), which would fire at
+// once. onTimeout ends the process, once Chromium's folder is removed.
 export function deadline(session: Session, seconds: number, onTimeout: () => void): () => void {
-  if (!seconds) return () => {};
+  if (!seconds || seconds * 1000 > 2 ** 31 - 1) return () => {};
   const timer = setTimeout(() => {
     killTree(session.browser.process()?.pid);
     session.stopping = removeWhenFree(session.profile).then(onTimeout);

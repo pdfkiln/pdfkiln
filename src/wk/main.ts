@@ -1,6 +1,7 @@
 // The compatible mode: called as wkhtmltopdf or wkhtmltoimage, or as
 // "pdfkiln wkhtmltopdf" or "pdfkiln wkhtmltoimage".
 import { readFileSync, writeSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { convert, type Io } from './convert.js';
 import { Feedback, IMAGE_PHASES } from './feedback.js';
 import { license, usage, versionLine } from './help.js';
@@ -77,10 +78,10 @@ export async function wkMain(argv: string[]): Promise<number> {
   const p = parse(argv);
   if (typeof p === 'number') return p;
   if (p.g.readArgsFromStdin) {
-    // One conversion per line, with the arguments of the line added to those
-    // of the command (src/pdf/wkhtmltopdf.cc main).
-    const lines = readFileSync(0, 'utf8').split('\n');
-    for (const l of lines) {
+    // One conversion per line, as each line arrives, with the arguments of
+    // the line added to those of the command (src/pdf/wkhtmltopdf.cc main,
+    // a loop on fgets): a caller may wait for a PDF before the next line.
+    for await (const l of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
       if (!l.trim()) continue;
       const q = parse([...argv, ...splitArgs(l)], true);
       if (typeof q === 'number') return q;

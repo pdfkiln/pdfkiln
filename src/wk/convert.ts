@@ -601,6 +601,8 @@ export async function readStyleSheet(s: string, block: boolean): Promise<string>
   const url = guessUrlFromString(s);
   try {
     if (url.startsWith('file:')) return readFileSync(new URL(url), 'utf8');
+    // The form QtWebKit documents for a user style sheet, base64 or not.
+    if (url.startsWith('data:')) return await (await fetch(url)).text();
     if (/^https?:/.test(url)) return (await relayGet(url, { block })).body.toString('utf8');
   } catch {
     // As WebKit: a style sheet that cannot be read is no style sheet.

@@ -2,7 +2,7 @@
 
 Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or `cover`. Generated from `src/wk/options.ts` by `node dist/scripts/options-doc.js`.
 
-## Implemented (98)
+## Implemented (99)
 
 | Option | Short | Section | Description |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@ Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, 
 | `--margin-left <unitreal>` | `-L` | global | Left margin (default 10mm) |
 | `--margin-right <unitreal>` | `-R` | global | Right margin (default 10mm) |
 | `--margin-top <unitreal>` | `-T` | global | Top margin |
+| `--dpi <dpi>` | `-d` | global | Resolution of lengths in pixels and of automatic header and footer margins (default 96) |
 | `--page-height <unitreal>` |  | global | Page height |
 | `--page-width <unitreal>` |  | global | Page width |
 | `--cookie-jar <path>` |  | global | Read and write cookies from and to this file |
@@ -105,14 +106,13 @@ Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, 
 | `--toc-text-size-shrink <real>` |  | toc | Font scale per TOC level |
 | `--toc-level-indentation <width>` |  | toc | Indentation per TOC level |
 
-## Accepted without effect (24)
+## Accepted without effect (23)
 
 A warning unless `--quiet`, never an effect on the exit code; none for `--lowquality`, which knp-snappy passes on every call, nor for the options that restate the default.
 
 | Option | Short | Section | Description |
 | --- | --- | --- | --- |
 | `--lowquality` | `-l` | global | Accepted, no effect |
-| `--dpi <dpi>` | `-d` | global | Accepted, no effect |
 | `--image-quality <integer>` |  | global | Accepted, no effect |
 | `--image-dpi <integer>` |  | global | Accepted, no effect |
 | `--no-pdf-compression` |  | global | Accepted, no effect |

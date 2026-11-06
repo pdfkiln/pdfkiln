@@ -45,6 +45,12 @@ test('private addresses', () => {
 test('header variables', () => {
   assert.equal(hfreplace('[Page]/[topage] [x]', { page: '2', topage: '5' }), '2/5 [x]');
   assert.equal(withParms('file:///h.html', { section: 'A b', page: '1' }), 'file:///h.html?section=A%20b&page=1');
+  // As Qt writes them: what a query allows stays, its delimiters and the
+  // rest are encoded; the path stays as given.
+  assert.equal(
+    withParms('file:///C:/a/c++/h.html?x=1#top', { date: '06/11/2026', time: '10:32', webpage: 'http://x.org/a?b=c&d', title: "L'été #1 (+$)" }),
+    "file:///C:/a/c++/h.html?x=1&date=06/11/2026&time=10:32&webpage=http://x.org/a?b%3Dc%26d&title=L'%C3%A9t%C3%A9%20%231%20(+$)#top",
+  );
 });
 
 test('[section] is the first heading of the page, carried over', () => {
