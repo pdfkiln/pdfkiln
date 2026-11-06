@@ -73,7 +73,7 @@ jobs:
         run: echo "pinned $(node -p "require('./chromium.json').version"), Stable $(node dist/scripts/update-chromium.js --dry-run)"
 
       - name: Unit tests
-        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/manifests.test.js
+        run: node --test dist/test/options.test.js dist/test/parse.test.js dist/test/units.test.js dist/test/messages.test.js dist/test/emulation.test.js dist/test/version.test.js dist/test/unzip.test.js dist/test/cache.test.js dist/test/gate.test.js dist/test/manifests.test.js
 
       - name: Command tests
         run: node --test dist/test/cli.test.js
@@ -143,8 +143,11 @@ jobs:
           $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); "DpiX $($g.DpiX) DpiY $($g.DpiY)"
         shell: pwsh
 
+      # On Linux, the job fails below the gate of a release (bench/gate.ts):
+      # every entry keeps its page count, 99 % of the words their page. The
+      # steps after it still run, for their figures.
       - name: Corpus against wkhtmltopdf 0.12.6
-        run: node dist/bench/compat.js | tee bench-compat.txt
+        run: node dist/bench/compat.js --gate | tee bench-compat.txt
         shell: bash
 
       - name: Details of the entries below 100 %
@@ -155,6 +158,7 @@ jobs:
           PYTHONIOENCODING: utf-8
 
       - name: Complete call, two-page Odoo invoice
+        if: ${{ !cancelled() }}
         run: |
           npm run bundle
           node dist/bench/call.js --delay 200 | tee -a bench-compat.txt
@@ -163,6 +167,7 @@ jobs:
 
       # On Windows, wkhtmltopdf's Qt takes its font metrics from GDI.
       - name: Font metrics, wkhtmltopdf against pdfkiln
+        if: ${{ !cancelled() }}
         run: node dist/bench/gdi.js | tee -a bench-compat.txt
         shell: bash
 
