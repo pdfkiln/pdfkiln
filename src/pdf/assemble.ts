@@ -38,6 +38,25 @@ export function readOutline(doc: PDFDocument): OutlineItem[] {
   return outlines ? walk(outlines.lookupMaybe(PDFName.of('First'), PDFDict)) : [];
 }
 
+// A bookmark Chromium titles with its heading's text twice, when a page
+// break pushes the heading to the next page ("InstallationInstallation",
+// measured with Chromium 157 on a heading kept with what follows it by
+// break-after: avoid): it gets the text once. Only a title that is a
+// heading of the page twice over, and not itself a heading's text, changes:
+// a heading named "TomTom" keeps its name. headings: the page's headings,
+// as rendered and as written (innerText, textContent).
+export function undoubleTitles(items: OutlineItem[], headings: string[]): OutlineItem[] {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const texts = new Set(headings.map(norm));
+  const fix = (list: OutlineItem[]): OutlineItem[] => list.map((it) => {
+    const t = norm(it.title);
+    const half = t.slice(0, t.length / 2);
+    const title = t.length % 2 === 0 && half && t === half + half && texts.has(half) && !texts.has(t) ? half : it.title;
+    return { ...it, title, children: fix(it.children) };
+  });
+  return fix(items);
+}
+
 // Chromium writes the named destinations of internal links in the page's
 // CSS points, unscaled and without the margins (measured with Chromium
 // 156: an element at 200 x 300 px lands at /XYZ 150 (height - 225)

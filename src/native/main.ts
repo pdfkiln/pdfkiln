@@ -36,6 +36,7 @@ import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
+import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
@@ -183,6 +184,13 @@ function words(name: string): string {
 
 function writeAll(fd: number, data: Uint8Array): void {
   for (let off = 0; off < data.length;) off += writeSync(fd, data, off);
+}
+
+// The text of the page's headings, as rendered and as written; none if the
+// page does not answer, which leaves Chromium's titles as they are.
+function headingTexts(page: Page): Promise<string[]> {
+  return page.evaluate(() => Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'), (h) => [(h as HTMLElement).innerText, h.textContent ?? '']).flat())
+    .catch(() => []);
 }
 
 // PDFKILN_TIMINGS=1 writes the time of each step, in ms, on stderr, as the
@@ -371,7 +379,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       },
     });
     step('launch');
-    const [{ PDFDocument, PDFName, PDFString }, { fixDests, merge, moveDest, prune, readOutline, writeOutline }] = await pdfModules();
+    const [{ PDFDocument, PDFName, PDFString }, { fixDests, merge, moveDest, prune, readOutline, undoubleTitles, writeOutline }] = await pdfModules();
     step('modules');
     stop = deadline(session, timeout, () => {
       removeQuietly(work);
@@ -455,6 +463,9 @@ export async function nativeMain(args: string[]): Promise<number> {
         out.error(`could not load ${input}: ${failure || `HTTP ${lp.status}`}`);
         return 1;
       }
+      // --outline: the headings' text, which puts right a bookmark Chromium
+      // titles twice (undoubleTitles).
+      const headings = v.outline ? await headingTexts(lp.page) : [];
       const pdf = await lp.page.pdf({
         format: 'A4',
         margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
@@ -473,7 +484,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       // Markdown's targets move by its style sheet's margins.
       if (markdown) fixDests(doc, MARGIN_LEFT_CM * CM_PT, MARGIN_TOP_CM * CM_PT, 1);
       else fixDests(doc, CM_PT, CM_PT, 1);
-      parts.push({ doc, outline: v.outline ? readOutline(doc) : [] });
+      parts.push({ doc, outline: v.outline ? undoubleTitles(readOutline(doc), headings) : [] });
       step('print');
     }
     const merged = await merge(parts, Boolean(v.tagged));
