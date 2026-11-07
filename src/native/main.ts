@@ -23,11 +23,16 @@
 //   --fail-on-resource-error an error for each, once the input has loaded
 //   and printed;
 // - --title, --author, --subject and --keywords: the PDF's properties, the
-//   title being the page's otherwise.
+//   title being the page's otherwise;
+// - Markdown, from a file named .md or .markdown, or with --from markdown:
+//   GitHub's dialect and math, printed with pdfkiln's style sheet
+//   (src/markdown/), without JavaScript; its images may come from the
+//   document's folder, and its front matter gives the properties that no
+//   option does.
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
@@ -35,12 +40,14 @@ import { deadline, launch, LaunchError, removeQuietly, type Session } from '../e
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
+import type { FrontMatter } from '../markdown/frontmatter.js';
+import { MARGIN_LEFT_CM, MARGIN_TOP_CM } from '../markdown/style.js';
 import type { FinalItem, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
 
-const HELP = `PDFKiln: HTML to PDF with Chromium
+const HELP = `PDFKiln: HTML and Markdown to PDF with Chromium
 
 Usage:
   pdfkiln [options] <input>... <output>
@@ -51,19 +58,26 @@ Examples:
   pdfkiln https://example.com/report report.pdf
   pdfkiln cover.html body.html book.pdf     # merged in order
   pdfkiln - - < page.html > page.pdf        # standard input and output
+  pdfkiln notes.md notes.pdf                # Markdown
 
 Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
 input; the output is a file, or - for the standard output. Paper size,
 margins, headers and footers come from the page's CSS (@page and its margin
 boxes): A4 with 1 cm margins otherwise.
 
+Files named .md or .markdown are Markdown: GitHub's dialect, with math
+($...$, $$...$$) and a front matter, printed with PDFKiln's style sheet,
+without JavaScript. Its images may come from the document's folder.
+
 Rendering:
+  --from markdown             Read every input as Markdown, whatever its name
+                              (README, notes.txt, the standard input)
   --css <file>                Add a style sheet after the page's own
   --media <print|screen>      CSS media type (default: print)
   --outline                   Bookmarks from the headings
   --tagged                    Tagged PDF, for screen readers (one input)
 
-Document properties:
+Document properties (default: from the front matter of Markdown):
   --title <text>              Title (default: the page's <title>)
   --author <text>             Author
   --subject <text>            Subject
@@ -113,6 +127,15 @@ const CM_PT = 72 / 2.54;
 // http://report.html/).
 const URL_INPUT = /^(https?|file|data):/i;
 
+// A Markdown file; with --from markdown, every input. No --from html: Chromium
+// reads a file by its name, and takes a .md one for a download.
+const MARKDOWN_NAME = /\.(md|markdown)$/i;
+
+// The Markdown renderer, loaded on demand like pdf-lib (src/pdf/modules.ts):
+// while Chromium starts, and only when an input is Markdown.
+let markdownLoading: Promise<typeof import('../markdown/render.js')> | undefined;
+const markdownModule = () => (markdownLoading ??= import('../markdown/render.js'));
+
 // What keeps a file from being an input: missing, or not a file. A missing
 // one named like a host (www.example.com, localhost:8080/page, 10.0.0.5),
 // not like a page (report.html), was meant as a URL.
@@ -122,7 +145,7 @@ function notAFile(input: string, url: string): string {
   const st = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
   if (st) return st.isFile() ? '' : 'not a file';
   const host = /^([^/\\:]+)(:\d+)?(\/|$)/.exec(input)?.[1] ?? '';
-  const page = /\.(x?html?|xml|svg|txt|pdf|json|css|js)$/i.test(host);
+  const page = /\.(x?html?|xml|svg|txt|pdf|json|css|js|md|markdown)$/i.test(host);
   const hostLike = host === 'localhost' || isIP(host) === 4 || (!page && /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(host));
   return hostLike ? 'no such file (a URL starts with https://)' : 'no such file';
 }
@@ -183,6 +206,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       options: {
         tagged: { type: 'boolean' },
         outline: { type: 'boolean' },
+        from: { type: 'string' },
         css: { type: 'string' },
         media: { type: 'string' },
         'javascript-delay': { type: 'string' },
@@ -233,6 +257,25 @@ export async function nativeMain(args: string[]): Promise<number> {
   }
   const inputs = positionals.slice(0, -1);
   const output = positionals[positionals.length - 1]!;
+  if (v.from !== undefined && v.from !== 'markdown') {
+    stderr('pdfkiln: --from takes markdown\n');
+    return 1;
+  }
+  // Whether an input is Markdown: --from, or a file's name. - is HTML but
+  // with --from markdown; a URL is read as it comes (file: aside).
+  const markdownPath = (input: string): string | null => {
+    if (input === '-') return null;
+    const path = URL_INPUT.test(input) ? (/^file:/i.test(input) ? filePath(URL.parse(input)?.href ?? '') : null) : resolve(input);
+    return path && (v.from === 'markdown' || MARKDOWN_NAME.test(path)) ? path : null;
+  };
+  const isMarkdown = (input: string) => (input === '-' ? v.from === 'markdown' : markdownPath(input) !== null);
+  for (const input of inputs) {
+    if (v.from === 'markdown' && input !== '-' && URL_INPUT.test(input) && !/^file:/i.test(input)) {
+      stderr(`pdfkiln: could not load ${input}: Markdown is read from a file or the standard input, not from a URL\n`);
+      return 1;
+    }
+  }
+  const anyMarkdown = inputs.some(isMarkdown);
   if (v.tagged && inputs.length > 1) {
     stderr('pdfkiln: --tagged takes one input: the structure trees of several documents are not merged yet\n');
     return 1;
@@ -322,10 +365,13 @@ export async function nativeMain(args: string[]): Promise<number> {
       noSandbox: v['no-sandbox'],
       proxyServer: relay?.url,
       proxyBypassList: relay ? '<-loopback>' : undefined,
-      meanwhile: () => void pdfModules().catch(() => {}),
+      meanwhile: () => {
+        void pdfModules().catch(() => {});
+        if (anyMarkdown) void markdownModule().then((m) => m.prepare()).catch(() => {});
+      },
     });
     step('launch');
-    const [{ PDFDocument }, { fixDests, merge, moveDest, prune, readOutline, writeOutline }] = await pdfModules();
+    const [{ PDFDocument, PDFName, PDFString }, { fixDests, merge, moveDest, prune, readOutline, writeOutline }] = await pdfModules();
     step('modules');
     stop = deadline(session, timeout, () => {
       removeQuietly(work);
@@ -339,9 +385,13 @@ export async function nativeMain(args: string[]): Promise<number> {
     base.load.allowed = v.allow ?? [];
     base.load.cookies = cookies;
     let stdin: Buffer | undefined;
+    // The front matter of the first Markdown input that has one.
+    let front: FrontMatter | undefined;
     const parts: { doc: PDFDocument; outline: OutlineItem[] }[] = [];
     for (const [i, input] of inputs.entries()) {
       let url: string;
+      const mdPath = markdownPath(input);
+      const markdown = isMarkdown(input);
       if (input === '-') {
         stdin ??= readFileSync(0);
         const file = join(work, `stdin-${i}.html`);
@@ -353,13 +403,42 @@ export async function nativeMain(args: string[]): Promise<number> {
         out.error(`could not load ${input}: ${unusable}`);
         return 1;
       }
+      // Markdown: the page printed is its HTML, written next to the others
+      // of the conversion; its folder (the working directory for -) is what
+      // its relative links and images name, and only from a file may its
+      // images be read there.
+      let allowFiles: string[] | undefined;
+      let web = base.web;
+      if (markdown) {
+        let text: string;
+        try {
+          text = (mdPath ? readFileSync(mdPath) : stdin!).toString('utf8');
+        } catch (e) {
+          out.error(`could not load ${input}: ${words((e as NodeJS.ErrnoException).code ?? String(e))}`);
+          return 1;
+        }
+        const folder = mdPath ? dirname(mdPath) : process.cwd();
+        const file = join(work, `markdown-${i}.html`);
+        url = pathToFileURL(file).href;
+        const { markdownPage } = await markdownModule();
+        const md = markdownPage(text, {
+          base: pathToFileURL(folder.endsWith(sep) ? folder : folder + sep).href,
+          name: mdPath ? basename(mdPath, extname(mdPath)) : undefined,
+        });
+        writeFileSync(file, md.html);
+        step('markdown');
+        if (mdPath) allowFiles = [folder];
+        web = { ...base.web, enableJavascript: false };
+        if (!front && Object.keys(md.meta).length) front = md.meta;
+      }
       failure = '';
       // What the input before asked for once printed is not in the PDF.
       unloaded.clear();
       const lp = await openPage(context, {
         url,
-        web: base.web,
+        web,
         load: base.load,
+        allowFiles,
         isMain: true,
         media,
         viewport: { width: 794, height: 1123 },
@@ -390,7 +469,9 @@ export async function nativeMain(args: string[]): Promise<number> {
       if (incomplete()) return 1;
       await lp.page.close();
       const doc = await PDFDocument.load(pdf, READ);
-      fixDests(doc, CM_PT, CM_PT, 1);
+      // Markdown's targets move by its style sheet's margins.
+      if (markdown) fixDests(doc, MARGIN_LEFT_CM * CM_PT, MARGIN_TOP_CM * CM_PT, 1);
+      else fixDests(doc, CM_PT, CM_PT, 1);
       parts.push({ doc, outline: v.outline ? readOutline(doc) : [] });
       step('print');
     }
@@ -404,12 +485,19 @@ export async function nativeMain(args: string[]): Promise<number> {
     }
     merged.doc.setCreator(`PDFKiln ${version}`);
     merged.doc.setProducer('pdfkiln.org');
-    // The title Chromium gave, the page's, unless --title; the others only
-    // when given.
+    // The title Chromium gave, the page's (Markdown's: its front matter's,
+    // its first heading or its file's name), unless --title; the others
+    // when given, or from the front matter of Markdown.
     if (v.title !== undefined) merged.doc.setTitle(v.title);
-    if (v.author !== undefined) merged.doc.setAuthor(v.author);
-    if (v.subject !== undefined) merged.doc.setSubject(v.subject);
-    if (v.keywords !== undefined) merged.doc.setKeywords([v.keywords]);
+    const author = v.author ?? front?.author;
+    if (author !== undefined) merged.doc.setAuthor(author);
+    const subject = v.subject ?? front?.subject;
+    if (subject !== undefined) merged.doc.setSubject(subject);
+    const keywords = v.keywords !== undefined ? [v.keywords] : front?.keywords;
+    if (keywords !== undefined) merged.doc.setKeywords([keywords.join(', ')]);
+    // The language, for readers and screen readers: Chromium writes it in a
+    // tagged PDF only.
+    if (front?.lang && !merged.doc.catalog.has(PDFName.of('Lang'))) merged.doc.catalog.set(PDFName.of('Lang'), PDFString.of(front.lang));
     const bytes = await merged.doc.save(WRITE);
     step('assemble');
     if (output === '-') writeAll(1, bytes);

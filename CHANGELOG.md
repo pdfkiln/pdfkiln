@@ -6,6 +6,25 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.3.0
+
+`pdfkiln` prints Markdown, which wkhtmltopdf never did. Nothing changes for HTML, nor for the command line of wkhtmltopdf and wkhtmltoimage.
+
+Markdown, called as `pdfkiln`:
+
+- `pdfkiln notes.md notes.pdf`: a file named `.md` or `.markdown` is Markdown; `--from markdown` reads every input so, whatever its name (`README`, the standard input). Markdown is read from a file or the standard input, not from a URL.
+- GitHub's dialect: tables, strikethrough, task lists, alerts (`> [!NOTE]`, titled in the document's language for English, French, Spanish, German, Italian and Portuguese), footnotes, emoji shortcodes, bare links, raw HTML, links to a heading (`[Install](#install)`), which stay inside the PDF.
+- Math, as pandoc and chat assistants write it: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` displayed. "$5 and $10" stays text. A formula in error shows in red, with its source.
+- Code coloured when its block names a known language (` ```js `).
+- A style sheet made for paper: page numbers at the foot, nothing cut across a page break (a code block, a table row, a formula, a picture), no heading left alone at the bottom of a page, `<details>` opened. `--css` adds to it.
+- The front matter gives the title, author, subject, keywords and language, unless the options do; without it, the title is the first heading, then the file's name.
+- Safe as HTML is: no JavaScript runs; images may come from the document's folder and below, not from elsewhere on the machine without `--allow`; the network rules do not change.
+
+In every mode:
+
+- The packages ship the license file of each bundled package in `licenses/`; many had none.
+- The program grows by about 1 MB, which adds about 20 ms to its start on a Windows 11 PC, within the noise of a conversion.
+
 ## 1.2.0
 
 `pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.

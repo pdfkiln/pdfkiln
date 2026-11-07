@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`); `pdfkiln --help` lists them all. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf` takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -202,11 +202,12 @@ pip install -r bench/requirements.txt
 npm run bench:compat                   # the corpus, PDFKiln against wkhtmltopdf
 npm run bench:image                    # the corpus as images, against wkhtmltoimage
 npm run bench:call                     # time of a complete call
+npm run bench:markdown                 # the Markdown corpus: time, pages, warnings
 test/libraries/run.sh /tmp/libs        # the libraries' own test suites
 ```
 
 ## Licenses
 
-PDFKiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0).
+PDFKiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0), and prints Markdown with markdown-it (MIT), KaTeX and its fonts (MIT) and highlight.js (BSD-3-Clause); the packages ship each bundled package's license in `licenses/`.
 
-The templates of the test corpus (`corpus/`) are not covered by the MIT license: each keeps its own (LGPL-3.0 for Odoo, GPL-3.0 for parts of ERPNext, MIT for Sylius...), noted in its `SOURCE.md` and `manifest.json`. They are test data and are never part of the packages.
+The templates of the test corpus (`corpus/`) are not covered by the MIT license: each keeps its own (LGPL-3.0 for Odoo, GPL-3.0 for parts of ERPNext, MIT for Sylius...), noted in its `SOURCE.md` and `manifest.json`. So do the READMEs of the Markdown corpus (`bench/markdown/`). They are test data and are never part of the packages.

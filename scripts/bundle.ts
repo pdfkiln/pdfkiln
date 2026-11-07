@@ -5,11 +5,21 @@
 //   node dist/scripts/bundle.js   ->  dist/bundle/pdfkiln.cjs, wkhtmltopdf.cjs, wkhtmltoimage.cjs
 //
 // CommonJS, the format of Node's single executable applications.
+//
+// The license file of each package bundled goes in dist/bundle/licenses/,
+// which the packages ship (scripts/package.ts, scripts/npm.ts): most of
+// them carry no license comment for legalComments to keep.
 import { build } from 'esbuild';
+import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../src/chromium.js';
+import { readMarkdownAssets } from '../src/markdown/assets.js';
 
-await build({
+const result = await build({
+  metafile: true,
+  // KaTeX's style sheet and fonts and highlight.js's theme, which the
+  // bundle cannot read from node_modules (src/markdown/assets.ts).
+  define: { PDFKILN_MARKDOWN_ASSETS: JSON.stringify(readMarkdownAssets(join(repoRoot, 'package.json'))) },
   entryPoints: {
     pdfkiln: join(repoRoot, 'src', 'bin', 'pdfkiln.ts'),
     wkhtmltopdf: join(repoRoot, 'src', 'bin', 'wkhtmltopdf.ts'),
@@ -31,3 +41,18 @@ await build({
   // src/chromium.ts falls back on __dirname in CommonJS.
   logOverride: { 'empty-import-meta': 'silent' },
 });
+
+const licenses = join(repoRoot, 'dist', 'bundle', 'licenses');
+rmSync(licenses, { recursive: true, force: true });
+mkdirSync(licenses, { recursive: true });
+const packages = new Set<string>();
+for (const input of Object.keys(result.metafile.inputs)) {
+  const m = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input.replace(/\\/g, '/'));
+  if (m) packages.add(input.replace(/\\/g, '/').slice(0, m.index + m[0].length));
+}
+for (const dir of [...packages].sort()) {
+  const name = /node_modules\/((?:@[^/]+\/)?[^/]+)\/$/.exec(dir)![1]!;
+  const file = readdirSync(join(repoRoot, dir)).find((f) => /^(licen[cs]e|copying)/i.test(f));
+  // puppeteer-core's has none: licenses/Apache-2.0.txt.
+  if (file) copyFileSync(join(repoRoot, dir, file), join(licenses, `${name.replace('/', '__')}.txt`));
+}

@@ -61,6 +61,8 @@ if (existsSync(chromiumLicense)) cpSync(chromiumLicense, join(top, 'licenses', '
 cpSync(join(repoRoot, 'licenses', 'Apache-2.0.txt'), join(top, 'licenses', 'puppeteer-core-Apache-2.0.txt'));
 const legal = join(repoRoot, 'dist', 'bundle', 'pdfkiln.cjs.LEGAL.txt');
 if (existsSync(legal)) cpSync(legal, join(top, 'licenses', 'bundled-packages.txt'));
+// The license file of each bundled package (scripts/bundle.ts).
+cpSync(join(repoRoot, 'dist', 'bundle', 'licenses'), join(top, 'licenses'), { recursive: true });
 writeFileSync(join(top, 'README.txt'), `PDFKiln ${version}, Chromium ${chromiumVersion}, ${names[key] ?? key}
 
 Called as wkhtmltopdf or wkhtmltoimage, PDFKiln accepts the command line of

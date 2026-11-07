@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { PDFDocument, PDFName } from '@cantoo/pdf-lib';
+import { PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib';
 import { version } from '../src/version.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -1105,9 +1105,10 @@ describe('native interface', () => {
   test('--help and --version: the name PDFKiln, the command pdfkiln', async () => {
     let r = await native(['--help']);
     assert.equal(r.code, 0);
-    assert.match(r.stdout.toString(), /^PDFKiln: HTML to PDF with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
+    assert.match(r.stdout.toString(), /^PDFKiln: HTML and Markdown to PDF with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
-    assert.match(r.stdout.toString(), /\nDocument properties:\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
+    assert.match(r.stdout.toString(), /\nDocument properties \(default: from the front matter of Markdown\):\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
+    assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input as Markdown, whatever its name\n/);
     assert.match(r.stdout.toString(), /\n {2}--fail-on-resource-error {4}Fail, without a PDF, /);
     // pdfkiln serve is gone (1.2.0).
     assert.doesNotMatch(r.stdout.toString(), /\bserve\b/);
@@ -1131,6 +1132,102 @@ describe('native interface', () => {
     r = await native([dir, join(dir, 'm.pdf')]);
     assert.equal(r.code, 1);
     assert.equal(r.stderr, `pdfkiln: error: could not load ${dir}: not a file\n`);
+    // .md is Moldova's domain, but a missing notes.md is a file.
+    r = await native(['notes.md', join(dir, 'm.pdf')]);
+    assert.equal(r.stderr, 'pdfkiln: error: could not load notes.md: no such file\n');
+  });
+
+  describe('Markdown', () => {
+    const properties = async (out: string) => {
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      return [doc.getTitle(), doc.getAuthor(), doc.getSubject(), doc.getKeywords()];
+    };
+
+    test('a .md file: its front matter gives the properties that no option does', async () => {
+      const md = file('native/md/report.md', '---\ntitle: Rapport T3\nauthor: Équipe\nsubject: Ventes\nkeywords: [ventes, T3]\nlang: fr\n---\n# Heading\n\ntext\n');
+      const out = join(dir, 'md-report.pdf');
+      let r = await native([md, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      assert.deepEqual(await properties(out), ['Rapport T3', 'Équipe', 'Ventes', 'ventes, T3']);
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      assert.equal(String(doc.catalog.get(PDFName.of('Lang'))), '(fr)');
+      r = await native(['--title', 'T', '--author', 'A', '--keywords', 'k', md, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await properties(out), ['T', 'A', 'Ventes', 'k']);
+      // Without a front matter: the first heading, the file's name otherwise.
+      r = await native([file('native/md/plain.md', 'no heading'), out]);
+      assert.deepEqual(await properties(out), ['plain', undefined, undefined, undefined]);
+    });
+
+    test("links to a heading stay in the PDF, at the heading; --outline from the headings", async () => {
+      const md = file('native/md/links.md', `# Top\n\n[Down](#down) and a note[^1].\n\n${'filler\n\n'.repeat(60)}## Down\n\n[^1]: The note.\n`);
+      const out = join(dir, 'md-links.pdf');
+      const r = await native(['--outline', md, out]);
+      assert.equal(r.code, 0, r.stderr);
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      const annots = doc.getPage(0).node.Annots()!;
+      const dests = Array.from({ length: annots.size() }, (_, i) => doc.context.lookup(annots.get(i)) as PDFDict).map((a) => String(a.get(PDFName.of('Dest'))));
+      assert.deepEqual(dests, ['/down', '/fn1']);
+      assert.ok(!readFileSync(out).includes('pdfkiln-'), 'no path of the conversion in the PDF');
+      assert.ok(doc.catalog.get(PDFName.of('Outlines')));
+      if (hasPyMuPDF) {
+        const script = 'import sys, json, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(json.dumps([[t[1], t[2]] for t in d.get_toc()]))';
+        const toc = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as [string, number][];
+        assert.deepEqual(toc.map(([t]) => t), ['Top', 'Down']);
+        assert.equal(toc[1]![1], doc.getPageCount() - (pagesText(out).at(-1)!.includes('Down') ? 0 : 1));
+      }
+    });
+
+    test("no JavaScript; images from the document's folder, not from outside", async () => {
+      file('native/md/doc/pic.png', 'png');
+      file('native/md/outside.png', 'png');
+      const md = file('native/md/doc/doc.md', '# Doc\n\n<p id="p">static</p><script>document.getElementById("p").textContent = "script ran"</script>\n\n![in](pic.png) ![out](../outside.png)\n');
+      const out = join(dir, 'md-doc.pdf');
+      const url = pathToFileURL(join(dir, 'native', 'md', 'outside.png')).href;
+      let r = await native([md, out]);
+      assert.equal(r.code, 0, r.stderr);
+      // pic.png is no PNG: Chromium reads it, and draws nothing; outside.png
+      // is not read at all.
+      assert.equal(r.stderr, `pdfkiln: warning: could not load ${url}: not an allowed file (--allow <path> or --enable-local-file-access to read it)\n`);
+      r = await native(['--fail-on-resource-error', md, out]);
+      assert.equal(r.code, 1);
+      r = await native(['--allow', join(dir, 'native', 'md'), md, out]);
+      assert.equal(r.stderr, '');
+      if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /static/);
+    });
+
+    test('--from markdown: the standard input, a file of any name; never a URL', async () => {
+      const out = join(dir, 'md-from.pdf');
+      let r = await native(['--from', 'markdown', '-', out], '---\ntitle: From stdin\n---\n# x\n');
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal((await properties(out))[0], 'From stdin');
+      const readme = file('native/md/README', '# The readme\n');
+      r = await native(['--from', 'markdown', readme, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal((await properties(out))[0], 'The readme');
+      // Without it, - is HTML.
+      r = await native(['-', out], '<title>HTML</title># not a heading');
+      assert.equal((await properties(out))[0], 'HTML');
+      r = await native(['--from', 'markdown', 'https://example.com/README.md', out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: could not load https://example.com/README.md: Markdown is read from a file or the standard input, not from a URL\n');
+      r = await native(['--from', 'html', readme, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: --from takes markdown\n');
+    });
+
+    test('merged with HTML; the properties from the first front matter', async () => {
+      const a = file('native/md/a.md', '---\nauthor: First\n---\n# A\n');
+      const b = file('native/md/b.md', '---\nauthor: Second\n---\n# B\n');
+      const html = file('native/md/c.html', '<p>c</p>');
+      const out = join(dir, 'md-merged.pdf');
+      const r = await native([html, a, b, out]);
+      assert.equal(r.code, 0, r.stderr);
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      assert.equal(doc.getPageCount(), 3);
+      assert.equal(doc.getAuthor(), 'First');
+    });
   });
 });
 
