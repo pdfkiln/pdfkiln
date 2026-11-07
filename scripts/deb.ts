@@ -107,6 +107,11 @@ const depends = [
   'libnspr4', 'libnss3', 'libudev1', 'libx11-6', 'libxcb1', 'libxcomposite1', 'libxdamage1', 'libxext6', 'libxfixes3',
   'libxkbcommon0', 'libxrandr2', 'fontconfig', 'fonts-liberation',
 ];
+// Emoji in colour rather than empty boxes (11 MB). Measured on Debian 13 on
+// 07/11/2026: only emoji change font, the symbols that DejaVu or
+// Liberation draw keep theirs. A recommendation, which apt installs by
+// default: a system that leaves recommendations out still installs.
+const recommends = ['fonts-noto-color-emoji'];
 const size = (p: string): number => {
   const s = lstatSync(p, { throwIfNoEntry: false });
   if (!s || s.isSymbolicLink()) return 0;
@@ -121,6 +126,7 @@ Maintainer: Jamal Tantaoui <contact@pdfkiln.org>
 Homepage: https://pdfkiln.org
 Installed-Size: ${Math.ceil(size(join(root, 'usr')) / 1024)}
 Depends: ${depends.join(', ')}
+Recommends: ${recommends.join(', ')}
 Provides: wkhtmltopdf
 Conflicts: wkhtmltopdf, wkhtmltox
 Replaces: wkhtmltopdf, wkhtmltox

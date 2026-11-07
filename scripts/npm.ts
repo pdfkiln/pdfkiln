@@ -28,6 +28,8 @@ cpSync(join(repoRoot, 'LICENSE'), join(root, 'LICENSE'));
 cpSync(join(repoRoot, 'licenses', 'Apache-2.0.txt'), join(root, 'licenses', 'puppeteer-core-Apache-2.0.txt'));
 const legal = join(repoRoot, 'dist', 'bundle', 'pdfkiln.cjs.LEGAL.txt');
 if (existsSync(legal)) cpSync(legal, join(root, 'licenses', 'bundled-packages.txt'));
+// The license file of each bundled package (scripts/bundle.ts).
+cpSync(join(repoRoot, 'dist', 'bundle', 'licenses'), join(root, 'licenses'), { recursive: true });
 
 const platforms = Object.keys(readPin().archives).join(', ');
 writeFileSync(join(root, 'README.md'), `# PDFKiln

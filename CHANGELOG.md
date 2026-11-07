@@ -49,6 +49,8 @@ Bugs fixed:
 - `wkhtmltopdf` with `--header-html` or `--footer-html`, whose page failed to load: a stack trace instead of wkhtmltopdf's last line, and the temporary folder left. The same for a failure of PDFKiln's own, such as a `--header-html` that names no file: it ends on `Error: …` and `Exit with code 1, due to unknown error.`
 - Windows installer: uninstalling removes its own entry from the PATH only; it could cut another one that started the same way.
 - Docker image: about 100 MB smaller, the Debian package no longer staying in a layer of its own.
+- On Linux, emoji print in colour rather than as empty boxes: the Debian package recommends `fonts-noto-color-emoji`, and the Docker image includes it.
+- The packages include the license of each library bundled in PDFKiln, in `licenses/`; most were missing.
 - `pdfkiln --outline`: a heading that a page break pushes to the next page no longer has its text twice in its bookmark ("InstallationInstallation").
 
 Called as `pdfkiln`, what is new:
