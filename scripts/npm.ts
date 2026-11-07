@@ -69,5 +69,8 @@ const packed = execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['
   encoding: 'utf8',
   shell: process.platform === 'win32',
 });
-const [info] = JSON.parse(packed) as { filename: string; size: number; unpackedSize: number; entryCount: number }[];
+// npm 11 writes an array of packages, npm 12 an object keyed by name.
+type Packed = { filename: string; size: number; unpackedSize: number; entryCount: number };
+const parsed = JSON.parse(packed) as Packed[] | Record<string, Packed>;
+const info = (Array.isArray(parsed) ? parsed : Object.values(parsed))[0];
 console.log(`${join(out, info!.filename)} ${(info!.size / 1e6).toFixed(1)} MB, ${(info!.unpackedSize / 1e6).toFixed(1)} MB unpacked, ${info!.entryCount} files`);
