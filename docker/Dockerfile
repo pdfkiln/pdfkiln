@@ -15,10 +15,11 @@ FROM debian:13-slim
 ARG TARGETARCH
 
 # The package is mounted for the install, not copied: a COPY would keep its
-# 100 MB in a layer of its own, whatever removes it after.
+# 100 MB in a layer of its own, whatever removes it after. Without
+# recommendations, the package's one is named: emoji in colour (11 MB).
 RUN --mount=type=bind,target=/context \
     apt-get update \
- && apt-get install -y --no-install-recommends /context/pdfkiln_*_${TARGETARCH}.deb fonts-dejavu-core \
+ && apt-get install -y --no-install-recommends /context/pdfkiln_*_${TARGETARCH}.deb fonts-dejavu-core fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 pdfkiln
 

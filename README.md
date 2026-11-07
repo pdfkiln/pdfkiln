@@ -31,19 +31,19 @@ printf 'Types: deb\nURIs: https://apt.pdfkiln.org\nSuites: stable\nComponents: m
 sudo apt update && sudo apt install pdfkiln
 ```
 
-It installs `/usr/bin/pdfkiln` and `/usr/bin/wkhtmltopdf`, replaces the official `wkhtmltox` package, and loads an AppArmor profile so that Chromium's sandbox works on Ubuntu 24.04 and later. The `.deb` of a [release](https://github.com/pdfkiln/pdfkiln/releases/latest), installed by hand, sets the repository up itself.
+It installs `/usr/bin/pdfkiln` and `/usr/bin/wkhtmltopdf`, replaces the official `wkhtmltox` package, and loads an AppArmor profile so that Chromium's sandbox works on Ubuntu 24.04 and later. It recommends `fonts-noto-color-emoji`, which apt installs with it, for emoji in colour rather than empty boxes. The `.deb` of a [release](https://github.com/pdfkiln/pdfkiln/releases/latest), installed by hand, sets the repository up itself.
 
 **Windows** (x64; ARM runs it in emulation; Windows Server with the Desktop Experience, IIS included, not Server Core, where Chromium stops at start and PDFKiln says so): from the [latest release](https://github.com/pdfkiln/pdfkiln/releases/latest), the installer `pdfkiln-<version>-windows-x64-setup.exe`, or the zip, which holds `wkhtmltopdf\bin\wkhtmltopdf.exe` as the old installer did. Both install in `C:\Program Files\wkhtmltopdf`, the path pdfkit and most guides use: uninstall wkhtmltopdf first. The programs are not signed yet: SmartScreen warns about the installer; check it against the release's `SHA256SUMS`.
 
-**Linux and macOS archives** (Linux x64 and ARM64, macOS ARM64): the program, its Chromium, and `wkhtmltopdf` and `wkhtmltoimage` beside it. Unpack anywhere and put the folder in the `PATH`. On Linux, Chromium needs system libraries the archive does not hold, the ones the Debian package depends on; PDFKiln names those missing when Chromium cannot start. On Debian 13 and Ubuntu 24.04 and 26.04 (on Debian 12 and Ubuntu 22.04, the same names without `t64`):
+**Linux and macOS archives** (Linux x64 and ARM64, macOS ARM64): the program, its Chromium, and `wkhtmltopdf` and `wkhtmltoimage` beside it. Unpack anywhere and put the folder in the `PATH`. On Linux, Chromium needs system libraries the archive does not hold, the ones the Debian package depends on; PDFKiln names those missing when Chromium cannot start. On Debian 13 and Ubuntu 24.04 and 26.04 (on Debian 12 and Ubuntu 22.04, the same names without `t64`), with the emoji font the Debian package recommends:
 
 ```sh
 sudo apt install libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libdbus-1-3 libexpat1 libgbm1 \
   libglib2.0-0t64 libnspr4 libnss3 libudev1 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
-  libxkbcommon0 libxrandr2 fontconfig fonts-liberation
+  libxkbcommon0 libxrandr2 fontconfig fonts-liberation fonts-noto-color-emoji
 ```
 
-**Docker** (amd64 and arm64), on Debian 13 slim, as an unprivileged user. Docker's default seccomp profile stops Chromium's sandbox; [`docker/seccomp.json`](docker/seccomp.json) is that profile plus the namespaces the sandbox needs:
+**Docker** (amd64 and arm64), on Debian 13 slim, as an unprivileged user, with Liberation, DejaVu and the colour emoji font. Docker's default seccomp profile stops Chromium's sandbox; [`docker/seccomp.json`](docker/seccomp.json) is that profile plus the namespaces the sandbox needs:
 
 ```sh
 curl -fsSO https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json

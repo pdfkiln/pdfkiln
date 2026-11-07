@@ -7,8 +7,11 @@
 export const MARGIN_TOP_CM = 2;
 export const MARGIN_LEFT_CM = 2.2;
 
-const SANS = '-apple-system, "Segoe UI", "Noto Sans", "Liberation Sans", "Helvetica Neue", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
-const MONO = 'ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
+// No emoji font named: Chromium takes the system's for emoji by itself, and
+// named, it would also draw ✔, ☎ or ▶ in colour where DejaVu draws them as
+// text (measured on Debian 13, 07/11/2026).
+const SANS = '-apple-system, "Segoe UI", "Noto Sans", "Liberation Sans", "Helvetica Neue", Helvetica, Arial, sans-serif';
+const MONO = 'ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace';
 
 export const STYLE = `
 @page {

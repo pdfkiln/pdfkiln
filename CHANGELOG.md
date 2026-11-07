@@ -22,6 +22,7 @@ Markdown, called as `pdfkiln`:
 
 In every mode:
 
+- Emoji print in colour on Linux, rather than as empty boxes: the Debian package recommends `fonts-noto-color-emoji` (11 MB), which `apt install` brings with it, and the Docker image includes it. Only emoji change font: the symbols that Liberation or DejaVu draw (✔, ★, ☎, ▶, →, €…) keep theirs, and pages break where they did. With the Linux archives, the npm package or Composer, `apt install fonts-noto-color-emoji` does the same. Windows and macOS have their emoji font already.
 - The packages ship the license file of each bundled package in `licenses/`; many had none.
 - The program grows by about 1 MB, which adds about 20 ms to its start on a Windows 11 PC, within the noise of a conversion.
 
