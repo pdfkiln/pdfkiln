@@ -14,11 +14,6 @@ GitHub release.
 pdfkiln README.md README.pdf
 ```
 
-In every mode:
-
-- On Linux, emoji print in colour rather than as empty boxes: the Debian package recommends `fonts-noto-color-emoji`, and the Docker image includes it.
-- The packages ship the license file of each bundled package in `licenses/`.
-
 ## 1.2.0
 
 `pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.
