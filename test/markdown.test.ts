@@ -33,6 +33,53 @@ describe('front matter', () => {
     assert.deepEqual(splitFrontMatter('---\nauthors:\n  - Ann\n  - Bob\ntags: x, y\n...\ntext').meta, { author: 'Ann, Bob', keywords: ['x', 'y'] });
   });
 
+  test("real front matters: pandoc's, Hugo's, Jekyll's, read and never printed", () => {
+    const read = (lines: string[]) => {
+      const r = splitFrontMatter(['---', ...lines, '---', 'Body'].join('\n'));
+      assert.equal(r.body, 'Body');
+      return r.meta;
+    };
+    // pandoc: authors as maps, a literal block, a nested map.
+    assert.deepEqual(read([
+      'title: Rapport',
+      'author:',
+      '  - name: Ann Lee',
+      '    affiliation: ACME',
+      '  - name: "Bob: Jr"',
+      'abstract: |',
+      '  Two lines',
+      '',
+      '  # not a comment',
+      'header-includes:',
+      '  - \\usepackage{x}',
+      'lang: fr-FR',
+    ]), { title: 'Rapport', author: 'Ann Lee, Bob: Jr', lang: 'fr-FR' });
+    // Hugo: a folded description, nested params, a key with a colon.
+    assert.deepEqual(read([
+      'title: "Post"',
+      'description: >-',
+      '  A folded',
+      '  description.',
+      'params:',
+      '  toc: true',
+      'og:image: /a.png',
+      'tags: ["a", b]',
+    ]), { title: 'Post', subject: 'A folded description.', keywords: ['a', 'b'] });
+    // Jekyll: a list at the key's indentation, a plain title over two lines,
+    // a quoted key; an author as a map.
+    assert.deepEqual(read([
+      '"layout": post',
+      'title: A title that',
+      '  goes on',
+      'tags:',
+      '- one',
+      '- two',
+      'author:',
+      '  name: Ann',
+      '  email: ann@example.com',
+    ]), { title: 'A title that goes on', author: 'Ann', keywords: ['one', 'two'] });
+  });
+
   test('a block that is not key: value, or not closed, is left to CommonMark', () => {
     for (const src of ['---\nTitle\n---\ntext', '---\ntitle: x\nno end', '\n---\ntitle: x\n---\n']) {
       const r = splitFrontMatter(src);
@@ -131,6 +178,35 @@ describe("GitHub's additions", () => {
     assert.match(body('<details><summary>More</summary>\n\nHidden\n\n</details>'), /^<details open><summary>/);
     assert.match(body('<details open><summary>x</summary></details>'), /^<details open><summary>/);
     assert.equal(body('```\n<details>\n```'), '<pre><code>&lt;details&gt;\n</code></pre>');
+  });
+});
+
+describe('links', () => {
+  const doc = 'file:///C:/docs/README.md';
+  const links = (src: string, document?: string) => {
+    const html = markdownPage(src, { base, document }).html;
+    return html.slice(html.indexOf('<article class="markdown-body">') + 31, html.lastIndexOf('</article>')).trim();
+  };
+
+  test('to a local file: its text, no link; to the web or within the document: kept', () => {
+    assert.equal(links('[guide](docs/guide.md) [up](../x.md) [root](/etc/x) [web](https://example.com/a) [mail](mailto:a@example.com) [here](#install)'),
+      '<p>guide up root <a href="https://example.com/a">web</a> <a href="mailto:a@example.com">mail</a> <a href="#install">here</a></p>');
+    // A badge that links to a local file keeps its image.
+    assert.equal(links('[![CI](ci.svg)](LICENSE)'), '<p><img src="ci.svg" alt="CI"></p>');
+    // markdown-it refuses file: links itself.
+    assert.doesNotMatch(links('[x](file:///C:/secret.txt)'), /href/);
+  });
+
+  test('to the document itself: the fragment alone, nothing without one', () => {
+    assert.equal(links('[a](README.md#install) [b](./README.md) [c](other.md#install)', doc), '<p><a href="#install">a</a> b c</p>');
+  });
+
+  test('in raw HTML: a local <a> loses its href, the others keep theirs', () => {
+    assert.equal(links('<p><a class="x" href="docs/guide.md">guide</a> <a href=\'https://example.com\'>web</a> <a href=README.md#top>top</a></p>', doc),
+      '<p><a class="x">guide</a> <a href=\'https://example.com\'>web</a> <a href="#top">top</a></p>');
+    assert.equal(links('See <a href="CONTRIBUTING.md">the guide</a>.'), '<p>See <a>the guide</a>.</p>');
+    // In code, a link is text.
+    assert.equal(links('```html\n<a href="x.md">\n```'), '<pre><code class="language-html"><span class="hljs-tag">&lt;<span class="hljs-name">a</span> <span class="hljs-attr">href</span>=<span class="hljs-string">&quot;x.md&quot;</span>&gt;</span>\n</code></pre>');
   });
 });
 

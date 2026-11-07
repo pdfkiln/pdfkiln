@@ -423,6 +423,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         const { markdownPage } = await markdownModule();
         const md = markdownPage(text, {
           base: pathToFileURL(folder.endsWith(sep) ? folder : folder + sep).href,
+          document: mdPath ? pathToFileURL(mdPath).href : undefined,
           name: mdPath ? basename(mdPath, extname(mdPath)) : undefined,
         });
         writeFileSync(file, md.html);

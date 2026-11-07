@@ -10,7 +10,7 @@ import { full as emoji } from 'markdown-it-emoji';
 import footnote from 'markdown-it-footnote';
 import { markdownAssets } from './assets.js';
 import { splitFrontMatter, type FrontMatter } from './frontmatter.js';
-import { alerts, anchors, math, taskLists, type DocEnv } from './plugins.js';
+import { alerts, anchors, localLinks, math, taskLists, type DocEnv } from './plugins.js';
 import { STYLE } from './style.js';
 
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -34,7 +34,7 @@ function markdown(): Parser {
   });
   // Emoji by their names (:rocket:), not :) or :P, which GitHub leaves as
   // they are and a technical text writes as text.
-  md.use(footnote).use(emoji, { shortcuts: {} }).use(taskLists).use(alerts).use(anchors).use(math);
+  md.use(footnote).use(emoji, { shortcuts: {} }).use(taskLists).use(alerts).use(anchors).use(math).use(localLinks);
   // GitHub's footnote marks: 1, not [1].
   md.renderer.rules.footnote_caption = (tokens, idx) => {
     const meta = tokens[idx]!.meta as { id: number; subId: number };
@@ -67,6 +67,9 @@ export interface PageOptions {
   // as a file: URL ending in /. A link to #section stays inside the PDF:
   // Chromium compares it with the base, not with the page's own URL.
   base: string;
+  // The document itself, a file: URL, when it is a file: a link to it with
+  // a fragment (README.md#install) leads within the PDF.
+  document?: string;
   // The title when the front matter gives none and no heading of level 1
   // comes: the file's name without its extension.
   name?: string;
@@ -74,7 +77,7 @@ export interface PageOptions {
 
 export function markdownPage(src: string, opts: PageOptions): MarkdownPage {
   const { meta, body } = splitFrontMatter(src);
-  const env: DocEnv = { lang: meta.lang };
+  const env: DocEnv = { lang: meta.lang, base: opts.base, document: opts.document };
   let html = markdown().render(body, env);
   // <details>, which the paper cannot open, opened; in a code block, < is
   // &lt;: no tag there.

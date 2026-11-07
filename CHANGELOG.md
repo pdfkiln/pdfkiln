@@ -17,7 +17,8 @@ Markdown, called as `pdfkiln`:
 - Math, as pandoc and chat assistants write it: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` displayed. "$5 and $10" stays text. A formula in error shows in red, with its source.
 - Code coloured when its block names a known language (` ```js `).
 - A style sheet made for paper: page numbers at the foot, nothing cut across a page break (a code block, a table row, a formula, a picture), no heading left alone at the bottom of a page, `<details>` opened. `--css` adds to it.
-- The front matter gives the title, author, subject, keywords and language, unless the options do; without it, the title is the first heading, then the file's name.
+- The front matter gives the title, author, subject, keywords and language, unless the options do; without it, the title is the first heading, then the file's name. Pandoc's, Hugo's and Jekyll's are read, lists of authors, nested keys and values over several lines included; the front matter never prints.
+- A link to a local file, another document or a source file of the project (`[guide](docs/guide.md)`), prints as its text: the reader could not open it, and the PDF would hold the folder's path. Links to the web and within the document stay, `README.md#install` in `README.md` included.
 - Safe as HTML is: no JavaScript runs; images may come from the document's folder and below, not from elsewhere on the machine without `--allow`; the network rules do not change.
 
 In every mode:

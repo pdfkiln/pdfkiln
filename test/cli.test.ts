@@ -1160,15 +1160,17 @@ describe('native interface', () => {
       assert.deepEqual(await properties(out), ['plain', undefined, undefined, undefined]);
     });
 
-    test("links to a heading stay in the PDF, at the heading; --outline from the headings", async () => {
-      const md = file('native/md/links.md', `# Top\n\n[Down](#down) and a note[^1].\n\n${'filler\n\n'.repeat(60)}## Down\n\n[^1]: The note.\n`);
+    test("links to a heading stay in the PDF, at the heading; none to a local file; --outline from the headings", async () => {
+      const md = file('native/md/links.md', `# Top\n\n[Down](#down) and a note[^1], [the guide](guide.md), [again](links.md#down), <a href="../other.md">other</a>, [web](https://example.com/).\n\n${'filler\n\n'.repeat(60)}## Down\n\n[^1]: The note.\n`);
       const out = join(dir, 'md-links.pdf');
       const r = await native(['--outline', md, out]);
       assert.equal(r.code, 0, r.stderr);
       const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
       const annots = doc.getPage(0).node.Annots()!;
-      const dests = Array.from({ length: annots.size() }, (_, i) => doc.context.lookup(annots.get(i)) as PDFDict).map((a) => String(a.get(PDFName.of('Dest'))));
-      assert.deepEqual(dests, ['/down', '/fn1']);
+      const links = Array.from({ length: annots.size() }, (_, i) => doc.context.lookup(annots.get(i)) as PDFDict);
+      const dests = links.map((a) => String(a.get(PDFName.of('Dest')) ?? (a.lookup(PDFName.of('A'), PDFDict).lookup(PDFName.of('URI')) as unknown as { decodeText(): string }).decodeText()));
+      // The folder's path is in no link: the guide and the other document are text.
+      assert.deepEqual(dests, ['/down', '/fn1', '/down', 'https://example.com/']);
       assert.ok(!readFileSync(out).includes('pdfkiln-'), 'no path of the conversion in the PDF');
       assert.ok(doc.catalog.get(PDFName.of('Outlines')));
       if (hasPyMuPDF) {

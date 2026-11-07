@@ -1,10 +1,12 @@
 // The YAML front matter of a Markdown document: a first line of three
-// dashes, then lines of "key: value", up to a line of three dashes or dots.
-// pdfkiln reads what goes into the PDF (title, author, subject, keywords,
-// lang) as plain scalars, keywords also as a list; other keys are left out.
-// A block with a line that is not "key: value", a list item or a comment
-// is not front matter: a thematic break and a setext heading stay what
-// CommonMark makes of them.
+// dashes, up to a line of three dashes or dots. A key starts a line at the
+// margin ("key:"); what it holds may go on over the lines below, more
+// indented (a nested map, a block scalar, a list), or as a list at the
+// margin. pdfkiln reads what goes into the PDF: title, author (a string, a
+// list, pandoc's "- name:" entries), subject (or description), keywords (or
+// tags) and lang; the rest is left out, and the block never prints. A block
+// with a line at the margin that is none of these is not front matter:
+// "---", "Title", "---" stay a rule and a heading, as CommonMark makes them.
 
 export interface FrontMatter {
   title?: string;
@@ -14,8 +16,18 @@ export interface FrontMatter {
   lang?: string;
 }
 
-const KEY = /^([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]+(.*?))?[ \t]*$/;
-const ITEM = /^[ \t]+-(?:[ \t]+(.*?))?[ \t]*$/;
+interface Entry {
+  key: string;
+  // What follows the colon on the key's line.
+  inline: string;
+  // The lines below it, blank ones included, as they are.
+  lines: string[];
+}
+
+// A key at the margin, quoted or not, which may hold colons (og:image): the
+// colon that ends it is followed by a space or ends the line.
+const KEY = /^([^\s#"'-][^\n]*?|"[^"\n]*"|'[^'\n]*')[ \t]*:(?:[ \t]+(.*?))?[ \t]*$/;
+const DASH = /^[ \t]*-(?:[ \t]|$)/;
 // A BCP 47 tag, as html's lang takes it.
 const LANG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 
@@ -39,50 +51,92 @@ function flowList(raw: string): string[] {
   return items;
 }
 
+const indentOf = (line: string) => /^[ \t]*/.exec(line)![0].length;
+
+// What a key holds, as YAML reads it: a block scalar (| keeps the lines, >
+// folds them), a flow list, a plain or quoted scalar that may go on over
+// the lines below, a list (its items; for a map in an item, its name), or a
+// nested map (its name, as pandoc writes an author).
+function read(e: Entry): string | string[] | undefined {
+  const inline = e.inline.trim();
+  const filled = e.lines.filter((l) => l.trim());
+  if (/^[|>][-+]?[1-9]?[-+]?$/.test(inline)) {
+    const indent = Math.min(...filled.map(indentOf));
+    const body = e.lines.map((l) => l.slice(Math.min(indent, indentOf(l)))).join('\n').trim();
+    return inline.startsWith('|') ? body : body.replace(/([^\n])\n(?!\n)/g, '$1 ');
+  }
+  if (/^\[.*\]$/.test(inline) && !filled.length) return flowList(inline);
+  if (inline) return scalar([inline, ...filled.map((l) => l.trim())].join(' '));
+  if (!filled.length) return undefined;
+  if (DASH.test(filled[0]!)) {
+    const at = indentOf(filled[0]!);
+    const items: string[][] = [];
+    for (const l of filled) {
+      if (indentOf(l) === at && DASH.test(l)) items.push([l.slice(at).replace(/^-[ \t]*/, '')]);
+      else items.at(-1)?.push(l.trim());
+    }
+    return items.map((item) => {
+      const name = item.map((s) => /^name[ \t]*:[ \t]*(.*)$/.exec(s)?.[1]).find((v) => v !== undefined);
+      if (name !== undefined) return scalar(name.trim());
+      // A map without a name, or a nested list: nothing to show.
+      return item.length === 1 && !KEY.test(item[0]!) ? scalar(item[0]!) : '';
+    }).filter(Boolean);
+  }
+  const name = filled.map((l) => /^[ \t]+name[ \t]*:[ \t]*(.*?)[ \t]*$/.exec(l)?.[1]).find((v) => v !== undefined);
+  return name ? scalar(name) : undefined;
+}
+
 export function splitFrontMatter(src: string): { meta: FrontMatter; body: string } {
   const text = src.replace(/^﻿/, '');
+  const none = { meta: {}, body: text };
   const open = /^---[ \t]*\r?\n/.exec(text);
-  if (!open) return { meta: {}, body: text };
+  if (!open) return none;
   const lines = text.slice(open[0].length).split(/\r?\n/);
   const end = lines.findIndex((l) => /^(---|\.\.\.)[ \t]*$/.test(l));
-  if (end === -1) return { meta: {}, body: text };
-  const values = new Map<string, string | string[]>();
-  let last = '';
+  if (end === -1) return none;
+  const entries: Entry[] = [];
   for (const line of lines.slice(0, end)) {
-    if (!line.trim() || /^[ \t]*#/.test(line)) continue;
-    const item = ITEM.exec(line);
-    if (item && last && values.get(last) === '') {
-      values.set(last, [scalar(item[1] ?? '')]);
+    if (!line.trim()) {
+      entries.at(-1)?.lines.push('');
       continue;
     }
-    const list = values.get(last);
-    if (item && Array.isArray(list)) {
-      list.push(scalar(item[1] ?? ''));
-      continue;
-    }
+    // A comment at the margin; indented, it may be a block scalar's text.
+    if (line.startsWith('#')) continue;
     const kv = KEY.exec(line);
-    if (!kv) return { meta: {}, body: text };
-    last = kv[1]!.toLowerCase();
-    const raw = kv[2] ?? '';
-    values.set(last, /^\[.*\]$/.test(raw) ? flowList(raw) : scalar(raw));
+    if (kv) {
+      entries.push({ key: kv[1]!.replace(/^(["'])(.*)\1$/, '$2').toLowerCase(), inline: kv[2] ?? '', lines: [] });
+      continue;
+    }
+    if (entries.length && (/^[ \t]/.test(line) || DASH.test(line))) {
+      entries.at(-1)!.lines.push(line);
+      continue;
+    }
+    return none;
   }
-  const one = (k: string): string | undefined => {
-    const v = values.get(k);
-    const s = Array.isArray(v) ? v.join(', ') : v;
-    return s?.trim() || undefined;
+  if (!entries.length) return none;
+  // The last of a key wins, as in YAML.
+  const value = (...keys: string[]) => {
+    for (const k of keys) {
+      const e = entries.findLast((x) => x.key === k);
+      if (e) return read(e);
+    }
+    return undefined;
+  };
+  const one = (...keys: string[]) => {
+    const v = value(...keys);
+    return (Array.isArray(v) ? v.join(', ') : v)?.replace(/\s+/g, ' ').trim() || undefined;
   };
   const meta: FrontMatter = {};
   const title = one('title');
   if (title) meta.title = title;
-  const author = values.get('author') ?? values.get('authors');
-  const authors = (Array.isArray(author) ? author : author ? [author] : []).map((a) => a.trim()).filter(Boolean);
-  if (authors.length) meta.author = authors.join(', ');
-  const subject = one('subject') ?? one('description');
+  const author = one('author', 'authors');
+  if (author) meta.author = author;
+  const subject = one('subject', 'description');
   if (subject) meta.subject = subject;
-  const kw = values.get('keywords') ?? values.get('tags');
+  const kw = value('keywords', 'tags');
   const keywords = (Array.isArray(kw) ? kw : kw ? kw.split(',') : []).map((k) => k.trim()).filter(Boolean);
   if (keywords.length) meta.keywords = keywords;
-  const lang = one('lang') ?? one('language');
+  const lang = one('lang', 'language');
   if (lang && LANG.test(lang)) meta.lang = lang;
   return { meta, body: lines.slice(end + 1).join('\n') };
 }

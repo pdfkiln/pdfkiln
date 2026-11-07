@@ -1,18 +1,25 @@
 // What GitHub adds to CommonMark besides tables and strikethrough, which
 // markdown-it has: task lists, alerts and heading anchors; and math, as
-// pandoc and the chat assistants write it, typeset by KaTeX.
+// pandoc and the chat assistants write it, typeset by KaTeX. And links as
+// a PDF can hold them: none to a local file.
 import katex from 'katex';
 import type { MarkdownIt, StateBlock, StateCore, StateInline, Token } from 'markdown-it';
 
-// What the renderer learns of the document, for the page around it.
+// What the renderer knows and learns of the document, for the page around it.
 export interface DocEnv {
   [key: PropertyKey]: unknown;
   // The document's language, from its front matter.
   lang?: string;
+  // Its folder, which relative links resolve against (a file: URL ending
+  // in /), and the document itself (a file: URL), when it is a file.
+  base?: string;
+  document?: string;
   // The text of the first heading of level 1.
   firstH1?: string;
   // Whether a formula needs KaTeX's style sheet and fonts.
   math?: boolean;
+  // Whether each open link was kept, for its close.
+  links?: boolean[];
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -246,4 +253,51 @@ export function math(md: MarkdownIt): void {
     (env as DocEnv).math = true;
     return `<div class="math-display">${typeset(tokens[idx]!.content, true)}</div>\n`;
   };
+}
+
+// Where a link leads in the PDF: as written, to the web or within the
+// document; to the fragment alone when it names the document itself
+// (README.md#install); nowhere (null) when it names a local file, which
+// the reader cannot open and whose path would give the folder away, a
+// user's name or a server's layout. Chromium writes such a link as the
+// absolute file: URL. markdown-it refuses file: links themselves.
+export function linkInPdf(href: string, base: string | undefined, document: string | undefined): string | null {
+  if (!href || href.startsWith('#') || !base) return href;
+  let url: URL;
+  try {
+    url = new URL(href, base);
+  } catch {
+    return href;
+  }
+  if (url.protocol !== 'file:') return href;
+  if (document && url.href.replace(/#.*$/, '') === document) return url.hash || null;
+  return null;
+}
+
+// Links to local files become their text, in Markdown and in raw HTML,
+// where such an <a> loses its href.
+export function localLinks(md: MarkdownIt): void {
+  md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+    const e = env as DocEnv;
+    const t = tokens[idx]!;
+    const href = linkInPdf(String(t.attrGet('href') ?? ''), e.base, e.document);
+    (e.links ??= []).push(href !== null);
+    if (href === null) return '';
+    t.attrSet('href', href);
+    return self.renderToken(tokens, idx, options);
+  };
+  // Links do not nest: the last open one is this close's.
+  md.renderer.rules.link_close = (tokens, idx, options, env, self) => ((env as DocEnv).links?.pop() ?? true ? self.renderToken(tokens, idx, options) : '');
+  md.core.ruler.push('local_links', (state: StateCore) => {
+    const e = state.env as DocEnv;
+    const strip = (html: string) => html.replace(/(<a\b[^>]*?)\s+href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (whole, head: string, value: string) => {
+      const href = value.replace(/^(["'])(.*)\1$/s, '$2').replace(/&amp;/g, '&');
+      const to = linkInPdf(href, e.base, e.document);
+      return to === null ? head : to === href ? whole : `${head} href="${escapeHtml(to)}"`;
+    });
+    for (const t of state.tokens) {
+      if (t.type === 'html_block') t.content = strip(t.content);
+      else if (t.type === 'inline') for (const c of t.children ?? []) if (c.type === 'html_inline') c.content = strip(c.content);
+    }
+  });
 }
