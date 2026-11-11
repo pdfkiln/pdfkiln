@@ -20,6 +20,8 @@ pdfkiln README.md README.pdf
 
 Security:
 
+- Chromium 157.0.8103.38 → 157.0.8103.50 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop_018223192.html)).
+- Node.js 24.22.2 → 24.22.3.
 - The private network block (`pdfkiln` by default, `--kiln-block-private-network` as `wkhtmltopdf`) let through an IPv4 address written in IPv6 form, such as `http://[::ffff:127.0.0.1]/`, since 1.0.2. Such an address is now judged as the IPv4 address it carries.
 - The Linux and macOS archives give their files to root: unpacked by root, they belonged to the account that built them, which could replace the program.
 - Composer package: without `HOME` (php-fpm's default), the cache no longer goes to the shared temporary folder, where another account could put a program first. When the cache moves, Chromium is downloaded once more.

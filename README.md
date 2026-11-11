@@ -106,7 +106,7 @@ Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`.
 
-The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0, CakePdf 5.3.0 and go-wkhtmltopdf 1.9.3 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`); go-wkhtmltopdf's with local images in place of those its test pages load from loremflickr.com, which answered 500 on 31 October 2026, and without its example that converts a page of pkg.go.dev, whose badge from codebeat.co no longer loads: wkhtmltopdf 0.12.6 fails on both, as PDFKiln does. knp-snappy's and CakePdf's suites only build command lines: a script for each also drives the program for real (`snappy-smoke.php`, `cakepdf-smoke.php`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
+The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0, CakePdf 5.3.0 and go-wkhtmltopdf 1.9.3 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`); go-wkhtmltopdf's with local images in place of those its test pages load from loremflickr.com, which answered 500 on 31 October 2026, and without its example that converts a page of pkg.go.dev, whose badge from codebeat.co no longer loads: wkhtmltopdf 0.12.6 fails on both, as PDFKiln does. knp-snappy's and CakePdf's suites only build command lines: a script for each also drives the program for real (`snappy-smoke.php`, `cakepdf-smoke.php`). KnpSnappyBundle 1.10.6's tests only check its configuration: with its binaries set to PDFKiln's, its services and responses return a PDF and a JPEG (`snappy-bundle-smoke.php`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
 Each release is built and tested by CI, then published by hand from two green runs (`.github/workflows/release.yml`, `apt.yml`, `npm.yml`, `docker.yml`), with SHA-256 sums and build provenance attestations (`gh attestation verify <file> --repo pdfkiln/pdfkiln`; up to 1.1.0, before the move to the pdfkiln organization, `--owner Jamalofski`).
 
@@ -158,15 +158,14 @@ A complete call on the two-page Odoo invoice of the corpus, median of the runs (
 
 | | Delay | wkhtmltopdf 0.12.6 | PDFKiln (bundled command) | Difference |
 | --- | --- | --- | --- | --- |
-| Ubuntu 24.04, GitHub Actions | 200 ms | 0.52 s | 1.11 s | +0.59 s |
-| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.13 s | 1.14 s | −0.99 s |
-| Ubuntu 24.04, development container | 200 ms | 0.58 s | 0.84 s | +0.26 s |
-| Windows Server 2025, GitHub Actions | 200 ms | 0.69 s | 2.15 s | +1.46 s |
-| Windows Server 2025, GitHub Actions | 1000 ms | 2.30 s | 2.12 s | −0.18 s |
-| Windows 11 PC, 20 threads | 200 ms | 1.36 s | 1.80 s | +0.44 s |
-| Windows 11 PC, 20 threads | 1000 ms | 2.91 s | 1.85 s | −1.06 s |
+| Ubuntu 24.04, GitHub Actions | 200 ms | 0.59 s | 1.00 s | +0.41 s |
+| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.19 s | 1.00 s | −1.19 s |
+| Windows Server 2025, GitHub Actions | 200 ms | 0.82 s | 1.66 s | +0.84 s |
+| Windows Server 2025, GitHub Actions | 1000 ms | 2.41 s | 1.68 s | −0.73 s |
+| Windows 11 PC, 20 threads | 200 ms | 1.21 s | 1.66 s | +0.45 s |
+| Windows 11 PC, 20 threads | 1000 ms | 2.80 s | 1.56 s | −1.24 s |
 
-CI run of 24 October 2026 (commit 6ec9c08), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs, after Chromium's close on Windows lost a needless `taskkill` (0.85 s on that PC, 0.1 s on GitHub's); GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
+CI run of 11 November 2026 (commit 5641518), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs; GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
 
 ## Development
 
