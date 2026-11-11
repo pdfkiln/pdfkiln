@@ -1217,8 +1217,11 @@ describe('pdfkiln serve, removed in 1.2.0', () => {
 
   test('the commands look for no server: PDFKILN_SERVER, the socket of 1.1', async () => {
     // Where 1.1 looked: PDFKILN_SERVER, else run/chromium.sock in the cache
-    // folder; on Windows, a pipe.
-    const cache = join(dir, 'cache');
+    // folder; on Windows, a pipe. The cache folder is the one the commands
+    // already use when the environment names one: the npm package keeps
+    // Chromium there, and in another folder would download it again, where
+    // no AppArmor profile lets its sandbox start on Ubuntu 24.04.
+    const cache = process.env.PDFKILN_CACHE_DIR ?? join(dir, 'cache');
     mkdirSync(join(cache, 'run'), { recursive: true });
     const paths = process.platform === 'win32' ? [`\\\\.\\pipe\\pdfkiln-test-${process.pid}`] : [join(dir, 'server.sock'), join(cache, 'run', 'chromium.sock')];
     let connections = 0;
