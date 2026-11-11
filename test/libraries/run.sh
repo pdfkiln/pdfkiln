@@ -8,10 +8,12 @@
 #
 # Versions: pdfkit 1.0.0, knp-snappy v1.7.3 (plus snappy-smoke.php, its
 # suite only uses mocks), laravel-snappy v1.0.5 (with the Laravel that
-# Composer resolves for the PHP found), phpwkhtmltopdf 2.5.0, wicked_pdf
-# 2.7.0 (Rails 7.0), imgkit 1.2.3 (Python), CakePdf 5.3.0 (plus
-# cakepdf-smoke.php, its tests only build command lines), go-wkhtmltopdf
-# v1.9.3 (Go). Prints one line per library; exits 1 if one fails.
+# Composer resolves for the PHP found), KnpSnappyBundle v1.10.6 (through
+# snappy-bundle-smoke.php: its tests only check its configuration),
+# phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0 (Rails 7.0), imgkit 1.2.3
+# (Python), CakePdf 5.3.0 (plus cakepdf-smoke.php, its tests only build
+# command lines), go-wkhtmltopdf v1.9.3 (Go). Prints one line per library;
+# exits 1 if one fails.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$1"
@@ -40,6 +42,11 @@ report "knp-snappy v1.7.3 (snappy-smoke.php)" $? snappy-smoke.log
 clone barryvdh/laravel-snappy laravel-snappy v1.0.5
 (cd laravel-snappy && composer install -q --no-interaction --no-progress && vendor/bin/phpunit > ../laravel-snappy.log 2>&1)
 report "laravel-snappy v1.0.5 (own suite)" $? laravel-snappy.log
+
+clone KnpLabs/KnpSnappyBundle snappy-bundle v1.10.6
+(cd snappy-bundle && composer install -q --no-interaction --no-progress)
+php "$here/snappy-bundle-smoke.php" snappy-bundle /usr/local/bin/wkhtmltopdf /usr/local/bin/wkhtmltoimage > snappy-bundle-smoke.log 2>&1
+report "KnpSnappyBundle v1.10.6 (snappy-bundle-smoke.php)" $? snappy-bundle-smoke.log
 
 clone mikehaertl/phpwkhtmltopdf phpwkhtmltopdf 2.5.0
 (cd phpwkhtmltopdf && composer install -q --no-interaction --no-progress && vendor/bin/phpunit --filter PdfTest > ../phpwkhtmltopdf.log 2>&1)
