@@ -158,15 +158,14 @@ A complete call on the two-page Odoo invoice of the corpus, median of the runs (
 
 | | Delay | wkhtmltopdf 0.12.6 | PDFKiln (bundled command) | Difference |
 | --- | --- | --- | --- | --- |
-| Ubuntu 24.04, GitHub Actions | 200 ms | 0.52 s | 1.11 s | +0.59 s |
-| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.13 s | 1.14 s | −0.99 s |
-| Ubuntu 24.04, development container | 200 ms | 0.58 s | 0.84 s | +0.26 s |
-| Windows Server 2025, GitHub Actions | 200 ms | 0.69 s | 2.15 s | +1.46 s |
-| Windows Server 2025, GitHub Actions | 1000 ms | 2.30 s | 2.12 s | −0.18 s |
-| Windows 11 PC, 20 threads | 200 ms | 1.36 s | 1.80 s | +0.44 s |
-| Windows 11 PC, 20 threads | 1000 ms | 2.91 s | 1.85 s | −1.06 s |
+| Ubuntu 24.04, GitHub Actions | 200 ms | 0.59 s | 1.00 s | +0.41 s |
+| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.19 s | 1.00 s | −1.19 s |
+| Windows Server 2025, GitHub Actions | 200 ms | 0.82 s | 1.66 s | +0.84 s |
+| Windows Server 2025, GitHub Actions | 1000 ms | 2.41 s | 1.68 s | −0.73 s |
+| Windows 11 PC, 20 threads | 200 ms | 1.21 s | 1.66 s | +0.45 s |
+| Windows 11 PC, 20 threads | 1000 ms | 2.80 s | 1.56 s | −1.24 s |
 
-CI run of 24 October 2026 (commit 6ec9c08), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs, after Chromium's close on Windows lost a needless `taskkill` (0.85 s on that PC, 0.1 s on GitHub's); GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
+CI run of 11 November 2026 (commit 5641518), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs; GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
 
 ## Development
 
