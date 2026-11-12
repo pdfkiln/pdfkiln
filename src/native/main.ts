@@ -61,6 +61,7 @@ Examples:
   pdfkiln cover.html body.html book.pdf     # merged in order
   pdfkiln - - < page.html > page.pdf        # standard input and output
   pdfkiln notes.md notes.pdf                # Markdown
+  pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 
 Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
 input; the output is a file, or - for the standard output. Paper size,
