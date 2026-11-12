@@ -252,6 +252,15 @@ export const KILN_OPTIONS: OptionSpec[] = [
   { name: 'kiln-no-sandbox', mode: G, args: [], support: 'yes', desc: "Run Chromium without its sandbox (not recommended)", apply: flag((t) => (t.g.kiln.noSandbox = true)) },
 ];
 
-export const ALL_OPTIONS = [...OPTIONS, ...KILN_OPTIONS];
+// Ours, for a PDF only: wkhtmltoimage does not take them. Their values are
+// checked before the render, with the reason when one is refused
+// (src/pdf/archive.ts), not here, where wkhtmltopdf's message would only say
+// "Invalid argument(s)".
+export const KILN_PDF_OPTIONS: OptionSpec[] = [
+  { name: 'kiln-pdfa', mode: G, args: ['level'], support: 'yes', desc: 'PDF/A for archiving: 2b, 2u, 3b or 3u', apply: set((t, v) => (t.g.kiln.pdfa = v), str) },
+  { name: 'kiln-factur-x', mode: G, args: ['invoice.xml'], support: 'yes', desc: "Attach the invoice's CII XML: a Factur-X or ZUGFeRD invoice, in PDF/A-3", apply: set((t, v) => (t.g.kiln.facturX = v), str) },
+];
+
+export const ALL_OPTIONS = [...OPTIONS, ...KILN_OPTIONS, ...KILN_PDF_OPTIONS];
 export const byLong = new Map(ALL_OPTIONS.map((o) => [o.name, o]));
 export const byShort = new Map(ALL_OPTIONS.filter((o) => o.short).map((o) => [o.short!, o]));

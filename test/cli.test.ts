@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString } from '@cantoo/pdf-lib';
 import { version } from '../src/version.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -71,6 +71,23 @@ const file = (name: string, content: string) => {
   writeFileSync(p, content);
   return p;
 };
+
+// What --pdfa and --factur-x leave in a PDF: the PDF/A part and level its XMP
+// declares, and its associated files, each with its relationship.
+const invoiceXml = join(root, 'test', 'fixtures', 'invoice-minimum.xml');
+async function archived(f: string): Promise<{ part?: string; conformance?: string; files: string[] }> {
+  const doc = await PDFDocument.load(readFileSync(f), { updateMetadata: false });
+  const meta = doc.catalog.lookupMaybe(PDFName.of('Metadata'), PDFStream);
+  const xmp = meta instanceof PDFRawStream ? Buffer.from(meta.contents).toString('utf8') : '';
+  const af = doc.catalog.lookupMaybe(PDFName.of('AF'), PDFArray);
+  const files: string[] = [];
+  for (let i = 0; af && i < af.size(); i++) {
+    const spec = doc.context.lookup(af.get(i), PDFDict);
+    const name = spec.lookup(PDFName.of('UF')) ?? spec.lookup(PDFName.of('F'));
+    files.push(`${name instanceof PDFString || name instanceof PDFHexString ? name.decodeText() : String(name)} ${String(spec.lookup(PDFName.of('AFRelationship')))}`);
+  }
+  return { part: /<pdfaid:part>(\d)</.exec(xmp)?.[1], conformance: /<pdfaid:conformance>(\w)</.exec(xmp)?.[1], files };
+}
 
 let server: Server;
 let base = '';
@@ -368,6 +385,22 @@ describe('interface', () => {
     const r = await run(['-q', '--header-center', '[who]', '--replace', 'who', 'World', `${base}/ok`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.match(pagesText(out)[0]!, /World/);
+  });
+
+  test('--kiln-pdfa and --kiln-factur-x: PDF/A and the invoice, on the command line of wkhtmltopdf', async () => {
+    const out = join(dir, 'kiln-invoice.pdf');
+    let r = await run(['-q', '--kiln-factur-x', invoiceXml, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: ['factur-x.xml /Data'] });
+    r = await run(['-q', '--kiln-pdfa', '2u', `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await archived(out), { part: '2', conformance: 'U', files: [] });
+    // Refused before the render, with the reason.
+    rmSync(out);
+    r = await run(['--kiln-pdfa', '1b', `${base}/ok`, out]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /--kiln-pdfa: PDF\/A-1 forbids transparency/);
+    assert.equal(existsSync(out), false);
   });
 });
 
@@ -865,6 +898,33 @@ describe('native interface', () => {
     doc = await PDFDocument.load(readFileSync(out));
     assert.equal(doc.catalog.get(PDFName.of('StructTreeRoot')), undefined);
     assert.equal(doc.catalog.get(PDFName.of('Outlines')), undefined);
+  });
+
+  test('--pdfa and --factur-x: PDF/A, the invoice attached; a mistake refused before the render', async () => {
+    const page = file('native/invoice.html', '<h1>Facture 2026/11/000042</h1><p>Total : 1 728,00 €</p>');
+    const out = join(dir, 'invoice.pdf');
+    let r = await native(['--factur-x', invoiceXml, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: ['factur-x.xml /Data'] });
+    // A bare --pdfa takes the default level, not the input after it.
+    r = await native(['--pdfa', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: [] });
+    r = await native(['--pdfa=2u', '--tagged', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(await archived(out), { part: '2', conformance: 'U', files: [] });
+    // Refused before Chromium starts: the reason, and no PDF.
+    rmSync(out);
+    r = await native(['--pdfa=1b', page, out]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^pdfkiln: --pdfa: PDF\/A-1 forbids transparency/);
+    r = await native(['--pdfa=2b', '--factur-x', invoiceXml, page, out]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^pdfkiln: --factur-x: an invoice travels in PDF\/A-3/);
+    r = await native(['--factur-x', join(dir, 'none.xml'), page, out]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /^pdfkiln: --factur-x: cannot read .*none\.xml: no such file/);
+    assert.equal(existsSync(out), false);
   });
 
   test('the JavaScript delay waits for what is pending, 1000 ms at most', async (t) => {

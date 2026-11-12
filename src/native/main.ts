@@ -43,6 +43,7 @@ import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
 import type { FrontMatter } from '../markdown/frontmatter.js';
 import { MARGIN_LEFT_CM, MARGIN_TOP_CM } from '../markdown/style.js';
+import type { Request as ArchiveRequest } from '../pdf/archive.js';
 import type { FinalItem, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
@@ -83,6 +84,11 @@ Document properties (default: from the front matter of Markdown):
   --author <text>             Author
   --subject <text>            Subject
   --keywords <text>           Keywords
+
+PDF/A and electronic invoices:
+  --pdfa[=<level>]            PDF/A for archiving: 2b, 2u, 3b, 3u (default 3b)
+  --factur-x <invoice.xml>    Attach the invoice's CII XML: a Factur-X or
+                              ZUGFeRD invoice, in PDF/A-3
 
 Waiting for the page:
   --javascript-delay <ms>     Wait up to this long after loading, less once
@@ -209,7 +215,9 @@ export async function nativeMain(args: string[]): Promise<number> {
   let parsed;
   try {
     parsed = parseArgs({
-      args,
+      // A bare --pdfa asks for the default level: parseArgs has no optional
+      // value, and would take the next argument, an input, for the level.
+      args: args.map((a) => (a === '--pdfa' ? '--pdfa=' : a)),
       allowPositionals: true,
       options: {
         tagged: { type: 'boolean' },
@@ -230,6 +238,8 @@ export async function nativeMain(args: string[]): Promise<number> {
         author: { type: 'string' },
         subject: { type: 'string' },
         keywords: { type: 'string' },
+        pdfa: { type: 'string' },
+        'factur-x': { type: 'string' },
         'no-sandbox': { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         version: { type: 'boolean', short: 'V' },
@@ -319,6 +329,17 @@ export async function nativeMain(args: string[]): Promise<number> {
       return 1;
     }
     cookies.push([m[1]!, m[2]!]);
+  }
+  // --pdfa and --factur-x, checked now: a mistake costs no render.
+  let archived: ArchiveRequest | undefined;
+  if (v.pdfa !== undefined || v['factur-x'] !== undefined) {
+    const { archiveRequest, NATIVE } = await import('../pdf/archive.js');
+    try {
+      archived = archiveRequest(v.pdfa, v['factur-x'], NATIVE);
+    } catch (e) {
+      stderr(`pdfkiln: ${(e as Error).message}\n`);
+      return 1;
+    }
   }
   const blockPrivate = !v['allow-private-network'];
 
@@ -510,8 +531,13 @@ export async function nativeMain(args: string[]): Promise<number> {
     // The language, for readers and screen readers: Chromium writes it in a
     // tagged PDF only.
     if (front?.lang && !merged.doc.catalog.has(PDFName.of('Lang'))) merged.doc.catalog.set(PDFName.of('Lang'), PDFString.of(front.lang));
-    const bytes = await merged.doc.save(WRITE);
+    let bytes: Uint8Array = await merged.doc.save(WRITE);
     step('assemble');
+    if (archived) {
+      const { archive, NATIVE } = await import('../pdf/archive.js');
+      bytes = await archive(bytes, archived, NATIVE);
+      step('archive');
+    }
     if (output === '-') writeAll(1, bytes);
     else writeFileSync(output, bytes);
     step('write');

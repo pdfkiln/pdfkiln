@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { IMAGE_OPTIONS, parseImageArguments } from '../src/wk/image.js';
-import { KILN_OPTIONS, OPTIONS } from '../src/wk/options.js';
+import { KILN_OPTIONS, KILN_PDF_OPTIONS, OPTIONS } from '../src/wk/options.js';
 import { parseArguments } from '../src/wk/parse.js';
 import { optionsMarkdown } from '../scripts/options-doc.js';
 
@@ -22,7 +22,7 @@ test('the 122 options of wkhtmltopdf 0.12.6, in order', () => {
 });
 
 test('our options never collide with wkhtmltopdf names', () => {
-  for (const o of KILN_OPTIONS) {
+  for (const o of [...KILN_OPTIONS, ...KILN_PDF_OPTIONS]) {
     assert.ok(o.name.startsWith('kiln-'));
     assert.equal(o.short, undefined);
   }
@@ -35,7 +35,7 @@ test('each option is accepted with valid arguments', () => {
     'log-level': 'warn', orientation: 'Landscape', 'page-size': 'Letter', 'proxy': 'http://u:p@proxy:3128',
     'load-error-handling': 'ignore', 'load-media-error-handling': 'skip', 'viewport-size': '1280x1024',
   };
-  for (const o of [...OPTIONS, ...KILN_OPTIONS]) {
+  for (const o of [...OPTIONS, ...KILN_OPTIONS, ...KILN_PDF_OPTIONS]) {
     if (o.action) continue;
     const values = o.args.map((a) => sample[o.name] ?? (/^(number|dpi|integer|level|int|size|offset|msec)$/.test(a) ? '3' : /unitreal/.test(a) ? '12mm' : /^(real|float|seconds)$/.test(a) ? '1.5' : 'x'));
     const argv = o.mode === 'global'
@@ -62,5 +62,11 @@ test('the 63 options of wkhtmltoimage 0.12.6', () => {
     if (o.action) continue;
     const values = o.args.map((a) => (o.name === 'log-level' ? 'warn' : o.name === 'proxy' ? 'none' : /handler/.test(a) ? 'ignore' : /^(int|msec)$/.test(a) ? '3' : a === 'float' ? '1.5' : 'x'));
     assert.doesNotThrow(() => parseImageArguments(['wkhtmltoimage', `--${o.name}`, ...values, 'in.html', 'out.png']), `--${o.name}`);
+  }
+});
+
+test('wkhtmltoimage takes our options, but for those of a PDF', () => {
+  for (const o of KILN_PDF_OPTIONS) {
+    assert.throws(() => parseImageArguments(['wkhtmltoimage', `--${o.name}`, 'x', 'in.html', 'out.png']), /Unknown long argument/, o.name);
   }
 });

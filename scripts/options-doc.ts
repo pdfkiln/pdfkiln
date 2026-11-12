@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoRoot } from '../src/chromium.js';
 import { IMAGE_OPTIONS } from '../src/wk/image.js';
-import { KILN_OPTIONS, OPTIONS, type OptionSpec, type Support } from '../src/wk/options.js';
+import { KILN_OPTIONS, KILN_PDF_OPTIONS, OPTIONS, type OptionSpec, type Support } from '../src/wk/options.js';
 
 const SECTIONS: Record<OptionSpec['mode'], string> = { global: 'global', page: 'page', toc: 'toc' };
 
@@ -41,7 +41,7 @@ ${table(of('noop', 'silent'))}
 
 ## Ours
 
-${table(KILN_OPTIONS)}
+${table([...KILN_OPTIONS, ...KILN_PDF_OPTIONS])}
 
 ## Kept as in wkhtmltopdf 0.12.6
 
@@ -49,7 +49,7 @@ ${table(KILN_OPTIONS)}
 
 ## wkhtmltoimage
 
-Called as \`wkhtmltoimage\`, PDFKiln accepts the ${IMAGE_OPTIONS.length} options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; ${IMAGE_OPTIONS.filter((o) => o.support === 'yes').length} have an effect, the others are accepted without effect, as in wkhtmltopdf. The \`--kiln-\` options above apply too.
+Called as \`wkhtmltoimage\`, PDFKiln accepts the ${IMAGE_OPTIONS.length} options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; ${IMAGE_OPTIONS.filter((o) => o.support === 'yes').length} have an effect, the others are accepted without effect, as in wkhtmltopdf. The \`--kiln-\` options above apply too, but for \`--kiln-pdfa\` and \`--kiln-factur-x\`.
 
 ${table([...IMAGE_OPTIONS].sort((a, b) => a.name.localeCompare(b.name)), false)}
 `;

@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf` takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf` takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -104,7 +104,7 @@ Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 ## Status
 
-The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`.
+The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`, `--kiln-pdfa`, `--kiln-factur-x`.
 
 The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0, CakePdf 5.3.0 and go-wkhtmltopdf 1.9.3 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`); go-wkhtmltopdf's with local images in place of those its test pages load from loremflickr.com, which answered 500 on 31 October 2026, and without its example that converts a page of pkg.go.dev, whose badge from codebeat.co no longer loads: wkhtmltopdf 0.12.6 fails on both, as PDFKiln does. knp-snappy's and CakePdf's suites only build command lines: a script for each also drives the program for real (`snappy-smoke.php`, `cakepdf-smoke.php`). KnpSnappyBundle 1.10.6's tests only check its configuration: with its binaries set to PDFKiln's, its services and responses return a PDF and a JPEG (`snappy-bundle-smoke.php`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
@@ -126,6 +126,19 @@ Point the library at PDFKiln's `wkhtmltopdf` or `wkhtmltoimage`, never at `pdfki
 | [Rotativa](https://pdfkiln.org/migrate/rotativa/) (ASP.NET) | copy the content of `wkhtmltopdf\bin` (the programs and `chromium\`) into the Rotativa folder; tested with Rotativa.AspNetCore's driver, and in IIS as the application pool's identity on Windows Server with the Desktop Experience (not on Server Core, see Installation) |
 
 With the Debian package, `/usr/bin/wkhtmltopdf` is already in the `PATH`. Libraries that read the version keep working: `wkhtmltopdf --version` prints `wkhtmltopdf 0.12.6 (with patched qt), pdfkiln <version>, Chromium <version>`.
+
+## PDF/A and Factur-X
+
+wkhtmltopdf wrote neither. `pdfkiln --pdfa` writes PDF/A for archiving, at level 2b, 2u, 3b or 3u (`--pdfa=2u`; 3b without a level), and `pdfkiln --factur-x invoice.xml` attaches an invoice's CII XML, Factur-X or ZUGFeRD, to a PDF/A-3: the page a person reads and the XML a program reads, in one file. Called as `wkhtmltopdf`, the same options are `--kiln-pdfa <level>` and `--kiln-factur-x <invoice.xml>`.
+
+```sh
+pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
+```
+
+- PDFKiln checks what it can: every font embedded (Chromium embeds them), a Unicode map for each font at the u levels, and in the XML a Cross Industry Invoice with its profile (MINIMUM, BASIC WL, BASIC, EN 16931, EXTENDED or XRECHNUNG), number, type and issue date. A PDF that cannot conform is refused, not labelled; a level or an invoice that is wrong is refused before the render.
+- The XML is attached as its profile requires: `factur-x.xml`, or `xrechnung.xml` for XRECHNUNG; related as Data for MINIMUM and BASIC WL, which hold only part of the invoice, as Alternative otherwise.
+- PDFKiln does not write the XML, which comes from the invoicing software, nor check it against the EN 16931 business rules.
+- Not offered: PDF/A-1, which forbids the transparency Chromium draws with, and level A, which needs a fully tagged document.
 
 ## Differences from wkhtmltopdf
 

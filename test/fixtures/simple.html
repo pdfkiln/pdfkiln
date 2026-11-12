@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>PDF/A fixture</title>
+<!-- The page the PDF/A and Factur-X tests run on (test/pdfa.test.ts,
+     test/facturx.test.ts), and simple.pdf, the PDF that PDFKiln made of it, so
+     that those tests run on real Chromium output without a Chromium of their
+     own. Rendered on Debian 13 with "pdfkiln simple.html simple.pdf": the
+     fonts it embeds are Liberation's, under the SIL Open Font License 1.1. -->
+<style>
+  body { font: 12pt/1.5 "Liberation Sans", "DejaVu Sans", sans-serif; margin: 20mm; color: #222 }
+  h1 { font-size: 18pt; color: #7a2e0e; border-bottom: 2px solid #7a2e0e }
+  table { border-collapse: collapse; margin-top: 1em }
+  td, th { border: 1px solid #999; padding: 4px 10px; text-align: left }
+  .serif { font-family: "Liberation Serif", "DejaVu Serif", serif; font-style: italic }
+</style>
+<h1>Facture n° 2026/11/000042</h1>
+<p>Société Exemple SARL, 12, rue des Œillets, 75001 Paris, TVA FR 00 123456789</p>
+<p class="serif">Échéance au 31 décembre 2026. Règlement par virement.</p>
+<table>
+  <tr><th>Désignation</th><th>Quantité</th><th>Prix</th></tr>
+  <tr><td>Licence serveur</td><td>2</td><td>1 200,00 €</td></tr>
+  <tr><td>Maintenance</td><td>1</td><td>240,00 €</td></tr>
+</table>
+<p><strong>Total TTC : 1 728,00 €</strong></p>
