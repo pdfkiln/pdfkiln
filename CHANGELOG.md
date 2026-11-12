@@ -8,15 +8,15 @@ GitHub release.
 
 ## 1.3.0
 
-`pdfkiln` now converts Markdown, as GitHub writes it, math and coloured code included:
+Three new features, called as `pdfkiln`. The command line of wkhtmltopdf and wkhtmltoimage does not change.
+
+- **Markdown**: `pdfkiln README.md README.pdf` converts Markdown as GitHub writes it (tables, task lists, alerts, footnotes, emoji), math and coloured code included, laid out for paper. `--from markdown` reads any input as Markdown, the standard input included.
+- **PDF/A, for archiving**: `--pdfa` writes PDF/A-3b, or the level asked for: `--pdfa=2b`, `2u`, `3b` or `3u`. A PDF that cannot conform, with a font that is not embedded for instance, is refused rather than labelled.
+- **Factur-X and ZUGFeRD invoices**: `--factur-x invoice.xml` attaches the invoice's XML to the PDF, made PDF/A-3: the page a person reads and the data the recipient's software reads, in one file. PDFKiln checks that the XML is a Cross Industry Invoice and reads its profile (MINIMUM, BASIC WL, BASIC, EN 16931, EXTENDED or XRECHNUNG); it does not write the XML, nor check its business rules.
 
 ```sh
 pdfkiln README.md README.pdf
-```
-
-It writes PDF/A for archiving (`--pdfa`), and attaches a Factur-X or ZUGFeRD invoice to the PDF (`--factur-x`):
-
-```sh
+pdfkiln --pdfa report.html report.pdf
 pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 ```
 
