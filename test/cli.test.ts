@@ -113,6 +113,8 @@ before(async () => {
     // The same, in 404: HTML for an image, a request without CORS headers.
     if (path === '/withheld404') return html(`<img src="${other}/404">`);
     if (path === '/cors404') return html(`<script>const x = new XMLHttpRequest(); x.open('GET', '${other}/404'); x.send();</script>`);
+    // The same image, blocked by the page's CSP before it is sent.
+    if (path === '/csp404') return res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "img-src 'self'" }).end(`<p>csp</p><img src="${other}/404">`);
     // A page whose resources the last line answers in 404, and a page that
     // asks for a password.
     if (path === '/resources') {
@@ -209,6 +211,18 @@ describe('interface', () => {
     r = await run(['--log-level', 'warn', `${base}/cors404`, join(dir, 'withheld.pdf')]);
     assert.equal(r.code, 1);
     assert.equal(r.stderr, `Error: Failed to load ${other}/404, with network status code 5 and http status code 404 - Operation canceled\nExit with code 1 due to network error: OperationCanceledError\n`);
+  });
+
+  test('the delay waits for the status of a response Chromium keeps, not for a request blocked before it is sent', async () => {
+    // Against a page without a delay: Chromium's start is in both.
+    const plain = await run(['-q', '--javascript-delay', '0', `${base}/ok`, join(dir, 'held.pdf')]);
+    let r = await run(['-q', '--javascript-delay', '10000', `${base}/withheld404`, join(dir, 'held.pdf')]);
+    assert.equal(r.code, 1);
+    assert.ok(r.ms < plain.ms + 5000, `the status took ${Math.round(r.ms - plain.ms)} ms more`);
+    r = await run(['--log-level', 'warn', '--javascript-delay', '10000', `${base}/csp404`, join(dir, 'held.pdf')]);
+    assert.equal(r.code, 0);
+    assert.equal(r.stderr, '');
+    assert.ok(r.ms < plain.ms + 5000, `an image blocked by the CSP held the page ${Math.round(r.ms - plain.ms)} ms more`);
   });
 
   test('an unknown host: exit 1, no PDF', async () => {
