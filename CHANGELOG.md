@@ -6,6 +6,12 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.2.1
+
+Security:
+
+- Chromium 157.0.8103.50 → 157.0.8103.78 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop_01744469280.html)).
+
 ## 1.2.0
 
 `pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.
