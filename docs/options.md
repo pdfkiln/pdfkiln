@@ -143,8 +143,6 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 | `--kiln-timeout <seconds>` |  | global | Stop the conversion and Chromium after this many seconds (default 120, 0: none) |
 | `--kiln-block-private-network` |  | global | Refuse loopback, private and link-local addresses |
 | `--kiln-no-sandbox` |  | global | Run Chromium without its sandbox (not recommended) |
-| `--kiln-pdfa <level>` |  | global | PDF/A for archiving: 2b, 2u, 3b or 3u |
-| `--kiln-factur-x <invoice.xml>` |  | global | Attach the invoice's CII XML: a Factur-X or ZUGFeRD invoice, in PDF/A-3 |
 
 ## Kept as in wkhtmltopdf 0.12.6
 
@@ -152,7 +150,7 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 
 ## wkhtmltoimage
 
-Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 50 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too, but for `--kiln-pdfa` and `--kiln-factur-x`.
+Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 50 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too.
 
 | Option | Short | Description |
 | --- | --- | --- |

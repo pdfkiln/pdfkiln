@@ -1,5 +1,5 @@
-// Factur-X and ZUGFeRD invoices: --factur-x on the native command line,
-// --kiln-factur-x on the compatible one (src/pdf/archive.ts).
+// Factur-X and ZUGFeRD invoices: --factur-x, on the native command line
+// (src/pdf/archive.ts).
 //
 // A Factur-X invoice is a PDF/A-3 carrying the invoice as CII XML, so most of
 // the work is done by pdfa.ts and by pdf-lib's embedFacturX, which attaches the

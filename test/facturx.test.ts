@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString } from '@cantoo/pdf-lib';
-import { archive, archiveRequest, COMPATIBLE, NATIVE } from '../src/pdf/archive.js';
+import { archive, archiveRequest } from '../src/pdf/archive.js';
 import { embedding, readInvoice } from '../src/pdf/facturx.js';
 import { ArchiveError } from '../src/pdf/pdfa.js';
 
@@ -138,22 +138,22 @@ test('the file travels as its profile requires: Data for MINIMUM and BASIC WL, x
 });
 
 test('the options are checked before the render, each refusal naming its option', () => {
-  assert.equal(archiveRequest(undefined, undefined, NATIVE), undefined);
-  assert.deepEqual(archiveRequest('', undefined, NATIVE), { level: '3b' });
-  assert.deepEqual(archiveRequest('2U', undefined, NATIVE), { level: '2u' });
-  assert.match(refusal(() => archiveRequest('1b', undefined, NATIVE)).message, /^--pdfa: PDF\/A-1 forbids transparency/);
-  assert.match(refusal(() => archiveRequest('4b', undefined, COMPATIBLE)).message, /^--kiln-pdfa: no such level "4b"/);
-  assert.match(refusal(() => archiveRequest(undefined, join(dir, 'none.xml'), NATIVE)).message, /^--factur-x: cannot read .*none\.xml: no such file$/);
-  assert.match(refusal(() => archiveRequest(undefined, '', NATIVE)).message, /^--factur-x needs the invoice's XML file/);
-  assert.match(refusal(() => archiveRequest(undefined, join(fixtures, 'simple.html'), COMPATIBLE)).message, /^--kiln-factur-x: /);
+  assert.equal(archiveRequest(undefined, undefined), undefined);
+  assert.deepEqual(archiveRequest('', undefined), { level: '3b' });
+  assert.deepEqual(archiveRequest('2U', undefined), { level: '2u' });
+  assert.match(refusal(() => archiveRequest('1b', undefined)).message, /^--pdfa: PDF\/A-1 forbids transparency/);
+  assert.match(refusal(() => archiveRequest('4b', undefined)).message, /^--pdfa: no such level "4b"/);
+  assert.match(refusal(() => archiveRequest(undefined, join(dir, 'none.xml'))).message, /^--factur-x: cannot read .*none\.xml: no such file$/);
+  assert.match(refusal(() => archiveRequest(undefined, '')).message, /^--factur-x needs the invoice's XML file/);
+  assert.match(refusal(() => archiveRequest(undefined, join(fixtures, 'simple.html'))).message, /^--factur-x: the XML cannot be read: it declares a DOCTYPE/);
   // An invoice travels in PDF/A-3: a level of part 2 cannot carry it.
-  const part2 = refusal(() => archiveRequest('2b', invoicePath, NATIVE));
+  const part2 = refusal(() => archiveRequest('2b', invoicePath));
   assert.match(part2.message, /^--factur-x: an invoice travels in PDF\/A-3, and level 2b is part 2/);
   assert.match(part2.message, /Ask --pdfa for 3b or 3u/);
   // Without a level, an invoice gets 3b; with one of part 3, that one.
-  assert.equal(archiveRequest(undefined, invoicePath, NATIVE)?.level, '3b');
-  assert.equal(archiveRequest('3u', invoicePath, NATIVE)?.level, '3u');
-  assert.equal(archiveRequest(undefined, invoicePath, NATIVE)?.invoice?.data.profile, 'MINIMUM');
+  assert.equal(archiveRequest(undefined, invoicePath)?.level, '3b');
+  assert.equal(archiveRequest('3u', invoicePath)?.level, '3u');
+  assert.equal(archiveRequest(undefined, invoicePath)?.invoice?.data.profile, 'MINIMUM');
 });
 
 test('the invoice is attached in PDF/A-3, named and related as its profile requires, the profile in the XMP', async () => {
@@ -164,8 +164,8 @@ test('the invoice is attached in PDF/A-3, named and related as its profile requi
     ['xrechnung.xml', 'urn:cen.eu:en16931:2017#compliant#urn:xoev-de:kosit:standard:xrechnung_3.0', 'xrechnung.xml', '/Alternative'],
   ];
   for (const [file, urn, name, relationship] of cases) {
-    const request = archiveRequest(undefined, invoiceFile(file, urn), NATIVE)!;
-    const doc = await PDFDocument.load(await archive(simple, request, NATIVE), { updateMetadata: false });
+    const request = archiveRequest(undefined, invoiceFile(file, urn))!;
+    const doc = await PDFDocument.load(await archive(simple, request), { updateMetadata: false });
     assert.deepEqual(associated(doc), [{ name, relationship }], urn);
     const packet = await xmpOf(doc);
     assert.match(packet, /<pdfaid:part>3<\/pdfaid:part>/, urn);
@@ -175,8 +175,8 @@ test('the invoice is attached in PDF/A-3, named and related as its profile requi
 });
 
 test('an invoice attached to a file twice is there once', async () => {
-  const request = archiveRequest(undefined, invoicePath, NATIVE)!;
-  const once = await archive(simple, request, NATIVE);
-  const twice = await PDFDocument.load(await archive(once, request, NATIVE), { updateMetadata: false });
+  const request = archiveRequest(undefined, invoicePath)!;
+  const once = await archive(simple, request);
+  const twice = await PDFDocument.load(await archive(once, request), { updateMetadata: false });
   assert.equal(associated(twice).length, 1);
 });

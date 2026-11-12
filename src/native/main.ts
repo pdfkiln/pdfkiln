@@ -333,9 +333,9 @@ export async function nativeMain(args: string[]): Promise<number> {
   // --pdfa and --factur-x, checked now: a mistake costs no render.
   let archived: ArchiveRequest | undefined;
   if (v.pdfa !== undefined || v['factur-x'] !== undefined) {
-    const { archiveRequest, NATIVE } = await import('../pdf/archive.js');
+    const { archiveRequest } = await import('../pdf/archive.js');
     try {
-      archived = archiveRequest(v.pdfa, v['factur-x'], NATIVE);
+      archived = archiveRequest(v.pdfa, v['factur-x']);
     } catch (e) {
       stderr(`pdfkiln: ${(e as Error).message}\n`);
       return 1;
@@ -534,8 +534,8 @@ export async function nativeMain(args: string[]): Promise<number> {
     let bytes: Uint8Array = await merged.doc.save(WRITE);
     step('assemble');
     if (archived) {
-      const { archive, NATIVE } = await import('../pdf/archive.js');
-      bytes = await archive(bytes, archived, NATIVE);
+      const { archive } = await import('../pdf/archive.js');
+      bytes = await archive(bytes, archived);
       step('archive');
     }
     if (output === '-') writeAll(1, bytes);

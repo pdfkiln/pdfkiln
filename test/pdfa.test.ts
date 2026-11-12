@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFStream, StandardFonts } from '@cantoo/pdf-lib';
-import { archive, NATIVE } from '../src/pdf/archive.js';
+import { archive } from '../src/pdf/archive.js';
 import { ArchiveError, DEFAULT_LEVEL, LEVELS, applyPdfa, fontsNotEmbedded, readLevel, type Level } from '../src/pdf/pdfa.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -33,7 +33,7 @@ async function xmp(bytes: Uint8Array): Promise<string> {
   return Buffer.from(stream.contents).toString('utf8');
 }
 
-const toPdfa = (bytes: Uint8Array, level: Level) => archive(bytes, { level }, NATIVE);
+const toPdfa = (bytes: Uint8Array, level: Level) => archive(bytes, { level });
 
 test('the four levels PDFKiln writes are read, in any case, the default when empty', () => {
   assert.deepEqual(Object.keys(LEVELS), ['2b', '2u', '3b', '3u']);

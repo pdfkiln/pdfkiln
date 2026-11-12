@@ -102,8 +102,6 @@ export interface Kiln {
   timeout: number; // seconds
   blockPrivateNetwork: boolean;
   noSandbox: boolean;
-  pdfa?: string; // the level asked for (src/pdf/archive.ts)
-  facturX?: string; // the invoice's XML file
 }
 
 export interface PdfGlobal {

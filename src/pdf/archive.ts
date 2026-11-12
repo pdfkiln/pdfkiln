@@ -1,6 +1,7 @@
-// PDF/A and Factur-X invoices, on both command lines: --pdfa and --factur-x
-// called as pdfkiln, --kiln-pdfa and --kiln-factur-x called as wkhtmltopdf.
-// Free under the MIT license since 1.3.0, like the rest of PDFKiln.
+// PDF/A and Factur-X invoices: --pdfa and --factur-x, on the native command
+// line only. Called as wkhtmltopdf, PDFKiln takes wkhtmltopdf's options and
+// nothing more (Jamal, 12 November 2026), as for Markdown. Free under the MIT
+// license since 1.3.0, like the rest of PDFKiln.
 //
 // Both work on the PDF once assembled, just before it is written: the file is
 // loaded once, made PDF/A, given its invoice, and saved once. What the command
@@ -15,15 +16,6 @@ import { READ, WRITE } from './modules.js';
 import { ArchiveError, applyPdfa, readLevel, type Level } from './pdfa.js';
 
 export { ArchiveError };
-
-// The options as the command line in use spells them, for its messages.
-export interface Spelling {
-  pdfa: string;
-  facturX: string;
-}
-
-export const NATIVE: Spelling = { pdfa: '--pdfa', facturX: '--factur-x' };
-export const COMPATIBLE: Spelling = { pdfa: '--kiln-pdfa', facturX: '--kiln-factur-x' };
 
 export interface Request {
   // The PDF/A level the file gets.
@@ -41,34 +33,34 @@ const words = (e: unknown): string => {
 // is there. `pdfa` is the option's value, empty for its default; `invoicePath`
 // the file given to --factur-x. Throws an ArchiveError, its message naming the
 // option.
-export function archiveRequest(pdfa: string | undefined, invoicePath: string | undefined, spell: Spelling): Request | undefined {
+export function archiveRequest(pdfa: string | undefined, invoicePath: string | undefined): Request | undefined {
   if (pdfa === undefined && invoicePath === undefined) return undefined;
   let level: Level | undefined;
   if (pdfa !== undefined) {
     try {
       level = readLevel(pdfa);
     } catch (e) {
-      throw new ArchiveError(`${spell.pdfa}: ${(e as Error).message}`);
+      throw new ArchiveError(`--pdfa: ${(e as Error).message}`);
     }
   }
   if (invoicePath === undefined) return { level: level! };
-  if (invoicePath === '') throw new ArchiveError(`${spell.facturX} needs the invoice's XML file`);
+  if (invoicePath === '') throw new ArchiveError("--factur-x needs the invoice's XML file");
   let xml: Uint8Array;
   try {
     xml = readFileSync(invoicePath);
   } catch (e) {
-    throw new ArchiveError(`${spell.facturX}: cannot read ${invoicePath}: ${words(e)}`);
+    throw new ArchiveError(`--factur-x: cannot read ${invoicePath}: ${words(e)}`);
   }
   let data: Invoice;
   try {
     data = readInvoice(xml);
   } catch (e) {
-    throw new ArchiveError(`${spell.facturX}: ${(e as Error).message}`);
+    throw new ArchiveError(`--factur-x: ${(e as Error).message}`);
   }
   if (level && !level.startsWith('3')) {
     throw new ArchiveError(
-      `${spell.facturX}: an invoice travels in PDF/A-3, and level ${level} is part 2, which allows no ` +
-        `attached file. Ask ${spell.pdfa} for 3b or 3u, or leave it out`,
+      `--factur-x: an invoice travels in PDF/A-3, and level ${level} is part 2, which allows no attached file. ` +
+        'Ask --pdfa for 3b or 3u, or leave it out',
     );
   }
   return { level: level ?? '3b', invoice: { xml, data } };
@@ -77,12 +69,12 @@ export function archiveRequest(pdfa: string | undefined, invoicePath: string | u
 // The PDF, made PDF/A, with its invoice when one was given. Throws an
 // ArchiveError when the PDF cannot conform (a font not embedded, a font
 // without a Unicode map at a u level).
-export async function archive(pdf: Uint8Array, request: Request, spell: Spelling): Promise<Uint8Array> {
+export async function archive(pdf: Uint8Array, request: Request): Promise<Uint8Array> {
   const doc = await PDFDocument.load(pdf, READ);
   try {
     applyPdfa(doc, request.level);
   } catch (e) {
-    throw new ArchiveError(`${request.invoice ? spell.facturX : spell.pdfa}: ${(e as Error).message}`);
+    throw new ArchiveError(`${request.invoice ? '--factur-x' : '--pdfa'}: ${(e as Error).message}`);
   }
   if (request.invoice) await attachInvoice(doc, request.invoice.xml, request.invoice.data);
   return doc.save(WRITE);

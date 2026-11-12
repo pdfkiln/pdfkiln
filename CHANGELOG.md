@@ -14,7 +14,7 @@ GitHub release.
 pdfkiln README.md README.pdf
 ```
 
-It writes PDF/A for archiving (`--pdfa`), and attaches a Factur-X or ZUGFeRD invoice to the PDF (`--factur-x`); called as `wkhtmltopdf`, `--kiln-pdfa` and `--kiln-factur-x`:
+It writes PDF/A for archiving (`--pdfa`), and attaches a Factur-X or ZUGFeRD invoice to the PDF (`--factur-x`):
 
 ```sh
 pdfkiln --factur-x invoice.xml invoice.html invoice.pdf

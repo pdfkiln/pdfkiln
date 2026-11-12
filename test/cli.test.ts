@@ -386,22 +386,6 @@ describe('interface', () => {
     assert.equal(r.code, 0, r.stderr);
     assert.match(pagesText(out)[0]!, /World/);
   });
-
-  test('--kiln-pdfa and --kiln-factur-x: PDF/A and the invoice, on the command line of wkhtmltopdf', async () => {
-    const out = join(dir, 'kiln-invoice.pdf');
-    let r = await run(['-q', '--kiln-factur-x', invoiceXml, `${base}/ok`, out]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: ['factur-x.xml /Data'] });
-    r = await run(['-q', '--kiln-pdfa', '2u', `${base}/ok`, out]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.deepEqual(await archived(out), { part: '2', conformance: 'U', files: [] });
-    // Refused before the render, with the reason.
-    rmSync(out);
-    r = await run(['--kiln-pdfa', '1b', `${base}/ok`, out]);
-    assert.equal(r.code, 1);
-    assert.match(r.stderr, /--kiln-pdfa: PDF\/A-1 forbids transparency/);
-    assert.equal(existsSync(out), false);
-  });
 });
 
 describe('objects and numbering', () => {

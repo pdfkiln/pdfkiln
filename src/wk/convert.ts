@@ -10,7 +10,6 @@ import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
 import { relayGet } from '../engine/relay.js';
-import type { Request as ArchiveRequest } from '../pdf/archive.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
@@ -138,17 +137,6 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         fb.error(`--${which}-html should be a URL and not a string containing HTML code.`);
         return fail();
       }
-    }
-  }
-  // --kiln-pdfa and --kiln-factur-x, checked now: a mistake costs no render.
-  let archived: ArchiveRequest | undefined;
-  if (g.kiln.pdfa !== undefined || g.kiln.facturX !== undefined) {
-    const { archiveRequest, COMPATIBLE } = await import('../pdf/archive.js');
-    try {
-      archived = archiveRequest(g.kiln.pdfa, g.kiln.facturX, COMPATIBLE);
-    } catch (e) {
-      fb.error((e as Error).message);
-      return fail();
     }
   }
   if (g.kiln.noSandbox) fb.warning("Chromium's sandbox is off (--kiln-no-sandbox)");
@@ -582,16 +570,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     outDoc.doc.setTitle(title);
     outDoc.doc.setCreator(`PDFKiln ${version}`);
     outDoc.doc.setProducer('pdfkiln.org');
-    let bytes: Uint8Array = await outDoc.doc.save(WRITE);
-    if (archived) {
-      const { archive, COMPATIBLE } = await import('../pdf/archive.js');
-      try {
-        bytes = await archive(bytes, archived, COMPATIBLE);
-      } catch (e) {
-        fb.error((e as Error).message);
-        return fail(errorCode);
-      }
-    }
+    const bytes = await outDoc.doc.save(WRITE);
     outDoc.pages.forEach((_, i) => fb.progressChanged(((i + 1) * 100) / outDoc.pages.length, `Page ${i + 1} of ${outDoc.pages.length}`));
     try {
       if (g.out === '-') io.stdout(bytes);

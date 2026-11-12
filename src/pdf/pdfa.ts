@@ -1,5 +1,4 @@
-// PDF/A for archiving: --pdfa on the native command line, --kiln-pdfa on the
-// compatible one (src/pdf/archive.ts).
+// PDF/A for archiving: --pdfa, on the native command line (src/pdf/archive.ts).
 //
 // The hard part was never the metadata: it was whether Chromium's output can
 // conform at all. Measured over the compatibility corpus on 11 November 2026

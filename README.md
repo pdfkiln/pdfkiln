@@ -104,7 +104,7 @@ Chromium's sandbox stays on: run as an unprivileged user, not root.
 
 ## Status
 
-The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`, `--kiln-pdfa`, `--kiln-factur-x`.
+The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([docs/options.md](docs/options.md): 98 implemented, 24 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-no-sandbox`.
 
 The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, phpwkhtmltopdf 2.5.0, wicked_pdf 2.7.0, CakePdf 5.3.0 and go-wkhtmltopdf 1.9.3 pass with PDFKiln in place of wkhtmltopdf (`test/libraries/run.sh`, CI job `libraries`); go-wkhtmltopdf's with local images in place of those its test pages load from loremflickr.com, which answered 500 on 31 October 2026, and without its example that converts a page of pkg.go.dev, whose badge from codebeat.co no longer loads: wkhtmltopdf 0.12.6 fails on both, as PDFKiln does. knp-snappy's and CakePdf's suites only build command lines: a script for each also drives the program for real (`snappy-smoke.php`, `cakepdf-smoke.php`). KnpSnappyBundle 1.10.6's tests only check its configuration: with its binaries set to PDFKiln's, its services and responses return a PDF and a JPEG (`snappy-bundle-smoke.php`). imgkit 1.2.3's suite, run on wkhtmltoimage, passes 43 of 43 tests in the development container, as with wkhtmltoimage 0.12.6 (without its tests of xvfb, and of github.com, which the container cannot reach); the CI job runs it too.
 
@@ -129,7 +129,7 @@ With the Debian package, `/usr/bin/wkhtmltopdf` is already in the `PATH`. Librar
 
 ## PDF/A and Factur-X
 
-wkhtmltopdf wrote neither. `pdfkiln --pdfa` writes PDF/A for archiving, at level 2b, 2u, 3b or 3u (`--pdfa=2u`; 3b without a level), and `pdfkiln --factur-x invoice.xml` attaches an invoice's CII XML, Factur-X or ZUGFeRD, to a PDF/A-3: the page a person reads and the XML a program reads, in one file. Called as `wkhtmltopdf`, the same options are `--kiln-pdfa <level>` and `--kiln-factur-x <invoice.xml>`.
+wkhtmltopdf wrote neither. `pdfkiln --pdfa` writes PDF/A for archiving, at level 2b, 2u, 3b or 3u (`--pdfa=2u`; 3b without a level), and `pdfkiln --factur-x invoice.xml` attaches an invoice's CII XML, Factur-X or ZUGFeRD, to a PDF/A-3: the page a person reads and the XML a program reads, in one file. Called as `wkhtmltopdf`, PDFKiln keeps the options of wkhtmltopdf 0.12.6 and adds none: these two are for `pdfkiln` only, as Markdown is.
 
 ```sh
 pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
