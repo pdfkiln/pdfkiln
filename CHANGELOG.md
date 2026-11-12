@@ -14,6 +14,16 @@ GitHub release.
 pdfkiln README.md README.pdf
 ```
 
+## 1.2.1
+
+Security:
+
+- Chromium 157.0.8103.50 → 157.0.8103.78 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop_01744469280.html)).
+
+Bugs fixed:
+
+- A resource from another site that answers in error and that Chromium keeps from the page (HTML served for an image, a response without CORS headers) fails the conversion, as in wkhtmltopdf 0.12.6 and as `pdfkiln --fail-on-resource-error` asks: on a slow machine, its error could come too late, and the conversion exited 0.
+
 ## 1.2.0
 
 `pdfkiln serve` is removed: each conversion starts its own Chromium. The command line of wkhtmltopdf and wkhtmltoimage does not change.

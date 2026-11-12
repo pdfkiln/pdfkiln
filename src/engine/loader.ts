@@ -14,6 +14,7 @@ import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/q
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
 import { BlockedAddress, relayGet, relayRequest, type ClientCert } from './relay.js';
+import { isBlock, Withheld } from './withheld.js';
 
 export interface Reporter {
   warning(message: string): void;
@@ -190,29 +191,22 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     httpError(url, status, statusText, e.requestId === mainDocument);
   });
   // A response Chromium keeps from the page gets no responseReceived: its
-  // status comes from the network service, before or after the failure.
-  // wkhtmltopdf's WebKit read it. Blocked by ORB or CORP (HTML for an
-  // image), it was a response like any other; failing CORS (an API without
-  // CORS headers), it was canceled once its status came, which reports an
-  // error status only (measured on 0.12.6).
-  const statuses = new Map<string, number>();
-  const withheld = new Map<string, (status: number) => void>();
-  cdp.on('Network.responseReceivedExtraInfo', (e: { requestId: string; statusCode: number }) => {
-    statuses.set(e.requestId, e.statusCode);
-    withheld.get(e.requestId)?.(e.statusCode);
-  });
-  cdp.on('Network.loadingFailed', (e: { requestId: string; errorText: string; canceled?: boolean; blockedReason?: string; corsErrorStatus?: object }) => {
+  // status comes from the network service, before or after the failure
+  // (withheld.ts). wkhtmltopdf's WebKit read it. Blocked by ORB or CORP
+  // (HTML for an image), it was a response like any other; failing CORS (an
+  // API without CORS headers), it was canceled once its status came, which
+  // reports an error status only (measured on 0.12.6).
+  const withheld = new Withheld(inflight);
+  cdp.on('Network.responseReceivedExtraInfo', (e: { requestId: string; statusCode: number }) => withheld.status(e.requestId, e.statusCode));
+  cdp.on('Network.loadingFailed', (e: { requestId: string; errorText: string; canceled?: boolean; blockedReason?: string; corsErrorStatus?: { corsError?: string } }) => {
     inflight.delete(e.requestId);
     const url = urls.get(e.requestId) ?? '';
     if (!/^https?:/.test(url) || answered.has(e.requestId) || reports.has(e.requestId) || e.errorText === 'net::ERR_BLOCKED_BY_CLIENT') return;
-    if (e.blockedReason || e.corsErrorStatus || e.errorText === 'net::ERR_BLOCKED_BY_ORB') {
-      const read = (status: number) => {
+    if (isBlock(e)) {
+      withheld.failed(e.requestId, e, (status) => {
         if (e.corsErrorStatus) fail(url, 5, status, qtErrorString(5, url, status, ''), status);
         else if (status >= 400) httpError(url, status, '');
-      };
-      const status = statuses.get(e.requestId);
-      if (status === undefined) withheld.set(e.requestId, read);
-      else read(status);
+      });
       return;
     }
     const ns = e.canceled ? 5 : qtErrorForChromium(e.errorText);
