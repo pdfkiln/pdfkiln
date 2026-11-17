@@ -353,6 +353,34 @@ describe('interface', () => {
     assert.equal(await pages(out('ignore')), 2);
   });
 
+  test('a header page that does not load: no PDF, as wkhtmltopdf 0.12.6; kept with --load-error-handling ignore', async () => {
+    const h = await new Promise<string>((ok) => {
+      const s = createTcpServer();
+      s.listen(0, '127.0.0.1', () => {
+        const port = (s.address() as AddressInfo).port;
+        s.close(() => ok(`http://127.0.0.1:${port}/h.html`));
+      });
+    });
+    const out = join(dir, 'header-down.pdf');
+    const refused = `Error: Failed to load ${h}, with network status code 1 and http status code 0 - Connection refused`;
+    const last = 'Exit with code 1 due to network error: ConnectionRefusedError';
+    let r = await run(['--log-level', 'warn', '--header-html', h, `${base}/ok`, out]);
+    assert.equal(r.code, 1);
+    assert.ok(!existsSync(out), 'no PDF');
+    assert.equal(r.stderr, `${refused}\nError: Failed loading page ${h} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n${last}\n`);
+    // Kept: the header of each page fails too, and says so.
+    r = await run(['--log-level', 'warn', '--load-error-handling', 'ignore', '--header-html', h, `${base}/ok`, out]);
+    assert.equal(r.code, 1);
+    assert.ok(existsSync(out), 'a PDF');
+    const lines = r.stderr.trimEnd().split('\n');
+    assert.equal(lines.length, 5, r.stderr);
+    assert.equal(lines[0], refused);
+    assert.equal(lines[1], `Warning: Failed loading page ${h} (ignored)`);
+    assert.match(lines[2]!, /^Error: Failed to load http:\/\/127\.0\.0\.1:\d+\/h\.html\?.+ - Connection refused$/);
+    assert.match(lines[3]!, /^Warning: Failed loading page http:\/\/127\.0\.0\.1:\d+\/h\.html\?.+ \(ignored\)$/);
+    assert.equal(lines[4], last);
+  });
+
   test('--proxy: the pages go through it', async () => {
     const seen: string[] = [];
     const proxy = createServer((req, res) => {
@@ -841,7 +869,9 @@ describe('security', () => {
   });
 
   test('a failure of PDFKiln\'s own ends on wkhtmltopdf\'s last line, not on a stack trace', async () => {
-    const r = await run(['-q', '--header-html', 'no such header.html', `${base}/ok`, join(dir, 'own.pdf')]);
+    // Kept by --load-error-handling ignore, the header that does not load
+    // goes on to a URL that cannot be made.
+    const r = await run(['-q', '--load-error-handling', 'ignore', '--header-html', 'no such header.html', `${base}/ok`, join(dir, 'own.pdf')]);
     assert.equal(r.code, 1);
     assert.match(r.stderr, /^Error: .+\n(.+\n)*Exit with code 1, due to unknown error\.\n$/);
     assert.doesNotMatch(r.stderr, /\n\s+at /);

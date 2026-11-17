@@ -280,6 +280,16 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     if (g.cookieJar && pages[0]) await saveJar(pages[0], g.cookieJar);
     let errorCode = Math.max(0, ...pages.map((l) => l.errorCode));
     if (loaded.some((l, i) => l && !l.ok && objects[i]!.load.loadErrorHandling === 'abort')) return fail(errorCode);
+    // A header or footer page that does not load stops the conversion too,
+    // without a PDF, unless its object's --load-error-handling keeps going
+    // (measured on 0.12.6).
+    for (const [i, o] of objects.entries()) {
+      if (o.load.loadErrorHandling !== 'abort') continue;
+      for (const m of [measures[i]!.header, measures[i]!.footer]) {
+        const r = m && await m;
+        if (r && !r.ok) return fail(Math.max(errorCode, r.errorCode));
+      }
+    }
     if (!sameUnits) {
       fb.error('Currently all margin units must be the same!');
       return fail(errorCode);

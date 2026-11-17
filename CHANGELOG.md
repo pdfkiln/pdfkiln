@@ -16,6 +16,7 @@ Called as `wkhtmltopdf`, bugs fixed:
 
 - A page or a resource over https whose certificate does not verify (self-signed, expired, issued for another name) loads, with the warning "SSL error ignored", as in wkhtmltopdf and wkhtmltoimage 0.12.6: the conversion failed with "SslHandshakeFailedError", even with `--load-error-handling ignore`, and such an image in an http page was left out. The new `--kiln-block-invalid-certificates` refuses them, fonts included.
 - A page whose server refuses the connection fails as in wkhtmltopdf 0.12.6: "Failed to load <url>, with network status code 1 and http status code 0 - Connection refused", then exit 1 with "ConnectionRefusedError", also with `--load-error-handling skip` or `ignore`, which keep the PDF. Up to 1.2.1, the last line read "unknown error", and `skip` or `ignore` exited 0.
+- A `--header-html` or `--footer-html` page that does not load stops the conversion, without a PDF, as in wkhtmltopdf 0.12.6. With `--load-error-handling ignore` or `skip`, the PDF is kept, and the header of each page says it failed. Up to 1.2.1, the PDF was written without the header.
 
 ## 1.2.1
 

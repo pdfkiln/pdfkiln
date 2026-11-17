@@ -120,8 +120,9 @@ export interface Measure {
 }
 
 // Lays a header out at the content width and measures it, as
-// calculateHeaderHeight does to size an automatic margin.
-export async function measure(context: BrowserContext, url: string, b: Box, out: Reporter): Promise<{ m: Measure; errorCode: number }> {
+// calculateHeaderHeight does to size an automatic margin. ok: the header
+// page loaded.
+export async function measure(context: BrowserContext, url: string, b: Box, out: Reporter): Promise<{ m: Measure; errorCode: number; ok: boolean }> {
   const lp = await openPage(context, {
     ...b.spec,
     url,
@@ -149,7 +150,7 @@ export async function measure(context: BrowserContext, url: string, b: Box, out:
   }).catch(() => ({ box: 0, extent: 0, textBottom: 0 }));
   await lp.page.close();
   const mm = (v: number) => (v * b.scale) / PX_PER_MM;
-  return { m: { box: mm(px.box), extent: mm(px.extent), textBottom: mm(px.textBottom) }, errorCode: lp.errorCode };
+  return { m: { box: mm(px.box), extent: mm(px.extent), textBottom: mm(px.textBottom) }, errorCode: lp.errorCode, ok: lp.ok };
 }
 
 // All the pages of one header-html: one <iframe> per page, printed once;
@@ -173,6 +174,17 @@ export async function renderHtml(context: BrowserContext, urls: string[], b: Box
     // wkhtmltopdf loads each header page on its own: it may read itself.
     allowFiles: [file, ...new Set(urls.filter((u) => u.startsWith('file:')).map((u) => fileURLToPath(u.split('?')[0]!)))],
   }, out);
+  // A header page that does not load, kept by --load-error-handling (abort
+  // stopped the conversion at the measure): wkhtmltopdf says so for each
+  // page's. Chromium shows its error page in that frame.
+  const handling = b.spec.load.loadErrorHandling;
+  if (handling !== 'abort') {
+    for (const f of lp.page.mainFrame().childFrames()) {
+      if (!f.url().startsWith('chrome-error:')) continue;
+      const src = await f.frameElement().then((e) => e?.evaluate((el) => el.getAttribute('src'))).catch(() => null);
+      if (src) out.warning(`Failed loading page ${src} (${handling === 'skip' ? 'skipped' : 'ignored'})`);
+    }
+  }
   await emulate(lp);
   const pdf = await lp.page.pdf({
     width: `${b.width}mm`, height: `${Math.max(height, 0.1)}mm`, margin: { top: 0, right: 0, bottom: 0, left: 0 },
