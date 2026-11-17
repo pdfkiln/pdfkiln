@@ -17,6 +17,37 @@ import type { HeaderFooter } from './settings.js';
 const PT_PER_MM = 72 / 25.4;
 const PX_PER_MM = 96 / 25.4;
 
+// [time] and [date], as Qt 4.8's SystemLocaleShortDate gives them to
+// wkhtmltopdf 0.12.6 (pdfconverter.cc). On Windows, the system's own
+// formats: its time has the seconds. On Linux, the locale of LC_ALL,
+// LC_TIME or LANG, as Qt reads them; without one (C, POSIX), Qt's:
+// 16:37:26 and 17 Nov 2026. A named locale keeps the short styles, which
+// match Qt's for en_US, en_GB and de_DE (measured 17/11/2026; for fr_FR,
+// Qt writes the year in two digits). macOS, not measured, keeps them too.
+export function qtDateTime(now: Date, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): { time: string; date: string } {
+  const short = (locale?: string) => ({
+    time: now.toLocaleTimeString(locale, { timeStyle: 'short' }),
+    date: now.toLocaleDateString(locale, { dateStyle: 'short' }),
+  });
+  if (platform === 'win32') return { ...short(), time: now.toLocaleTimeString(undefined, { timeStyle: 'medium' }) };
+  if (platform !== 'linux') return short();
+  const name = env.LC_ALL || env.LC_TIME || env.LANG || 'C';
+  if (/^(C|POSIX)([._@]|$)/.test(name)) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][now.getMonth()];
+    return { time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, date: `${now.getDate()} ${month} ${now.getFullYear()}` };
+  }
+  // fr_FR.UTF-8 as fr-FR; a name Intl does not know, its default locale.
+  const tag = name.replace(/[.@].*$/, '').replace(/_/g, '-');
+  let locale: string | undefined;
+  try {
+    locale = Intl.DateTimeFormat.supportedLocalesOf(tag)[0];
+  } catch {
+    locale = undefined;
+  }
+  return short(locale);
+}
+
 export interface Geometry {
   width: number; // mm, page
   height: number;

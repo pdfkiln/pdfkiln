@@ -15,7 +15,7 @@ import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
 import type { Feedback } from './feedback.js';
-import { hasText, measure, printDocument, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
+import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
 import { anchorsOf, fragmentOf, linkHeadings, markTargets, pageKey, tocAnchorNames, type Anchor } from './links.js';
 import { Anchors, buildOutline, outlineXml, sameTree, type WkDoc, type WkItem } from './outline.js';
 import type { Parsed } from './parse.js';
@@ -430,6 +430,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const isodate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const { time, date } = qtDateTime(now);
     const parmsOf = (k: number, objectPage: number): Parms => {
       const { o, l } = live[k]!;
       const page = prefix[k]! + objectPage + 1;
@@ -444,8 +445,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         subsubsection: sections[2]![page] ?? '',
         doctitle: title,
         title: l.title,
-        time: now.toLocaleTimeString(undefined, { timeStyle: 'short' }),
-        date: now.toLocaleDateString(undefined, { dateStyle: 'short' }),
+        time,
+        date,
         isodate,
         sitepage: String(objectPage + 1),
         sitepages: String(done_[k]!.pages),
