@@ -134,6 +134,7 @@ With the Debian package, `/usr/bin/wkhtmltopdf` is already in the `PATH`. Librar
 - Links between objects become internal, as in wkhtmltopdf: to the element the fragment names, or dropped when there is none. Chromium writes the targets of internal links without the print scale and margins; PDFKiln puts them back where the page shows them.
 - `wkhtmltoimage` is provided too: the same 63 options, Chromium's capture at the screen width (smart width included) and the height of the content; formats jpg, png, bmp, ppm, xpm, xbm and svg (the SVG embeds a PNG). Under a page whose body hides its overflow (Odoo reports), wkhtmltoimage added thousands of blank pixels; PDFKiln stops at the content.
 - On Windows, wkhtmltopdf's Qt takes font metrics from GDI, rounded to whole pixels: lines of `line-height: normal` are mostly 1 to 2 px taller between 10 and 16 px, and the glyphs are drawn larger (Arial at 12 px drawn at 13.4 px; `node dist/bench/gdi.js`). PDFKiln renders the same page on every system, the one wkhtmltopdf gives on Linux.
+- `--user-style-sheet` also takes an http or https URL, which wkhtmltopdf 0.12.6 ignores: its Qt WebKit only reads a local file or a `data:` URL.
 - Not provided: the C library `libwkhtmltox`.
 
 ## Known issues in 1.0
