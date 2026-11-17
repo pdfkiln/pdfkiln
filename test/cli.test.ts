@@ -334,17 +334,22 @@ describe('interface', () => {
     });
     const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
     const out = (m: string) => join(dir, `leh-${m}.pdf`);
+    // As wkhtmltopdf 0.12.6 (Linux and Windows): the refused connection is
+    // the page's error, which sets the exit code even when the page is
+    // skipped or kept.
+    const refused = `Error: Failed to load ${bad}, with network status code 1 and http status code 0 - Connection refused\n`;
+    const last = 'Exit with code 1 due to network error: ConnectionRefusedError\n';
     let r = await run(['--log-level', 'warn', `${base}/ok`, bad, out('abort')]);
     assert.equal(r.code, 1);
     assert.ok(!existsSync(out('abort')));
-    assert.match(r.stderr, /^Error: Failed loading page /m);
+    assert.equal(r.stderr, `${refused}Error: Failed loading page ${bad} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n${last}`);
     r = await run(['--log-level', 'warn', '--load-error-handling', 'skip', `${base}/ok`, bad, out('skip')]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (skipped)\n`);
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.stderr, `${refused}Warning: Failed loading page ${bad} (skipped)\n${last}`);
     assert.equal(await pages(out('skip')), 1);
     r = await run(['--log-level', 'warn', '--load-error-handling', 'ignore', `${base}/ok`, bad, out('ignore')]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (ignored)\n`);
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.stderr, `${refused}Warning: Failed loading page ${bad} (ignored)\n${last}`);
     assert.equal(await pages(out('ignore')), 2);
   });
 

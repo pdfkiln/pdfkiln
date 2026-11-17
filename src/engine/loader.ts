@@ -238,8 +238,6 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     const ns = e.canceled ? 5 : qtErrorForChromium(e.errorText);
     const page = e.requestId === mainDocument;
-    // Qt never reported a refused connection on the page itself.
-    if (page && ns === 1 && !out.failed) return;
     fail(url, ns, 0, qtErrorString(ns, url, 0, ''), e.errorText, page);
   });
 
