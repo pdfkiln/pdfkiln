@@ -83,6 +83,8 @@ let imgHeader = '';
 let imgCookie = '';
 // The Cookie of the last /show-cookie request.
 let shownCookie = '';
+// The Cookie and X-Test of the last /user.css request.
+let userCssRequest = '';
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
@@ -127,6 +129,10 @@ before(async () => {
       return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
     }
     if (path === '/headers') return html(`<p>X-Test=${req.headers['x-test'] ?? 'none'}</p><img src="/img">`);
+    if (path === '/user.css') {
+      userCssRequest = `${req.headers.cookie ?? 'no cookie'}, ${req.headers['x-test'] ?? 'no header'}`;
+      return res.writeHead(200, { 'content-type': 'text/css' }).end('h1 { height: 2000px }');
+    }
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
@@ -409,6 +415,23 @@ describe('interface', () => {
       assert.equal(r.code, 0, r.stderr);
       assert.ok(await pages(out) > 1, sheet.slice(0, 30));
     }
+  });
+
+  test('--user-style-sheet from a URL, which wkhtmltopdf ignores: loaded as the page\'s style sheets, under the same options', async () => {
+    const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
+    const out = join(dir, 'user-css-url.pdf');
+    let r = await run(['-q', '--cookie', 'k', 'v', '--custom-header', 'X-Test', 'css', '--custom-header-propagation', '--user-style-sheet', `${base}/user.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(await pages(out) > 1);
+    assert.equal(userCssRequest, 'k=v, css');
+    // Without propagation, a custom header goes to the page only.
+    r = await run(['-q', '--custom-header', 'X-Test', 'css', '--user-style-sheet', `${base}/user.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(userCssRequest, 'no cookie, no header');
+    // One that does not load is a style sheet in error, as the page's.
+    r = await run(['--log-level', 'warn', '--user-style-sheet', `${base}/missing.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, `Warning: Failed to load ${base}/missing.css (ignore)\n`);
   });
 
   test('--username and --password answer the server\'s HTTP authentication', async () => {

@@ -196,7 +196,7 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
       fontFamily: chromium.fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
-      userStyleSheet: o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet, block, !g.kiln.blockInvalidCertificates) : undefined,
+      ...(o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet).then((u) => ({ userStyleSheet: u.css, userStyleSheetUrl: u.url })) : {}),
     }, fb);
     fb.progressChanged(100, '100%');
     if (g.cookieJar) await saveJar(l, g.cookieJar);

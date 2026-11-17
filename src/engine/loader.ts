@@ -50,6 +50,8 @@ export interface LoadSpec {
   // started to ignore them too (LaunchOptions).
   ignoreCertificateErrors: boolean;
   userStyleSheet?: string; // CSS text
+  // Or its http or https URL, loaded as the page's style sheets are.
+  userStyleSheetUrl?: string;
   // The native interface's own: headers for every request to the page's
   // host and no other, a style sheet after the page's own, which it
   // overrides, and an element to wait for before the delay.
@@ -500,12 +502,24 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     return lp;
   }
-  if (spec.userStyleSheet) {
-    await Promise.all(page.frames().map((f) => f.evaluate((css: string) => {
-      const s = document.createElement('style');
-      s.textContent = css;
-      (document.head ?? document.documentElement).prepend(s);
-    }, spec.userStyleSheet!).catch(() => {})));
+  // The user style sheet, first in each frame: its text, or a link that
+  // Chromium loads as any other style sheet, the wait ending once it has
+  // loaded or failed.
+  if (spec.userStyleSheet || spec.userStyleSheetUrl) {
+    await Promise.all(page.frames().map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
+      const at = document.head ?? document.documentElement;
+      if (!href) {
+        const s = document.createElement('style');
+        s.textContent = css;
+        at.prepend(s);
+        return done();
+      }
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = href;
+      l.onload = l.onerror = () => done();
+      at.prepend(l);
+    }), spec.userStyleSheet ?? '', spec.userStyleSheetUrl ?? '').catch(() => {})));
   }
   // The native --css: last in the page, it wins over the page's own rules
   // (@page included).

@@ -9,7 +9,6 @@ import type { PDFDocument } from '@cantoo/pdf-lib';
 import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
-import { relayGet } from '../engine/relay.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
@@ -190,11 +189,11 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         }
       }
     }
-    const userCss = new Map<string, string>();
+    const userCss = new Map<string, { css?: string; url?: string }>();
     for (const o of objects) {
       const s = o.web.userStyleSheet;
       if (!s || userCss.has(s)) continue;
-      userCss.set(s, await readStyleSheet(s, block, insecure));
+      userCss.set(s, await readStyleSheet(s));
     }
 
     const emulationOf = (o: PdfObject): Emulation => ({
@@ -223,7 +222,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: insecure,
-      userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet) : undefined,
+      userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.css : undefined,
+      userStyleSheetUrl: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.url : undefined,
     });
 
     // Headers and footers are measured first: their size places them, and
@@ -609,18 +609,22 @@ async function emptyDocument(width: number, height: number): Promise<PDFDocument
   return doc;
 }
 
-// --user-style-sheet is a URL or a file, given by the caller: read as is.
-export async function readStyleSheet(s: string, block: boolean, insecure: boolean): Promise<string> {
+// --user-style-sheet is a URL or a file, given by the caller. A file or a
+// data: URL is read here, as is; an http or https URL, which wkhtmltopdf
+// ignores, is loaded by Chromium as the page's own style sheets are, under
+// the same options (proxy, cookies, headers, authentication, certificates,
+// blocks).
+export async function readStyleSheet(s: string): Promise<{ css?: string; url?: string }> {
   const url = guessUrlFromString(s);
+  if (/^https?:/.test(url)) return { url };
   try {
-    if (url.startsWith('file:')) return readFileSync(new URL(url), 'utf8');
+    if (url.startsWith('file:')) return { css: readFileSync(new URL(url), 'utf8') };
     // The form QtWebKit documents for a user style sheet, base64 or not.
-    if (url.startsWith('data:')) return await (await fetch(url)).text();
-    if (/^https?:/.test(url)) return (await relayGet(url, { block, insecure })).body.toString('utf8');
+    if (url.startsWith('data:')) return { css: await (await fetch(url)).text() };
   } catch {
     // As WebKit: a style sheet that cannot be read is no style sheet.
   }
-  return '';
+  return {};
 }
 
 
