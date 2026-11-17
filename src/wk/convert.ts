@@ -9,13 +9,12 @@ import type { PDFDocument } from '@cantoo/pdf-lib';
 import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
-import { relayGet } from '../engine/relay.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
 import type { Feedback } from './feedback.js';
-import { hasText, measure, printDocument, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
+import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
 import { anchorsOf, fragmentOf, linkHeadings, markTargets, pageKey, tocAnchorNames, type Anchor } from './links.js';
 import { Anchors, buildOutline, outlineXml, sameTree, type WkDoc, type WkItem } from './outline.js';
 import type { Parsed } from './parse.js';
@@ -158,6 +157,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     fb.progressChanged(0, '0%');
 
     const block = g.kiln.blockPrivateNetwork;
+    const insecure = !g.kiln.blockInvalidCertificates;
     const proxy = objects.find((o) => o.load.proxy)?.load.proxy ?? null;
     const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout, () => void pdfModules().catch(() => {}));
     // Loaded while Chromium started.
@@ -189,11 +189,11 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         }
       }
     }
-    const userCss = new Map<string, string>();
+    const userCss = new Map<string, { css?: string; url?: string }>();
     for (const o of objects) {
       const s = o.web.userStyleSheet;
       if (!s || userCss.has(s)) continue;
-      userCss.set(s, await readStyleSheet(s, block));
+      userCss.set(s, await readStyleSheet(s));
     }
 
     const emulationOf = (o: PdfObject): Emulation => ({
@@ -221,7 +221,9 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       emulation: emulationOf(o),
       fontFamily,
       blockPrivateNetwork: block,
-      userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet) : undefined,
+      ignoreCertificateErrors: insecure,
+      userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.css : undefined,
+      userStyleSheetUrl: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.url : undefined,
     });
 
     // Headers and footers are measured first: their size places them, and
@@ -278,6 +280,16 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     if (g.cookieJar && pages[0]) await saveJar(pages[0], g.cookieJar);
     let errorCode = Math.max(0, ...pages.map((l) => l.errorCode));
     if (loaded.some((l, i) => l && !l.ok && objects[i]!.load.loadErrorHandling === 'abort')) return fail(errorCode);
+    // A header or footer page that does not load stops the conversion too,
+    // without a PDF, unless its object's --load-error-handling keeps going
+    // (measured on 0.12.6).
+    for (const [i, o] of objects.entries()) {
+      if (o.load.loadErrorHandling !== 'abort') continue;
+      for (const m of [measures[i]!.header, measures[i]!.footer]) {
+        const r = m && await m;
+        if (r && !r.ok) return fail(Math.max(errorCode, r.errorCode));
+      }
+    }
     if (!sameUnits) {
       fb.error('Currently all margin units must be the same!');
       return fail(errorCode);
@@ -418,6 +430,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const isodate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const { time, date } = qtDateTime(now);
     const parmsOf = (k: number, objectPage: number): Parms => {
       const { o, l } = live[k]!;
       const page = prefix[k]! + objectPage + 1;
@@ -432,8 +445,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         subsubsection: sections[2]![page] ?? '',
         doctitle: title,
         title: l.title,
-        time: now.toLocaleTimeString(undefined, { timeStyle: 'short' }),
-        date: now.toLocaleDateString(undefined, { dateStyle: 'short' }),
+        time,
+        date,
         isodate,
         sitepage: String(objectPage + 1),
         sitepages: String(done_[k]!.pages),
@@ -596,18 +609,22 @@ async function emptyDocument(width: number, height: number): Promise<PDFDocument
   return doc;
 }
 
-// --user-style-sheet is a URL or a file, given by the caller: read as is.
-export async function readStyleSheet(s: string, block: boolean): Promise<string> {
+// --user-style-sheet is a URL or a file, given by the caller. A file or a
+// data: URL is read here, as is; an http or https URL, which wkhtmltopdf
+// ignores, is loaded by Chromium as the page's own style sheets are, under
+// the same options (proxy, cookies, headers, authentication, certificates,
+// blocks).
+export async function readStyleSheet(s: string): Promise<{ css?: string; url?: string }> {
   const url = guessUrlFromString(s);
+  if (/^https?:/.test(url)) return { url };
   try {
-    if (url.startsWith('file:')) return readFileSync(new URL(url), 'utf8');
+    if (url.startsWith('file:')) return { css: readFileSync(new URL(url), 'utf8') };
     // The form QtWebKit documents for a user style sheet, base64 or not.
-    if (url.startsWith('data:')) return await (await fetch(url)).text();
-    if (/^https?:/.test(url)) return (await relayGet(url, { block })).body.toString('utf8');
+    if (url.startsWith('data:')) return { css: await (await fetch(url)).text() };
   } catch {
     // As WebKit: a style sheet that cannot be read is no style sheet.
   }
-  return '';
+  return {};
 }
 
 

@@ -17,6 +17,37 @@ import type { HeaderFooter } from './settings.js';
 const PT_PER_MM = 72 / 25.4;
 const PX_PER_MM = 96 / 25.4;
 
+// [time] and [date], as Qt 4.8's SystemLocaleShortDate gives them to
+// wkhtmltopdf 0.12.6 (pdfconverter.cc). On Windows, the system's own
+// formats: its time has the seconds. On Linux, the locale of LC_ALL,
+// LC_TIME or LANG, as Qt reads them; without one (C, POSIX), Qt's:
+// 16:37:26 and 17 Nov 2026. A named locale keeps the short styles, which
+// match Qt's for en_US, en_GB and de_DE (measured 17/11/2026; for fr_FR,
+// Qt writes the year in two digits). macOS, not measured, keeps them too.
+export function qtDateTime(now: Date, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): { time: string; date: string } {
+  const short = (locale?: string) => ({
+    time: now.toLocaleTimeString(locale, { timeStyle: 'short' }),
+    date: now.toLocaleDateString(locale, { dateStyle: 'short' }),
+  });
+  if (platform === 'win32') return { ...short(), time: now.toLocaleTimeString(undefined, { timeStyle: 'medium' }) };
+  if (platform !== 'linux') return short();
+  const name = env.LC_ALL || env.LC_TIME || env.LANG || 'C';
+  if (/^(C|POSIX)([._@]|$)/.test(name)) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][now.getMonth()];
+    return { time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, date: `${now.getDate()} ${month} ${now.getFullYear()}` };
+  }
+  // fr_FR.UTF-8 as fr-FR; a name Intl does not know, its default locale.
+  const tag = name.replace(/[.@].*$/, '').replace(/_/g, '-');
+  let locale: string | undefined;
+  try {
+    locale = Intl.DateTimeFormat.supportedLocalesOf(tag)[0];
+  } catch {
+    locale = undefined;
+  }
+  return short(locale);
+}
+
 export interface Geometry {
   width: number; // mm, page
   height: number;
@@ -120,8 +151,9 @@ export interface Measure {
 }
 
 // Lays a header out at the content width and measures it, as
-// calculateHeaderHeight does to size an automatic margin.
-export async function measure(context: BrowserContext, url: string, b: Box, out: Reporter): Promise<{ m: Measure; errorCode: number }> {
+// calculateHeaderHeight does to size an automatic margin. ok: the header
+// page loaded.
+export async function measure(context: BrowserContext, url: string, b: Box, out: Reporter): Promise<{ m: Measure; errorCode: number; ok: boolean }> {
   const lp = await openPage(context, {
     ...b.spec,
     url,
@@ -149,7 +181,7 @@ export async function measure(context: BrowserContext, url: string, b: Box, out:
   }).catch(() => ({ box: 0, extent: 0, textBottom: 0 }));
   await lp.page.close();
   const mm = (v: number) => (v * b.scale) / PX_PER_MM;
-  return { m: { box: mm(px.box), extent: mm(px.extent), textBottom: mm(px.textBottom) }, errorCode: lp.errorCode };
+  return { m: { box: mm(px.box), extent: mm(px.extent), textBottom: mm(px.textBottom) }, errorCode: lp.errorCode, ok: lp.ok };
 }
 
 // All the pages of one header-html: one <iframe> per page, printed once;
@@ -173,6 +205,17 @@ export async function renderHtml(context: BrowserContext, urls: string[], b: Box
     // wkhtmltopdf loads each header page on its own: it may read itself.
     allowFiles: [file, ...new Set(urls.filter((u) => u.startsWith('file:')).map((u) => fileURLToPath(u.split('?')[0]!)))],
   }, out);
+  // A header page that does not load, kept by --load-error-handling (abort
+  // stopped the conversion at the measure): wkhtmltopdf says so for each
+  // page's. Chromium shows its error page in that frame.
+  const handling = b.spec.load.loadErrorHandling;
+  if (handling !== 'abort') {
+    for (const f of lp.page.mainFrame().childFrames()) {
+      if (!f.url().startsWith('chrome-error:')) continue;
+      const src = await f.frameElement().then((e) => e?.evaluate((el) => el.getAttribute('src'))).catch(() => null);
+      if (src) out.warning(`Failed loading page ${src} (${handling === 'skip' ? 'skipped' : 'ignored'})`);
+    }
+  }
   await emulate(lp);
   const pdf = await lp.page.pdf({
     width: `${b.width}mm`, height: `${Math.max(height, 0.1)}mm`, margin: { top: 0, right: 0, bottom: 0, left: 0 },

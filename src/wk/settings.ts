@@ -101,6 +101,8 @@ export interface PdfObject {
 export interface Kiln {
   timeout: number; // seconds
   blockPrivateNetwork: boolean;
+  // Certificates that do not verify refused, where wkhtmltopdf ignores them.
+  blockInvalidCertificates: boolean;
   noSandbox: boolean;
 }
 
@@ -164,7 +166,7 @@ export function defaultGlobal(): PdfGlobal {
     // Top and bottom are unset: they become 10 mm, or are computed from
     // --header-html and --footer-html.
     margin: { top: mm(-1), right: mm(10), bottom: mm(-1), left: mm(10) },
-    kiln: { timeout: 120, blockPrivateNetwork: false, noSandbox: false },
+    kiln: { timeout: 120, blockPrivateNetwork: false, blockInvalidCertificates: false, noSandbox: false },
   };
 }
 

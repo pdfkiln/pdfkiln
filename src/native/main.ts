@@ -13,8 +13,10 @@
 // - the JavaScript delay of the compatible mode, cut short once nothing
 //   can change the page, 1000 ms at most by default;
 // - secure by default: a page reads no local file but itself unless --allow
-//   or --enable-local-file-access, and reaches no loopback, private or
-//   link-local address unless --allow-private-network;
+//   or --enable-local-file-access, reaches no loopback, private or
+//   link-local address unless --allow-private-network, and loads nothing
+//   from a server whose certificate does not verify unless
+//   --allow-invalid-certificates;
 // - an input that does not load fails: exit 1, no PDF; with
 //   --fail-on-resource-error, so does an input one of whose resources does
 //   not;
@@ -40,7 +42,7 @@ import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
-import { BlockedAddress, startRelay, type Relay } from '../engine/relay.js';
+import { BlockedAddress, CertificateError, startRelay, type Relay } from '../engine/relay.js';
 import type { FrontMatter } from '../markdown/frontmatter.js';
 import { MARGIN_LEFT_CM, MARGIN_TOP_CM } from '../markdown/style.js';
 import type { Request as ArchiveRequest } from '../pdf/archive.js';
@@ -107,6 +109,10 @@ Access, refused by default:
   --enable-local-file-access  Let local pages read any local file
   --allow-private-network     Let pages reach localhost, private and
                               link-local addresses
+  --allow-invalid-certificates
+                              Let pages load from servers whose certificate
+                              does not verify (self-signed, expired, issued
+                              for another name)
 
 Other:
   --fail-on-resource-error    Fail, without a PDF, when an image, font, style
@@ -233,6 +239,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         allow: { type: 'string', multiple: true },
         'enable-local-file-access': { type: 'boolean' },
         'allow-private-network': { type: 'boolean' },
+        'allow-invalid-certificates': { type: 'boolean' },
         timeout: { type: 'string' },
         'fail-on-resource-error': { type: 'boolean' },
         title: { type: 'string' },
@@ -343,6 +350,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     }
   }
   const blockPrivate = !v['allow-private-network'];
+  const insecure = Boolean(v['allow-invalid-certificates']);
 
   let relay: Relay | undefined;
   // Why a request did not load, in a few words. The relay knows why it
@@ -355,6 +363,8 @@ export async function nativeMain(args: string[]): Promise<number> {
       return `${host} ${isIP(host.replace(/^\[|\]$/g, '')) ? 'is' : 'resolves to'} a private address (--allow-private-network to reach it)`;
     }
     if (typeof e === 'number') return `HTTP ${e}`;
+    // A font, refused here: the system's name of the reason.
+    if (e instanceof CertificateError) return e.message;
     return words(e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : e);
   };
   // Why the current input did not load.
@@ -395,6 +405,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       noSandbox: v['no-sandbox'],
       proxyServer: relay?.url,
       proxyBypassList: relay ? '<-loopback>' : undefined,
+      ignoreCertificateErrors: insecure,
       meanwhile: () => {
         void pdfModules().catch(() => {});
         if (anyMarkdown) void markdownModule().then((m) => m.prepare()).catch(() => {});
@@ -474,6 +485,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         media,
         viewport: { width: 794, height: 1123 },
         blockPrivateNetwork: blockPrivate,
+        ignoreCertificateErrors: insecure,
         siteHeaders: headers,
         css,
         waitFor: v['wait-for'],

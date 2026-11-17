@@ -14,6 +14,11 @@ export interface LaunchOptions {
   // Chromium's own proxy settings, as --proxy-server and --proxy-bypass-list.
   proxyServer?: string;
   proxyBypassList?: string;
+  // Certificates that do not verify accepted, at their handshake, as Qt
+  // accepts them for wkhtmltopdf. Puppeteer's acceptInsecureCerts
+  // (Security.setIgnoreCertificateErrors) fails each such connection's
+  // handshake first, then opens it again (measured on Chromium 157).
+  ignoreCertificateErrors?: boolean;
   env?: NodeJS.ProcessEnv;
   // Work for this process while Chromium starts, which leaves it idle:
   // loading the modules the conversion needs next.
@@ -232,6 +237,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   if (opts.noSandbox) args.push('--no-sandbox');
   if (opts.proxyServer) args.push(`--proxy-server=${opts.proxyServer}`);
   if (opts.proxyBypassList) args.push(`--proxy-bypass-list=${opts.proxyBypassList}`);
+  if (opts.ignoreCertificateErrors) args.push('--ignore-certificate-errors');
   let browser: Browser;
   try {
     // Puppeteer gets every argument, its defaults included: under a cap on

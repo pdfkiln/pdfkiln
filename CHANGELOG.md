@@ -8,7 +8,7 @@ GitHub release.
 
 ## 1.3.0
 
-Three new features, called as `pdfkiln`. The command line of wkhtmltopdf and wkhtmltoimage does not change.
+Three new features, called as `pdfkiln`.
 
 - **Markdown**: `pdfkiln README.md README.pdf` converts Markdown as GitHub writes it (tables, task lists, alerts, footnotes, emoji), math and coloured code included, laid out for paper. `--from markdown` reads any input as Markdown, the standard input included.
 - **PDF/A, for archiving**: `--pdfa` writes PDF/A-3b, or the level asked for: `--pdfa=2b`, `2u`, `3b` or `3u`. A PDF that cannot conform, with a font that is not embedded for instance, is refused rather than labelled.
@@ -19,6 +19,18 @@ pdfkiln README.md README.pdf
 pdfkiln --pdfa report.html report.pdf
 pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 ```
+
+Security:
+
+- Called as `pdfkiln`, a web font from a server whose certificate does not verify is refused, as the page and its other resources already were: up to 1.2.1, it loaded. The new `--allow-invalid-certificates` lets pages load from such servers (self-signed, expired, issued for another name), fonts included.
+
+Called as `wkhtmltopdf`, bugs fixed:
+
+- A page or a resource over https whose certificate does not verify (self-signed, expired, issued for another name) loads, with the warning "SSL error ignored", as in wkhtmltopdf and wkhtmltoimage 0.12.6: the conversion failed with "SslHandshakeFailedError", even with `--load-error-handling ignore`, and such an image in an http page was left out. The new `--kiln-block-invalid-certificates` refuses them, fonts included.
+- A page whose server refuses the connection fails as in wkhtmltopdf 0.12.6: "Failed to load <url>, with network status code 1 and http status code 0 - Connection refused", then exit 1 with "ConnectionRefusedError", also with `--load-error-handling skip` or `ignore`, which keep the PDF. Up to 1.2.1, the last line read "unknown error", and `skip` or `ignore` exited 0.
+- A `--header-html` or `--footer-html` page that does not load stops the conversion, without a PDF, as in wkhtmltopdf 0.12.6. With `--load-error-handling ignore` or `skip`, the PDF is kept, and the header of each page says it failed. Up to 1.2.1, the PDF was written without the header.
+- `[time]` and `[date]` are written as wkhtmltopdf 0.12.6 writes them: the time with its seconds on Windows, and `16:37:26` and `17 Nov 2026` on Linux without a locale (`C`, the usual case of servers and containers), where 1.2.1 wrote `4:37 PM` and `11/17/26`.
+- A `--user-style-sheet` given as an http or https URL, which wkhtmltopdf ignores, is loaded as the page's style sheets are: through `--proxy`, with the page's cookies, headers and authentication, and under the same refusals. It went to the server directly, without them.
 
 ## 1.2.1
 

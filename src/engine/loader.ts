@@ -13,7 +13,7 @@ import type { LoadPage, PostItem, Web } from '../wk/settings.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
-import { BlockedAddress, relayGet, relayRequest, type ClientCert } from './relay.js';
+import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert } from './relay.js';
 import { isBlock, Withheld } from './withheld.js';
 
 export interface Reporter {
@@ -45,7 +45,13 @@ export interface LoadSpec {
   // Family for every generic family (wkhtmltopdf's default font).
   fontFamily?: string;
   blockPrivateNetwork: boolean;
+  // Load what comes from a server whose certificate does not verify, as
+  // wkhtmltopdf does, the requests made here included. Chromium must be
+  // started to ignore them too (LaunchOptions).
+  ignoreCertificateErrors: boolean;
   userStyleSheet?: string; // CSS text
+  // Or its http or https URL, loaded as the page's style sheets are.
+  userStyleSheetUrl?: string;
   // The native interface's own: headers for every request to the page's
   // host and no other, a style sheet after the page's own, which it
   // overrides, and an element to wait for before the delay.
@@ -164,6 +170,27 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
   };
 
+  // wkhtmltopdf ignores certificate errors, with a warning for each
+  // connection whose certificate did not verify (ResourceObject::sslErrors):
+  // Chromium's, by their id, and the requests made here, by their socket.
+  // Measured on 0.12.6: one line per connection. The native interface says
+  // nothing: its option asked for it.
+  const untrusted = new Set<unknown>();
+  const sslErrorIgnored = (connection: unknown) => {
+    if (out.failed || untrusted.has(connection)) return;
+    untrusted.add(connection);
+    out.warning('SSL error ignored');
+  };
+  // A response over https with a certificate error is "insecure", from a
+  // Chromium started with --ignore-certificate-errors. Not a style sheet
+  // rewritten for the emulations: fulfilled here, its response tells
+  // neither its connection nor its certificate (connectionId 0,
+  // securityState "unknown", Chromium 157), and a connection that only
+  // carried style sheets goes without its warning.
+  const checkCertificate = (r: { url: string; securityState?: string; connectionId?: number }) => {
+    if (spec.ignoreCertificateErrors && r.connectionId && r.url.startsWith('https:') && r.securityState?.startsWith('insecure')) sslErrorIgnored(r.connectionId);
+  };
+
   // Errors of http requests, from the Network domain, except those of the
   // requests answered here, reported when answered.
   const urls = new Map<string, string>();
@@ -172,7 +199,8 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   let mainDocument = '';
   // Requests still in flight: the page may yet change.
   const inflight = new Set<string>();
-  cdp.on('Network.requestWillBeSent', (e: { requestId: string; request: { url: string; headers: Record<string, string> }; type?: string; frameId?: string }) => {
+  cdp.on('Network.requestWillBeSent', (e: { requestId: string; request: { url: string; headers: Record<string, string> }; type?: string; frameId?: string; redirectResponse?: { url: string; securityState?: string; connectionId?: number } }) => {
+    if (e.redirectResponse) checkCertificate(e.redirectResponse);
     urls.set(e.requestId, e.request.url);
     // The Network domain types a CSP report "Other", the Fetch domain
     // "CSPViolationReport".
@@ -185,7 +213,8 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const ns = qtErrorForHttpStatus(status);
     fail(url, ns, status, qtErrorString(ns, url, status, statusText || httpReason(status)), status, page);
   };
-  cdp.on('Network.responseReceived', (e: { requestId: string; response: { url: string; status: number; statusText: string } }) => {
+  cdp.on('Network.responseReceived', (e: { requestId: string; response: { url: string; status: number; statusText: string; securityState?: string; connectionId?: number } }) => {
+    checkCertificate(e.response);
     const { url, status, statusText } = e.response;
     if (!/^https?:/.test(url) || status < 400 || answered.has(e.requestId) || reports.has(e.requestId)) return;
     httpError(url, status, statusText, e.requestId === mainDocument);
@@ -211,8 +240,6 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     const ns = e.canceled ? 5 : qtErrorForChromium(e.errorText);
     const page = e.requestId === mainDocument;
-    // Qt never reported a refused connection on the page itself.
-    if (page && ns === 1 && !out.failed) return;
     fail(url, ns, 0, qtErrorString(ns, url, 0, ''), e.errorText, page);
   });
 
@@ -329,7 +356,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     const sent = body ?? (request.postDataEntries?.length ? Buffer.concat(request.postDataEntries.map((p) => Buffer.from(p.bytes ?? '', 'base64'))) : undefined);
     try {
-      const r = await relayRequest(request.url, { block: spec.blockPrivateNetwork, method: body ? 'POST' : request.method, headers: h, body: sent, tls: clientCert });
+      const r = await relayRequest(request.url, { block: spec.blockPrivateNetwork, method: body ? 'POST' : request.method, headers: h, body: sent, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
       const responseHeaders = r.headers
         .filter(([k]) => !/^(content-encoding|content-length|transfer-encoding|connection|keep-alive)$/i.test(k))
         .map(([name, value]) => ({ name, value }));
@@ -352,7 +379,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const { requestId, request } = e;
     if (e.networkId) answered.add(e.networkId);
     try {
-      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '' }, tls: clientCert });
+      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '' }, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
       const headers = r.headers
         .filter(([k]) => !/^(access-control-allow-origin|content-encoding|content-length|transfer-encoding|connection)$/i.test(k))
         .map(([name, value]) => ({ name, value }));
@@ -360,7 +387,8 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       if (r.status >= 400) fail(request.url, qtErrorForHttpStatus(r.status), r.status, qtErrorString(qtErrorForHttpStatus(r.status), request.url, r.status, r.statusText), r.status);
       await cdp.send('Fetch.fulfillRequest', { requestId, responseCode: r.status, responseHeaders: headers, body: r.body.toString('base64') });
     } catch (err) {
-      const ns = (err as { code?: string }).code === 'ENOTFOUND' ? 3 : 99;
+      // A refused certificate fails as Chromium's do: the handshake.
+      const ns = (err as { code?: string }).code === 'ENOTFOUND' ? 3 : err instanceof CertificateError ? 6 : 99;
       fail(request.url, ns, 0, qtErrorString(ns, request.url, 0, ''), err as Error);
       await cdp.send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
     }
@@ -474,12 +502,24 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     return lp;
   }
-  if (spec.userStyleSheet) {
-    await Promise.all(page.frames().map((f) => f.evaluate((css: string) => {
-      const s = document.createElement('style');
-      s.textContent = css;
-      (document.head ?? document.documentElement).prepend(s);
-    }, spec.userStyleSheet!).catch(() => {})));
+  // The user style sheet, first in each frame: its text, or a link that
+  // Chromium loads as any other style sheet, the wait ending once it has
+  // loaded or failed.
+  if (spec.userStyleSheet || spec.userStyleSheetUrl) {
+    await Promise.all(page.frames().map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
+      const at = document.head ?? document.documentElement;
+      if (!href) {
+        const s = document.createElement('style');
+        s.textContent = css;
+        at.prepend(s);
+        return done();
+      }
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = href;
+      l.onload = l.onerror = () => done();
+      at.prepend(l);
+    }), spec.userStyleSheet ?? '', spec.userStyleSheetUrl ?? '').catch(() => {})));
   }
   // The native --css: last in the page, it wins over the page's own rules
   // (@page included).

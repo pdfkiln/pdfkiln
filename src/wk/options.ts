@@ -249,6 +249,7 @@ export const KILN_OPTIONS: OptionSpec[] = [
     }),
   },
   { name: 'kiln-block-private-network', mode: G, args: [], support: 'yes', desc: 'Refuse loopback, private and link-local addresses', apply: flag((t) => (t.g.kiln.blockPrivateNetwork = true)) },
+  { name: 'kiln-block-invalid-certificates', mode: G, args: [], support: 'yes', desc: 'Refuse https pages and resources whose certificate does not verify', apply: flag((t) => (t.g.kiln.blockInvalidCertificates = true)) },
   { name: 'kiln-no-sandbox', mode: G, args: [], support: 'yes', desc: "Run Chromium without its sandbox (not recommended)", apply: flag((t) => (t.g.kiln.noSandbox = true)) },
 ];
 

@@ -100,6 +100,8 @@ let imgHeader = '';
 let imgCookie = '';
 // The Cookie of the last /show-cookie request.
 let shownCookie = '';
+// The Cookie and X-Test of the last /user.css request.
+let userCssRequest = '';
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
@@ -144,6 +146,10 @@ before(async () => {
       return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
     }
     if (path === '/headers') return html(`<p>X-Test=${req.headers['x-test'] ?? 'none'}</p><img src="/img">`);
+    if (path === '/user.css') {
+      userCssRequest = `${req.headers.cookie ?? 'no cookie'}, ${req.headers['x-test'] ?? 'no header'}`;
+      return res.writeHead(200, { 'content-type': 'text/css' }).end('h1 { height: 2000px }');
+    }
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
@@ -165,6 +171,27 @@ after(() => {
   server.close();
   rmSync(dir, { recursive: true, force: true });
 });
+
+// A server whose certificate is self-signed: a page, its image and its web
+// font, each on a connection of its own (Connection: close), so that the
+// warnings can be counted. Null without openssl.
+async function selfSignedServer(): Promise<{ url: string; close: () => void } | null> {
+  const d = mkdtempSync(join(dir, 'self-signed-'));
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '2', '-subj', '/CN=localhost'], { cwd: d, stdio: 'ignore' });
+  } catch {
+    return null;
+  }
+  const tls = createHttpsServer({ key: readFileSync(join(d, 'k.pem')), cert: readFileSync(join(d, 'c.pem')) }, (req, res) => {
+    res.setHeader('connection', 'close');
+    if (req.url === '/image') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    if (req.url === '/font') return res.writeHead(200, { 'content-type': 'font/ttf' }).end('not a font');
+    res.writeHead(200, { 'content-type': 'text/html' })
+      .end('<title>T</title><style>@font-face { font-family: F; src: url(/font) } p { font-family: F }</style><p>self-signed</p><img src="/image">');
+  });
+  await new Promise<void>((ok) => tls.listen(0, '127.0.0.1', ok));
+  return { url: `https://localhost:${(tls.address() as AddressInfo).port}/`, close: () => tls.close() };
+}
 
 describe('interface', () => {
   test('--version', async () => {
@@ -330,18 +357,51 @@ describe('interface', () => {
     });
     const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
     const out = (m: string) => join(dir, `leh-${m}.pdf`);
+    // As wkhtmltopdf 0.12.6 (Linux and Windows): the refused connection is
+    // the page's error, which sets the exit code even when the page is
+    // skipped or kept.
+    const refused = `Error: Failed to load ${bad}, with network status code 1 and http status code 0 - Connection refused\n`;
+    const last = 'Exit with code 1 due to network error: ConnectionRefusedError\n';
     let r = await run(['--log-level', 'warn', `${base}/ok`, bad, out('abort')]);
     assert.equal(r.code, 1);
     assert.ok(!existsSync(out('abort')));
-    assert.match(r.stderr, /^Error: Failed loading page /m);
+    assert.equal(r.stderr, `${refused}Error: Failed loading page ${bad} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n${last}`);
     r = await run(['--log-level', 'warn', '--load-error-handling', 'skip', `${base}/ok`, bad, out('skip')]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (skipped)\n`);
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.stderr, `${refused}Warning: Failed loading page ${bad} (skipped)\n${last}`);
     assert.equal(await pages(out('skip')), 1);
     r = await run(['--log-level', 'warn', '--load-error-handling', 'ignore', `${base}/ok`, bad, out('ignore')]);
-    assert.equal(r.code, 0, r.stderr);
-    assert.equal(r.stderr, `Warning: Failed loading page ${bad} (ignored)\n`);
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.stderr, `${refused}Warning: Failed loading page ${bad} (ignored)\n${last}`);
     assert.equal(await pages(out('ignore')), 2);
+  });
+
+  test('a header page that does not load: no PDF, as wkhtmltopdf 0.12.6; kept with --load-error-handling ignore', async () => {
+    const h = await new Promise<string>((ok) => {
+      const s = createTcpServer();
+      s.listen(0, '127.0.0.1', () => {
+        const port = (s.address() as AddressInfo).port;
+        s.close(() => ok(`http://127.0.0.1:${port}/h.html`));
+      });
+    });
+    const out = join(dir, 'header-down.pdf');
+    const refused = `Error: Failed to load ${h}, with network status code 1 and http status code 0 - Connection refused`;
+    const last = 'Exit with code 1 due to network error: ConnectionRefusedError';
+    let r = await run(['--log-level', 'warn', '--header-html', h, `${base}/ok`, out]);
+    assert.equal(r.code, 1);
+    assert.ok(!existsSync(out), 'no PDF');
+    assert.equal(r.stderr, `${refused}\nError: Failed loading page ${h} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n${last}\n`);
+    // Kept: the header of each page fails too, and says so.
+    r = await run(['--log-level', 'warn', '--load-error-handling', 'ignore', '--header-html', h, `${base}/ok`, out]);
+    assert.equal(r.code, 1);
+    assert.ok(existsSync(out), 'a PDF');
+    const lines = r.stderr.trimEnd().split('\n');
+    assert.equal(lines.length, 5, r.stderr);
+    assert.equal(lines[0], refused);
+    assert.equal(lines[1], `Warning: Failed loading page ${h} (ignored)`);
+    assert.match(lines[2]!, /^Error: Failed to load http:\/\/127\.0\.0\.1:\d+\/h\.html\?.+ - Connection refused$/);
+    assert.match(lines[3]!, /^Warning: Failed loading page http:\/\/127\.0\.0\.1:\d+\/h\.html\?.+ \(ignored\)$/);
+    assert.equal(lines[4], last);
   });
 
   test('--proxy: the pages go through it', async () => {
@@ -372,6 +432,23 @@ describe('interface', () => {
       assert.equal(r.code, 0, r.stderr);
       assert.ok(await pages(out) > 1, sheet.slice(0, 30));
     }
+  });
+
+  test('--user-style-sheet from a URL, which wkhtmltopdf ignores: loaded as the page\'s style sheets, under the same options', async () => {
+    const pages = async (f: string) => (await PDFDocument.load(readFileSync(f))).getPageCount();
+    const out = join(dir, 'user-css-url.pdf');
+    let r = await run(['-q', '--cookie', 'k', 'v', '--custom-header', 'X-Test', 'css', '--custom-header-propagation', '--user-style-sheet', `${base}/user.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(await pages(out) > 1);
+    assert.equal(userCssRequest, 'k=v, css');
+    // Without propagation, a custom header goes to the page only.
+    r = await run(['-q', '--custom-header', 'X-Test', 'css', '--user-style-sheet', `${base}/user.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(userCssRequest, 'no cookie, no header');
+    // One that does not load is a style sheet in error, as the page's.
+    r = await run(['--log-level', 'warn', '--user-style-sheet', `${base}/missing.css`, `${base}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, `Warning: Failed to load ${base}/missing.css (ignore)\n`);
   });
 
   test('--username and --password answer the server\'s HTTP authentication', async () => {
@@ -744,6 +821,34 @@ describe('security', () => {
     assert.equal(r.code, 0);
   });
 
+  test('a certificate that does not verify is ignored, with a warning per connection, as wkhtmltopdf 0.12.6; --kiln-block-invalid-certificates refuses it', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    try {
+      const out = join(dir, 'self-signed.pdf');
+      // The page, its image, and its font, fetched by the command.
+      let r = await run(['--log-level', 'warn', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, 'Warning: SSL error ignored\n'.repeat(3));
+      if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /self-signed/);
+      r = await run(['--log-level', 'warn', '--kiln-block-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `Error: Failed to load ${s.url}, with network status code 6 and http status code 0 - SSL handshake failed\n`
+        + `Error: Failed loading page ${s.url} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n`
+        + 'Exit with code 1 due to network error: SslHandshakeFailedError\n');
+      // The font of a local page, refused by the command as Chromium refuses
+      // the page.
+      const page = file('self-signed/font.html', `<style>@font-face { font-family: F; src: url(${s.url}font) } p { font-family: F }</style><p>font</p>`);
+      r = await run(['--log-level', 'warn', '--kiln-block-invalid-certificates', page, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `Error: Failed to load ${s.url}font, with network status code 6 and http status code 0 - SSL handshake failed\n`
+        + 'Exit with code 1 due to network error: SslHandshakeFailedError\n');
+    } finally {
+      s.close();
+    }
+    if (!hasPyMuPDF) t.skip('PyMuPDF missing');
+  });
+
   test('--kiln-timeout stops the conversion and Chromium', async () => {
     // A temporary folder of its own: the Chromium looked for is this
     // conversion's, whatever else runs on the machine.
@@ -804,7 +909,9 @@ describe('security', () => {
   });
 
   test('a failure of PDFKiln\'s own ends on wkhtmltopdf\'s last line, not on a stack trace', async () => {
-    const r = await run(['-q', '--header-html', 'no such header.html', `${base}/ok`, join(dir, 'own.pdf')]);
+    // Kept by --load-error-handling ignore, the header that does not load
+    // goes on to a URL that cannot be made.
+    const r = await run(['-q', '--load-error-handling', 'ignore', '--header-html', 'no such header.html', `${base}/ok`, join(dir, 'own.pdf')]);
     assert.equal(r.code, 1);
     assert.match(r.stderr, /^Error: .+\n(.+\n)*Exit with code 1, due to unknown error\.\n$/);
     assert.doesNotMatch(r.stderr, /\n\s+at /);
@@ -999,23 +1106,28 @@ describe('native interface', () => {
     }
   });
 
-  test('a certificate that Chromium refuses is named', async (t) => {
-    const d = join(dir, 'native-tls');
-    mkdirSync(d, { recursive: true });
+  test('a certificate that does not verify is refused and named, fonts included, unless --allow-invalid-certificates', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
     try {
-      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '2', '-subj', '/CN=localhost'], { cwd: d, stdio: 'ignore' });
-    } catch {
-      return t.skip('openssl missing');
-    }
-    const tls = createHttpsServer({ key: readFileSync(join(d, 'k.pem')), cert: readFileSync(join(d, 'c.pem')) }, (_, res) => res.end('<p>tls</p>'));
-    await new Promise<void>((ok) => tls.listen(0, '127.0.0.1', ok));
-    try {
-      const url = `https://127.0.0.1:${(tls.address() as AddressInfo).port}/`;
-      const r = await native(['--allow-private-network', url, join(dir, 'native-tls.pdf')]);
+      const out = join(dir, 'native-tls.pdf');
+      let r = await native(['--allow-private-network', s.url, out]);
       assert.equal(r.code, 1);
-      assert.match(r.stderr, new RegExp(`^pdfkiln: error: could not load ${url}: invalid certificate \\(net::ERR_CERT_[A-Z_]+\\)\\n$`));
+      assert.match(r.stderr, new RegExp(`^pdfkiln: error: could not load ${s.url}: invalid certificate \\(net::ERR_CERT_[A-Z_]+\\)\\n$`));
+      // The page, its image and its font, without a word.
+      r = await native(['--allow-private-network', '--allow-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      // A font, which the command fetches itself.
+      const page = file('native-tls/font.html', `<style>@font-face { font-family: F; src: url(${s.url}font) } p { font-family: F }</style><p>font</p>`);
+      r = await native(['--allow-private-network', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(r.stderr, new RegExp(`^pdfkiln: warning: could not load ${s.url}font: invalid certificate \\([A-Z_]+\\)\\n$`));
+      r = await native(['--allow-private-network', '--allow-invalid-certificates', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
     } finally {
-      tls.close();
+      s.close();
     }
   });
 
@@ -1351,6 +1463,23 @@ describe('wkhtmltoimage', () => {
     assert.equal((await image(['-q', '--transparent', clear, png])).code, 0);
     const { decodePng } = await import('../src/engine/raster.js');
     assert.equal(decodePng(readFileSync(png)).rgba[3], 0);
+  });
+
+  test('a self-signed certificate is ignored, with a warning per connection, as wkhtmltoimage 0.12.6', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    try {
+      const out = join(dir, 'self-signed.jpg');
+      let r = await image(['--log-level', 'warn', '--format', 'jpg', '--quality', '100', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, 'Warning: SSL error ignored\n'.repeat(3));
+      assert.equal(readFileSync(out).toString('latin1', 0, 2), '\xff\xd8');
+      r = await image(['-q', '--kiln-block-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 1);
+      assert.equal(lastLine(r.stderr), 'Exit with code 1 due to network error: SslHandshakeFailedError');
+    } finally {
+      s.close();
+    }
   });
 });
 
