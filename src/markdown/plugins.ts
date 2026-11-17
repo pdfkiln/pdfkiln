@@ -269,8 +269,9 @@ export function linkInPdf(href: string, base: string | undefined, document: stri
   } catch {
     return href;
   }
-  if (url.protocol !== 'file:') return href;
+  // A document read from a URL is no file: its own links too lead within.
   if (document && url.href.replace(/#.*$/, '') === document) return url.hash || null;
+  if (url.protocol !== 'file:') return href;
   return null;
 }
 

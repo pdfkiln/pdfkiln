@@ -54,8 +54,11 @@ export interface LoadSpec {
   userStyleSheetUrl?: string;
   // The native interface's own: headers for every request to the page's
   // host and no other, a style sheet after the page's own, which it
-  // overrides, and an element to wait for before the delay.
+  // overrides, and an element to wait for before the delay. site: the URL
+  // whose host is the page's, for these headers and the cookies, when the
+  // page printed is not it (Markdown read from a URL).
   siteHeaders?: [string, string][];
+  site?: string;
   css?: string;
   waitFor?: string;
 }
@@ -293,7 +296,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     // The native --header: with every request to the page's host, in place
     // of the browser's own of the same name, and to no other host.
-    const site = Boolean(spec.siteHeaders?.length) && URL.parse(url)?.hostname === URL.parse(spec.url)?.hostname;
+    const site = Boolean(spec.siteHeaders?.length) && URL.parse(url)?.hostname === URL.parse(spec.site ?? spec.url)?.hostname;
     if (site) {
       const names = new Set(spec.siteHeaders!.map(([name]) => name.toLowerCase()));
       headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !names.has(h.name.toLowerCase()));
@@ -475,9 +478,10 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       })();`,
     }),
   ]);
-  if (load.cookies.length && /^https?:/.test(spec.url)) {
+  const cookieUrl = spec.site ?? spec.url;
+  if (load.cookies.length && /^https?:/.test(cookieUrl)) {
     await cdp.send('Network.setCookies', {
-      cookies: load.cookies.map(([name, value]) => ({ name, value, url: spec.url })),
+      cookies: load.cookies.map(([name, value]) => ({ name, value, url: cookieUrl })),
     });
   }
 

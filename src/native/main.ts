@@ -26,15 +26,16 @@
 //   and printed;
 // - --title, --author, --subject and --keywords: the PDF's properties, the
 //   title being the page's otherwise;
-// - Markdown, from a file named .md or .markdown, or with --from markdown:
+// - Markdown, from a file or an http(s) URL named .md or .markdown, or with
+//   --from markdown (a URL fetched here, with the checks of the relay):
 //   GitHub's dialect and math, printed with pdfkiln's style sheet
 //   (src/markdown/), without JavaScript; its images may come from the
-//   document's folder, and its front matter gives the properties that no
-//   option does.
+//   document's folder (from the web for a URL), and its front matter gives
+//   the properties that no option does.
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, posix, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
@@ -42,7 +43,7 @@ import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
-import { BlockedAddress, CertificateError, startRelay, type Relay } from '../engine/relay.js';
+import { BlockedAddress, CertificateError, relayRequest, startRelay, type Relay } from '../engine/relay.js';
 import type { FrontMatter } from '../markdown/frontmatter.js';
 import { MARGIN_LEFT_CM, MARGIN_TOP_CM } from '../markdown/style.js';
 import type { Request as ArchiveRequest } from '../pdf/archive.js';
@@ -70,13 +71,14 @@ input; the output is a file, or - for the standard output. Paper size,
 margins, headers and footers come from the page's CSS (@page and its margin
 boxes): A4 with 1 cm margins otherwise.
 
-Files named .md or .markdown are Markdown: GitHub's dialect, with math
-($...$, $$...$$) and a front matter, printed with PDFKiln's style sheet,
-without JavaScript. Its images may come from the document's folder.
+Files and http(s) URLs named .md or .markdown are Markdown: GitHub's
+dialect, with math ($...$, $$...$$) and a front matter, printed with
+PDFKiln's style sheet, without JavaScript. Its images may come from the
+document's folder, or for a URL from the web.
 
 Rendering:
   --from markdown             Read every input as Markdown, whatever its name
-                              (README, notes.txt, the standard input)
+                              (README, notes.txt, a URL, the standard input)
   --css <file>                Add a style sheet after the page's own
   --media <print|screen>      CSS media type (default: print)
   --outline                   Bookmarks from the headings
@@ -189,6 +191,15 @@ const WORDS: Record<string, string> = {
   'net::ERR_ACCESS_DENIED': 'not an allowed file (--allow <path> or --enable-local-file-access to read it)',
 };
 
+// A URL's name decoded, as written when it cannot be.
+function decoded(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function words(name: string): string {
   if (name.startsWith('net::ERR_CERT_')) return `invalid certificate (${name})`;
   if (/^(net::)?ERR_SSL_|^EPROTO$/.test(name)) return `TLS error (${name})`;
@@ -287,17 +298,21 @@ export async function nativeMain(args: string[]): Promise<number> {
     stderr('pdfkiln: --from takes markdown\n');
     return 1;
   }
-  // Whether an input is Markdown: --from, or a file's name. - is HTML but
-  // with --from markdown; a URL is read as it comes (file: aside).
+  // Whether an input is Markdown: --from, or a file's or an http(s) URL's
+  // name. - is HTML but with --from markdown; any other URL is HTML.
   const markdownPath = (input: string): string | null => {
     if (input === '-') return null;
     const path = URL_INPUT.test(input) ? (/^file:/i.test(input) ? filePath(URL.parse(input)?.href ?? '') : null) : resolve(input);
     return path && (v.from === 'markdown' || MARKDOWN_NAME.test(path)) ? path : null;
   };
-  const isMarkdown = (input: string) => (input === '-' ? v.from === 'markdown' : markdownPath(input) !== null);
+  const markdownUrl = (input: string): string | null => {
+    const u = /^https?:/i.test(input) ? URL.parse(input) : null;
+    return u && (v.from === 'markdown' || MARKDOWN_NAME.test(u.pathname)) ? u.href : null;
+  };
+  const isMarkdown = (input: string) => (input === '-' ? v.from === 'markdown' : markdownPath(input) !== null || markdownUrl(input) !== null);
   for (const input of inputs) {
-    if (v.from === 'markdown' && input !== '-' && URL_INPUT.test(input) && !/^file:/i.test(input)) {
-      stderr(`pdfkiln: could not load ${input}: Markdown is read from a file or the standard input, not from a URL\n`);
+    if (v.from === 'markdown' && input !== '-' && /^data:/i.test(input)) {
+      stderr(`pdfkiln: could not load ${input}: Markdown is read from a file, an http or https URL or the standard input, not from a data: URL\n`);
       return 1;
     }
   }
@@ -420,6 +435,29 @@ export async function nativeMain(args: string[]): Promise<number> {
       process.exit(1);
     });
     const context = session.browser.defaultBrowserContext();
+    // A Markdown URL, fetched here with the relay's check at every redirect
+    // and Chromium's user agent; --header and --cookie go to its host
+    // only, as with a page. A redirect elsewhere than http(s) is its status.
+    const userAgent = await session.browser.userAgent();
+    const fetchMarkdown = async (start: string): Promise<{ status: number; body: Buffer; url: string }> => {
+      const host = URL.parse(start)?.hostname;
+      let at = start;
+      for (let hop = 0; ; hop++) {
+        const h: Record<string, string> = { 'user-agent': userAgent };
+        if (URL.parse(at)?.hostname === host) {
+          for (const [name, value] of headers) h[name.toLowerCase()] = value;
+          if (cookies.length) h.cookie = cookies.map(([name, value]) => `${name}=${value}`).join('; ');
+        }
+        const r = await relayRequest(at, { block: blockPrivate, insecure, headers: h });
+        const location = r.headers.find(([k]) => k.toLowerCase() === 'location')?.[1];
+        const next = location && r.status >= 300 && r.status < 400 && hop < 10 ? URL.parse(location, at) : null;
+        if (next && /^https?:$/.test(next.protocol)) {
+          at = next.href;
+          continue;
+        }
+        return { status: r.status, body: r.body, url: at };
+      }
+    };
     const base = defaultObject();
     base.load.jsdelay = jsdelay;
     base.load.blockLocalFileAccess = !v['enable-local-file-access'];
@@ -445,28 +483,47 @@ export async function nativeMain(args: string[]): Promise<number> {
         return 1;
       }
       // Markdown: the page printed is its HTML, written next to the others
-      // of the conversion; its folder (the working directory for -) is what
-      // its relative links and images name, and only from a file may its
-      // images be read there.
+      // of the conversion; its folder (the working directory for -), or the
+      // directory of its URL, is what its relative links and images name,
+      // and only from a file may its images be read there.
       let allowFiles: string[] | undefined;
       let web = base.web;
+      // The URL whose host gets --header and --cookie, when it is not the
+      // page's: Markdown read from a URL.
+      let site: string | undefined;
       if (markdown) {
+        const mdUrl = markdownUrl(input);
         let text: string;
         try {
-          text = (mdPath ? readFileSync(mdPath) : stdin!).toString('utf8');
+          if (mdUrl) {
+            const r = await fetchMarkdown(mdUrl);
+            if (r.status < 200 || r.status >= 300) {
+              out.error(`could not load ${input}: HTTP ${r.status}`);
+              return 1;
+            }
+            text = r.body.toString('utf8');
+            site = r.url;
+          } else text = (mdPath ? readFileSync(mdPath) : stdin!).toString('utf8');
         } catch (e) {
-          out.error(`could not load ${input}: ${words((e as NodeJS.ErrnoException).code ?? String(e))}`);
+          out.error(`could not load ${input}: ${mdUrl ? why(mdUrl, e as Error) : words((e as NodeJS.ErrnoException).code ?? String(e))}`);
           return 1;
         }
         const folder = mdPath ? dirname(mdPath) : process.cwd();
         const file = join(work, `markdown-${i}.html`);
         url = pathToFileURL(file).href;
         const { markdownPage } = await markdownModule();
-        const md = markdownPage(text, {
-          base: pathToFileURL(folder.endsWith(sep) ? folder : folder + sep).href,
-          document: mdPath ? pathToFileURL(mdPath).href : undefined,
-          name: mdPath ? basename(mdPath, extname(mdPath)) : undefined,
-        });
+        const at = site ? URL.parse(site)! : undefined;
+        const md = markdownPage(text, at
+          ? {
+            base: new URL('.', at).href,
+            document: at.href.replace(/#.*$/, ''),
+            name: decoded(posix.basename(at.pathname, posix.extname(at.pathname))) || undefined,
+          }
+          : {
+            base: pathToFileURL(folder.endsWith(sep) ? folder : folder + sep).href,
+            document: mdPath ? pathToFileURL(mdPath).href : undefined,
+            name: mdPath ? basename(mdPath, extname(mdPath)) : undefined,
+          });
         writeFileSync(file, md.html);
         step('markdown');
         if (mdPath) allowFiles = [folder];
@@ -486,7 +543,11 @@ export async function nativeMain(args: string[]): Promise<number> {
         viewport: { width: 794, height: 1123 },
         blockPrivateNetwork: blockPrivate,
         ignoreCertificateErrors: insecure,
-        siteHeaders: headers,
+        // From a page printed from a file, Chromium holds the cookies of
+        // the Markdown's host back (another site, SameSite): they go as a
+        // header, as --header does.
+        siteHeaders: site && cookies.length ? [...headers, ['Cookie', cookies.map(([name, value]) => `${name}=${value}`).join('; ')]] : headers,
+        site,
         css,
         waitFor: v['wait-for'],
       }, out);

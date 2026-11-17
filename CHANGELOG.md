@@ -10,7 +10,7 @@ GitHub release.
 
 Three new features, called as `pdfkiln`.
 
-- **Markdown**: `pdfkiln README.md README.pdf` converts Markdown as GitHub writes it (tables, task lists, alerts, footnotes, emoji), math and coloured code included, laid out for paper. `--from markdown` reads any input as Markdown, the standard input included.
+- **Markdown**: `pdfkiln README.md README.pdf` converts Markdown as GitHub writes it (tables, task lists, alerts, footnotes, emoji), math and coloured code included, laid out for paper, from a file or an http or https URL, under the rules of any input. `--from markdown` reads any input as Markdown, the standard input included.
 - **PDF/A, for archiving**: `--pdfa` writes PDF/A-3b, or the level asked for: `--pdfa=2b`, `2u`, `3b` or `3u`. A PDF that cannot conform, with a font that is not embedded for instance, is refused rather than labelled.
 - **Factur-X and ZUGFeRD invoices**: `--factur-x invoice.xml` attaches the invoice's XML to the PDF, made PDF/A-3: the page a person reads and the data the recipient's software reads, in one file. PDFKiln checks that the XML is a Cross Industry Invoice and reads its profile (MINIMUM, BASIC WL, BASIC, EN 16931, EXTENDED or XRECHNUNG); it does not write the XML, nor check its business rules.
 

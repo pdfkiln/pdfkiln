@@ -102,6 +102,9 @@ let imgCookie = '';
 let shownCookie = '';
 // The Cookie and X-Test of the last /user.css request.
 let userCssRequest = '';
+// X-Test and Cookie of the last /md/doc.md request, and of its image.
+let mdRequest = '';
+let mdImageRequest = '';
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
@@ -146,6 +149,20 @@ before(async () => {
       return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
     }
     if (path === '/headers') return html(`<p>X-Test=${req.headers['x-test'] ?? 'none'}</p><img src="/img">`);
+    // Markdown on the web: a document, its image beside it, a redirect to
+    // it, and one without a name.
+    const seen = () => `${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`;
+    if (path === '/md/doc.md') {
+      mdRequest = seen();
+      return res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' })
+        .end('---\ntitle: From the web\n---\n# Remote\n\n![logo](img/logo.svg) [install](doc.md#install) [web](https://example.com/)\n\n## Install\n');
+    }
+    if (path === '/md/img/logo.svg') {
+      mdImageRequest = seen();
+      return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    }
+    if (path === '/md/moved.md') return res.writeHead(302, { location: '/md/doc.md' }).end();
+    if (path === '/md/raw-readme') return res.writeHead(200, { 'content-type': 'text/plain' }).end('# Raw readme\n');
     if (path === '/user.css') {
       userCssRequest = `${req.headers.cookie ?? 'no cookie'}, ${req.headers['x-test'] ?? 'no header'}`;
       return res.writeHead(200, { 'content-type': 'text/css' }).end('h1 { height: 2000px }');
@@ -1369,7 +1386,38 @@ describe('native interface', () => {
       if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /static/);
     });
 
-    test('--from markdown: the standard input, a file of any name; never a URL', async () => {
+    test('from an http or https URL: fetched with the input\'s rules, its images from its site', async () => {
+      const out = join(dir, 'md-url.pdf');
+      const doc = `${base}/md/doc.md`;
+      // A private address is refused by default, as for any input.
+      let r = await native([doc, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${doc}: 127.0.0.1 is a private address (--allow-private-network to reach it)\n`);
+      // Through a redirect; --header and --cookie go to its host, its image
+      // included.
+      mdRequest = mdImageRequest = '';
+      r = await native(['--allow-private-network', '--header', 'X-Test: md', '--cookie', 'k=v', `${base}/md/moved.md`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      assert.equal((await properties(out))[0], 'From the web');
+      assert.equal(mdRequest, 'md, k=v');
+      assert.equal(mdImageRequest, 'md, k=v');
+      // A link to the document itself stays in the PDF; one to the web stays.
+      const pdf = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      const annots = pdf.getPage(0).node.Annots()!;
+      const links = Array.from({ length: annots.size() }, (_, i) => pdf.context.lookup(annots.get(i)) as PDFDict);
+      assert.deepEqual(links.map((a) => String(a.get(PDFName.of('Dest')) ?? (a.lookup(PDFName.of('A'), PDFDict).lookup(PDFName.of('URI')) as unknown as { decodeText(): string }).decodeText())), ['/install', 'https://example.com/']);
+      // --from markdown: a URL of any name.
+      r = await native(['--allow-private-network', '--from', 'markdown', `${base}/md/raw-readme`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal((await properties(out))[0], 'Raw readme');
+      // An HTTP error is the input's.
+      r = await native(['--allow-private-network', `${base}/md/missing.md`, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/md/missing.md: HTTP 404\n`);
+    });
+
+    test('--from markdown: the standard input, a file of any name; not a data: URL', async () => {
       const out = join(dir, 'md-from.pdf');
       let r = await native(['--from', 'markdown', '-', out], '---\ntitle: From stdin\n---\n# x\n');
       assert.equal(r.code, 0, r.stderr);
@@ -1381,9 +1429,9 @@ describe('native interface', () => {
       // Without it, - is HTML.
       r = await native(['-', out], '<title>HTML</title># not a heading');
       assert.equal((await properties(out))[0], 'HTML');
-      r = await native(['--from', 'markdown', 'https://example.com/README.md', out]);
+      r = await native(['--from', 'markdown', 'data:text/plain,%23%20x', out]);
       assert.equal(r.code, 1);
-      assert.equal(r.stderr, 'pdfkiln: could not load https://example.com/README.md: Markdown is read from a file or the standard input, not from a URL\n');
+      assert.equal(r.stderr, 'pdfkiln: could not load data:text/plain,%23%20x: Markdown is read from a file, an http or https URL or the standard input, not from a data: URL\n');
       r = await native(['--from', 'html', readme, out]);
       assert.equal(r.code, 1);
       assert.equal(r.stderr, 'pdfkiln: --from takes markdown\n');
