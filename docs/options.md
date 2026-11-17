@@ -142,6 +142,7 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 | --- | --- | --- | --- |
 | `--kiln-timeout <seconds>` |  | global | Stop the conversion and Chromium after this many seconds (default 120, 0: none) |
 | `--kiln-block-private-network` |  | global | Refuse loopback, private and link-local addresses |
+| `--kiln-block-invalid-certificates` |  | global | Refuse https pages and resources whose certificate does not verify |
 | `--kiln-no-sandbox` |  | global | Run Chromium without its sandbox (not recommended) |
 
 ## Kept as in wkhtmltopdf 0.12.6

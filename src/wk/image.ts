@@ -195,7 +195,8 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
       emulation: { roundFontSizes: true, minimumFontSize: o.web.minimumFontSize > 0 ? o.web.minimumFontSize : 0, webkit534Css: true },
       fontFamily: chromium.fontFamily,
       blockPrivateNetwork: block,
-      userStyleSheet: o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet, block) : undefined,
+      ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
+      userStyleSheet: o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet, block, !g.kiln.blockInvalidCertificates) : undefined,
     }, fb);
     fb.progressChanged(100, '100%');
     if (g.cookieJar) await saveJar(l, g.cookieJar);

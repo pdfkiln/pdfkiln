@@ -7,6 +7,7 @@ import { lookup } from 'node:dns/promises';
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { connect, isIP, type AddressInfo, type Socket } from 'node:net';
+import type { TLSSocket } from 'node:tls';
 
 function v4(ip: string): number[] {
   return ip.split('.').map(Number);
@@ -60,6 +61,14 @@ export function isPrivateAddress(ip: string): boolean {
 }
 
 export class BlockedAddress extends Error {}
+
+// A server certificate that does not verify (self-signed, expired, issued
+// for another name), refused: code is the system's name of the reason.
+export class CertificateError extends Error {
+  constructor(readonly code: string) {
+    super(`invalid certificate (${code})`);
+  }
+}
 
 // Resolves `host` and returns the addresses it may connect to, in the
 // resolver's order.
@@ -186,6 +195,12 @@ export interface RelayOptions {
   tls?: ClientCert;
   // Redirects followed here (fonts), or given back to Chromium.
   follow?: boolean;
+  // Certificates that do not verify are accepted, as wkhtmltopdf accepts
+  // them; refused otherwise. untrusted is told of each response that came
+  // over a connection whose certificate did not verify, with that
+  // connection.
+  insecure?: boolean;
+  untrusted?: (connection: object) => void;
 }
 
 // A request done by the command itself (fonts relayed with CORS headers,
@@ -203,11 +218,19 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0): P
       path: u.pathname + u.search,
       method: opts.method ?? 'GET',
       headers: { host: u.host, ...opts.headers },
-      // As wkhtmltopdf, which ignores certificate errors.
-      rejectUnauthorized: false,
+      rejectUnauthorized: !opts.insecure,
       ...(opts.tls && u.protocol === 'https:' ? opts.tls : {}),
-    }, ok);
-    c.on('error', fail);
+    }, (r) => {
+      const socket = r.socket as TLSSocket;
+      if (u.protocol === 'https:' && socket.authorized === false) opts.untrusted?.(socket);
+      ok(r);
+    });
+    c.on('error', (e) => {
+      // A refused certificate ends the connection with the reason, which
+      // the socket keeps.
+      const reason = opts.insecure ? undefined : (c.socket as TLSSocket | null)?.authorizationError;
+      fail(reason ? new CertificateError(String(reason)) : e);
+    });
     c.end(opts.body);
   });
   let r: IncomingMessage | undefined;
@@ -232,6 +255,6 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0): P
   return { status: r.statusCode ?? 0, statusText: r.statusMessage ?? '', headers, body: Buffer.concat(chunks) };
 }
 
-export function relayGet(url: string, opts: { block: boolean; headers?: Record<string, string>; tls?: ClientCert }): Promise<Fetched> {
+export function relayGet(url: string, opts: Omit<RelayOptions, 'method' | 'body' | 'follow'>): Promise<Fetched> {
   return relayRequest(url, { ...opts, follow: true });
 }

@@ -158,6 +158,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     fb.progressChanged(0, '0%');
 
     const block = g.kiln.blockPrivateNetwork;
+    const insecure = !g.kiln.blockInvalidCertificates;
     const proxy = objects.find((o) => o.load.proxy)?.load.proxy ?? null;
     const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout, () => void pdfModules().catch(() => {}));
     // Loaded while Chromium started.
@@ -193,7 +194,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     for (const o of objects) {
       const s = o.web.userStyleSheet;
       if (!s || userCss.has(s)) continue;
-      userCss.set(s, await readStyleSheet(s, block));
+      userCss.set(s, await readStyleSheet(s, block, insecure));
     }
 
     const emulationOf = (o: PdfObject): Emulation => ({
@@ -221,6 +222,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       emulation: emulationOf(o),
       fontFamily,
       blockPrivateNetwork: block,
+      ignoreCertificateErrors: insecure,
       userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet) : undefined,
     });
 
@@ -597,13 +599,13 @@ async function emptyDocument(width: number, height: number): Promise<PDFDocument
 }
 
 // --user-style-sheet is a URL or a file, given by the caller: read as is.
-export async function readStyleSheet(s: string, block: boolean): Promise<string> {
+export async function readStyleSheet(s: string, block: boolean, insecure: boolean): Promise<string> {
   const url = guessUrlFromString(s);
   try {
     if (url.startsWith('file:')) return readFileSync(new URL(url), 'utf8');
     // The form QtWebKit documents for a user style sheet, base64 or not.
     if (url.startsWith('data:')) return await (await fetch(url)).text();
-    if (/^https?:/.test(url)) return (await relayGet(url, { block })).body.toString('utf8');
+    if (/^https?:/.test(url)) return (await relayGet(url, { block, insecure })).body.toString('utf8');
   } catch {
     // As WebKit: a style sheet that cannot be read is no style sheet.
   }

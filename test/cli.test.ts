@@ -149,6 +149,27 @@ after(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// A server whose certificate is self-signed: a page, its image and its web
+// font, each on a connection of its own (Connection: close), so that the
+// warnings can be counted. Null without openssl.
+async function selfSignedServer(): Promise<{ url: string; close: () => void } | null> {
+  const d = mkdtempSync(join(dir, 'self-signed-'));
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '2', '-subj', '/CN=localhost'], { cwd: d, stdio: 'ignore' });
+  } catch {
+    return null;
+  }
+  const tls = createHttpsServer({ key: readFileSync(join(d, 'k.pem')), cert: readFileSync(join(d, 'c.pem')) }, (req, res) => {
+    res.setHeader('connection', 'close');
+    if (req.url === '/image') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    if (req.url === '/font') return res.writeHead(200, { 'content-type': 'font/ttf' }).end('not a font');
+    res.writeHead(200, { 'content-type': 'text/html' })
+      .end('<title>T</title><style>@font-face { font-family: F; src: url(/font) } p { font-family: F }</style><p>self-signed</p><img src="/image">');
+  });
+  await new Promise<void>((ok) => tls.listen(0, '127.0.0.1', ok));
+  return { url: `https://localhost:${(tls.address() as AddressInfo).port}/`, close: () => tls.close() };
+}
+
 describe('interface', () => {
   test('--version', async () => {
     const r = await run(['--version']);
@@ -727,6 +748,34 @@ describe('security', () => {
     assert.equal(r.code, 0);
   });
 
+  test('a certificate that does not verify is ignored, with a warning per connection, as wkhtmltopdf 0.12.6; --kiln-block-invalid-certificates refuses it', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    try {
+      const out = join(dir, 'self-signed.pdf');
+      // The page, its image, and its font, fetched by the command.
+      let r = await run(['--log-level', 'warn', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, 'Warning: SSL error ignored\n'.repeat(3));
+      if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /self-signed/);
+      r = await run(['--log-level', 'warn', '--kiln-block-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `Error: Failed to load ${s.url}, with network status code 6 and http status code 0 - SSL handshake failed\n`
+        + `Error: Failed loading page ${s.url} (sometimes it will work just to ignore this error with --load-error-handling ignore)\n`
+        + 'Exit with code 1 due to network error: SslHandshakeFailedError\n');
+      // The font of a local page, refused by the command as Chromium refuses
+      // the page.
+      const page = file('self-signed/font.html', `<style>@font-face { font-family: F; src: url(${s.url}font) } p { font-family: F }</style><p>font</p>`);
+      r = await run(['--log-level', 'warn', '--kiln-block-invalid-certificates', page, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `Error: Failed to load ${s.url}font, with network status code 6 and http status code 0 - SSL handshake failed\n`
+        + 'Exit with code 1 due to network error: SslHandshakeFailedError\n');
+    } finally {
+      s.close();
+    }
+    if (!hasPyMuPDF) t.skip('PyMuPDF missing');
+  });
+
   test('--kiln-timeout stops the conversion and Chromium', async () => {
     // A temporary folder of its own: the Chromium looked for is this
     // conversion's, whatever else runs on the machine.
@@ -955,23 +1004,28 @@ describe('native interface', () => {
     }
   });
 
-  test('a certificate that Chromium refuses is named', async (t) => {
-    const d = join(dir, 'native-tls');
-    mkdirSync(d, { recursive: true });
+  test('a certificate that does not verify is refused and named, fonts included, unless --allow-invalid-certificates', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
     try {
-      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '2', '-subj', '/CN=localhost'], { cwd: d, stdio: 'ignore' });
-    } catch {
-      return t.skip('openssl missing');
-    }
-    const tls = createHttpsServer({ key: readFileSync(join(d, 'k.pem')), cert: readFileSync(join(d, 'c.pem')) }, (_, res) => res.end('<p>tls</p>'));
-    await new Promise<void>((ok) => tls.listen(0, '127.0.0.1', ok));
-    try {
-      const url = `https://127.0.0.1:${(tls.address() as AddressInfo).port}/`;
-      const r = await native(['--allow-private-network', url, join(dir, 'native-tls.pdf')]);
+      const out = join(dir, 'native-tls.pdf');
+      let r = await native(['--allow-private-network', s.url, out]);
       assert.equal(r.code, 1);
-      assert.match(r.stderr, new RegExp(`^pdfkiln: error: could not load ${url}: invalid certificate \\(net::ERR_CERT_[A-Z_]+\\)\\n$`));
+      assert.match(r.stderr, new RegExp(`^pdfkiln: error: could not load ${s.url}: invalid certificate \\(net::ERR_CERT_[A-Z_]+\\)\\n$`));
+      // The page, its image and its font, without a word.
+      r = await native(['--allow-private-network', '--allow-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      // A font, which the command fetches itself.
+      const page = file('native-tls/font.html', `<style>@font-face { font-family: F; src: url(${s.url}font) } p { font-family: F }</style><p>font</p>`);
+      r = await native(['--allow-private-network', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(r.stderr, new RegExp(`^pdfkiln: warning: could not load ${s.url}font: invalid certificate \\([A-Z_]+\\)\\n$`));
+      r = await native(['--allow-private-network', '--allow-invalid-certificates', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
     } finally {
-      tls.close();
+      s.close();
     }
   });
 
@@ -1208,6 +1262,23 @@ describe('wkhtmltoimage', () => {
     assert.equal((await image(['-q', '--transparent', clear, png])).code, 0);
     const { decodePng } = await import('../src/engine/raster.js');
     assert.equal(decodePng(readFileSync(png)).rgba[3], 0);
+  });
+
+  test('a self-signed certificate is ignored, with a warning per connection, as wkhtmltoimage 0.12.6', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    try {
+      const out = join(dir, 'self-signed.jpg');
+      let r = await image(['--log-level', 'warn', '--format', 'jpg', '--quality', '100', s.url, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, 'Warning: SSL error ignored\n'.repeat(3));
+      assert.equal(readFileSync(out).toString('latin1', 0, 2), '\xff\xd8');
+      r = await image(['-q', '--kiln-block-invalid-certificates', s.url, out]);
+      assert.equal(r.code, 1);
+      assert.equal(lastLine(r.stderr), 'Exit with code 1 due to network error: SslHandshakeFailedError');
+    } finally {
+      s.close();
+    }
   });
 });
 

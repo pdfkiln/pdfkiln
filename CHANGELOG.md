@@ -6,6 +6,16 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.3.0
+
+Security:
+
+- Called as `pdfkiln`, a web font from a server whose certificate does not verify is refused, as the page and its other resources already were: up to 1.2.1, it loaded. The new `--allow-invalid-certificates` lets pages load from such servers (self-signed, expired, issued for another name), fonts included.
+
+Called as `wkhtmltopdf`, bugs fixed:
+
+- A page or a resource over https whose certificate does not verify (self-signed, expired, issued for another name) loads, with the warning "SSL error ignored", as in wkhtmltopdf and wkhtmltoimage 0.12.6: the conversion failed with "SslHandshakeFailedError", even with `--load-error-handling ignore`, and such an image in an http page was left out. The new `--kiln-block-invalid-certificates` refuses them, fonts included.
+
 ## 1.2.1
 
 Security:

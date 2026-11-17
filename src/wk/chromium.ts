@@ -1,6 +1,8 @@
 // The Chromium of one conversion, as both commands start it: a Chromium of
 // its own, through the relay with --kiln-block-private-network, else
-// through --proxy; with Qt's default font; stopped at --kiln-timeout.
+// through --proxy; with Qt's default font; deaf to certificate errors, as
+// wkhtmltopdf, unless --kiln-block-invalid-certificates; stopped at
+// --kiln-timeout.
 import type { BrowserContext } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
 import { noAliasEnv, qtDefaultFamily } from '../engine/fonts.js';
@@ -36,6 +38,7 @@ export class Chromium {
       noSandbox: g.kiln.noSandbox,
       proxyServer,
       proxyBypassList: proxyBypass.join(';') || undefined,
+      ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
       env: withFonts ? noAliasEnv(work) : {},
       meanwhile,
     });
