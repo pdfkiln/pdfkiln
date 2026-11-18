@@ -110,6 +110,8 @@ const fontRequests = new Map<string, string>();
 const xhrRequests = new Map<string, string>();
 // Each /login/ path, "authorized" once it was.
 const loginRequests = new Map<string, string>();
+// X-Test and Cookie of the last /page-home request.
+let pageRequest = '';
 // The challenge of /login/digest.woff, and the check of its answer for
 // user:pass (RFC 2617, qop auth).
 const REALM = 'pdfkiln';
@@ -236,6 +238,16 @@ before(async () => {
       return res.writeHead(401, { 'content-type': 'text/html', 'www-authenticate': 'Basic realm="pdfkiln"' }).end('<p>auth</p>');
     }
     if (path === '/headers') return html(`<p>X-Test=${req.headers['x-test'] ?? 'none'}</p><img src="/img">`);
+    // An image of another host moved to this one, and a page that goes
+    // through another host before it comes back.
+    if (path === '/headers-back') return html(`<img src="${other}/img-back">`);
+    if (path === '/img-back') return res.writeHead(302, { location: `${base}/img` }).end();
+    if (path === '/page-out') return res.writeHead(302, { location: `${other}/page-hop` }).end();
+    if (path === '/page-hop') return res.writeHead(302, { location: `${base}/page-home` }).end();
+    if (path === '/page-home') {
+      pageRequest = `${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`;
+      return html('<p>home</p><img src="/img">');
+    }
     // Markdown on the web: a document, its image beside it, a redirect to
     // it, and one without a name.
     const seen = () => `${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`;
@@ -1649,12 +1661,20 @@ describe('native interface', () => {
       'localhost/font/b.woff': 'no header, no cookie',
       'localhost/font/c.woff': 'no header, no cookie',
     });
-    // Secure by default: a font that another host moves to the input's
-    // takes neither there, that request being chosen by another site.
+    // Secure by default: a font or an image that another host moves to the
+    // input's takes neither there, that request being chosen by another
+    // site; the image gets an empty Cookie header, so that Chromium adds
+    // none. The input keeps both through its own redirects.
     fontRequests.clear();
     r = await native([...send, `${base}/fonts-back`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.deepEqual(Object.fromEntries([...fontRequests].sort()), { '127.0.0.1/font/home.woff': 'no header, no cookie', 'localhost/font/back': 'no header, no cookie' });
+    r = await native([...send, `${base}/headers-back`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual([imgHeader, imgCookie], ['none', '']);
+    r = await native([...send, `${base}/page-out`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual([pageRequest, imgHeader, imgCookie], ['yes, session=abc', 'yes', 'session=abc']);
     for (const [flag, value, message] of [['--header', 'no colon', '"name: value"'], ['--cookie', 'nameonly', 'name=value']]) {
       r = await native([flag!, value!, `${base}/ok`, out]);
       assert.equal(r.code, 1);

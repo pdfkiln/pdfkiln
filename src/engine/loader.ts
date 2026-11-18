@@ -316,6 +316,10 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   let posted = false;
   const post = postBody(load.post);
   const clientCert = clientCertOf(load);
+  // The network ids of the requests a redirect took to another host than
+  // the input's, and the page's main frame.
+  const elsewhere = new Set<string>();
+  let mainFrame = '';
   cdp.on('Fetch.requestPaused', (e: FetchPaused) => {
     handle(e).catch(() => cdp.send('Fetch.continueRequest', { requestId: e.requestId }).catch(() => {}));
   });
@@ -358,13 +362,29 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
         postData = post.body;
       }
     }
+    // Called as pdfkiln, a request that another site sends to the input's
+    // host by a redirect takes neither --header nor --cookie there, that
+    // site having chosen it; the input itself keeps them through its own
+    // redirects. The hops of a redirect share their network id.
+    const here = onInputHost(url);
+    const sentHere = !spec.qtCookies && here && Boolean(e.networkId && elsewhere.has(e.networkId)) && !(e.resourceType === 'Document' && e.frameId === mainFrame);
+    if (e.networkId && !here && /^https?:/.test(url)) elsewhere.add(e.networkId);
     // The native --header: with every request to the page's host, in place
     // of the browser's own of the same name, and to no other host.
-    const site = Boolean(spec.siteHeaders?.length) && onInputHost(url);
+    const site = Boolean(spec.siteHeaders?.length) && here && !sentHere;
     if (site) {
       const names = new Set(spec.siteHeaders!.map(([name]) => name.toLowerCase()));
       headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !names.has(h.name.toLowerCase()));
       for (const [name, value] of spec.siteHeaders!) headers.push({ name, value });
+    }
+    // Chromium holds --cookie for the input's host and would add it: the
+    // cookies it would send, but those, and none of SameSite Strict.
+    if (sentHere && load.cookies.length && /^https?:/.test(spec.url)) {
+      const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
+      const given = new Set(load.cookies.map(([name, value]) => `${name}=${value}`));
+      const kept = cookies.filter((c) => !given.has(`${c.name}=${c.value}`) && c.sameSite !== 'Strict').sort((a, b) => b.path.length - a.path.length);
+      headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !/^cookie$/i.test(h.name));
+      headers.push({ name: 'Cookie', value: kept.map((c) => `${c.name}=${c.value}`).join('; ') });
     }
     // wkhtmltopdf's cookies, in place of those Chromium would send.
     const cookie = await qtCookie(e);
@@ -618,6 +638,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       })();`,
     }),
   ]);
+  mainFrame = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
   const cookieUrl = spec.site ?? spec.url;
   if (load.cookies.length && /^https?:/.test(cookieUrl)) {
     await cdp.send('Network.setCookies', {

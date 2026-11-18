@@ -21,6 +21,10 @@ Called as `wkhtmltopdf`, bugs fixed:
 - A web font redirected to another host gets there the cookies of `--cookie-jar` for that host, and `--cookie` from a page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it got none there.
 - With a client certificate (`--ssl-crt-path`), the page's https requests, which PDFKiln makes itself, go through `--proxy` and answer `--username` and `--password`, as in wkhtmltopdf 0.12.6: up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
 
+Called as `pdfkiln`, security:
+
+- A request that another site sends to the input's host by a redirect, for an image, a style sheet, a script, a frame or a font, takes neither `--header` nor `--cookie` there, since that site chose it: up to 1.3.0, all but the fonts took them. The input itself keeps them through its own redirects, such as a login on another site.
+
 Called as `pdfkiln`, bug fixed:
 
 - A web font from the input's host gets `--header`, `--cookie` and the cookies that host set, as the page's other requests to it do: up to 1.3.0, it got none of them. A font that redirects to another host takes none of them there.
