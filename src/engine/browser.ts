@@ -19,6 +19,10 @@ export interface LaunchOptions {
   // (Security.setIgnoreCertificateErrors) fails each such connection's
   // handshake first, then opens it again (measured on Chromium 157).
   ignoreCertificateErrors?: boolean;
+  // XSLT, which Chromium turns off from 158: a feature turns it back on,
+  // until Chrome 176 turns it off for everyone (August 2027, Google's
+  // schedule). Puppeteer merges the feature into its own --enable-features.
+  xslt?: boolean;
   env?: NodeJS.ProcessEnv;
   // Work for this process while Chromium starts, which leaves it idle:
   // loading the modules the conversion needs next.
@@ -238,6 +242,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   if (opts.proxyServer) args.push(`--proxy-server=${opts.proxyServer}`);
   if (opts.proxyBypassList) args.push(`--proxy-bypass-list=${opts.proxyBypassList}`);
   if (opts.ignoreCertificateErrors) args.push('--ignore-certificate-errors');
+  if (opts.xslt) args.push('--enable-features=XSLT');
   let browser: Browser;
   try {
     // Puppeteer gets every argument, its defaults included: under a cap on

@@ -22,6 +22,7 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 
 Security:
 
+- Chromium 157.0.8103.78 → 158.0.8127.36 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop_01699533288.html)). Chromium 158 removes XSLT: an XML document with an `<?xml-stylesheet?>` now comes out as its source, under a notice from Chromium; 1.2.1 laid it out, with Chromium's warning of the removal on the page, and wkhtmltopdf 0.12.6 printed its text. `--xsl-style-sheet` still works: PDFKiln turns XSLT back on for that option only.
 - Called as `pdfkiln`, a web font from a server whose certificate does not verify is refused, as the page and its other resources already were: up to 1.2.1, it loaded. The new `--allow-invalid-certificates` lets pages load from such servers (self-signed, expired, issued for another name), fonts included.
 
 Called as `wkhtmltopdf`, bugs fixed:

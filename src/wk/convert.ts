@@ -159,7 +159,10 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const block = g.kiln.blockPrivateNetwork;
     const insecure = !g.kiln.blockInvalidCertificates;
     const proxy = objects.find((o) => o.load.proxy)?.load.proxy ?? null;
-    const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout, () => void pdfModules().catch(() => {}));
+    const context = await chromium.start(g, proxy, objects[0]!.load.bypassProxyForHosts, work, fb, io.onTimeout, {
+      meanwhile: () => void pdfModules().catch(() => {}),
+      xslt: objects.some((o) => isToc(o) && Boolean(o.tocXsl)),
+    });
     // Loaded while Chromium started.
     const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
     const fontFamily = chromium.fontFamily;

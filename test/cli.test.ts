@@ -578,6 +578,22 @@ describe('objects and numbering', () => {
     assert.match(pagesText(out)[0]!, /Custom list[\s\S]*Entry Only heading at 2/);
   });
 
+  // Chromium turns XSLT off from 158: on again for --xsl-style-sheet only.
+  test('toc: XSLT for --xsl-style-sheet only', async () => {
+    const xsl = file('toc/plain.xsl', `<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"><html><body><p>List</p></body></html></xsl:template></xsl:stylesheet>`);
+    const page = file('toc/xslt.html', '<title>X</title><h1 id="h">?</h1><script>document.getElementById("h").textContent = typeof XSLTProcessor</script>');
+    const outline = join(dir, 'toc-xslt.xml');
+    const headings = async (args: string[]) => {
+      const r = await run(['-q', '--dump-outline', outline, ...args, page, join(dir, 'toc-xslt.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+      return [...readFileSync(outline, 'utf8').matchAll(/title="([^"]*)"/g)].map((m) => m[1]);
+    };
+    assert.ok((await headings([])).includes('undefined'));
+    assert.ok((await headings(['toc'])).includes('undefined'));
+    assert.ok((await headings(['toc', '--xsl-style-sheet', xsl])).includes('function'));
+  });
+
   test('links: to another object, its elements, the web; and the options that drop them', async (t) => {
     const a = file('links/a.html', `<title>A</title><p><a href="b.html">b</a></p><p><a href="b.html#sec">sec</a></p>
       <p><a href="b.html#gone">gone</a></p><p><a href="#self">self</a></p><p><a href="other.html#x">other</a></p>

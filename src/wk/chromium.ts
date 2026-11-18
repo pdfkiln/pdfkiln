@@ -1,7 +1,8 @@
 // The Chromium of one conversion, as both commands start it: a Chromium of
 // its own, through the relay with --kiln-block-private-network, else
 // through --proxy; with Qt's default font; deaf to certificate errors, as
-// wkhtmltopdf, unless --kiln-block-invalid-certificates; stopped at
+// wkhtmltopdf, unless --kiln-block-invalid-certificates; with XSLT only
+// for a table of contents that has --xsl-style-sheet; stopped at
 // --kiln-timeout.
 import type { BrowserContext } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
@@ -18,7 +19,7 @@ export class Chromium {
   fontFamily?: string;
   private stopDeadline = () => {};
 
-  async start(g: PdfGlobal, proxy: Proxy | null, bypass: string[], work: string, fb: Feedback, onTimeout: (line: string) => void, meanwhile?: () => void): Promise<BrowserContext> {
+  async start(g: PdfGlobal, proxy: Proxy | null, bypass: string[], work: string, fb: Feedback, onTimeout: (line: string) => void, opts: { meanwhile?: () => void; xslt?: boolean } = {}): Promise<BrowserContext> {
     if (g.kiln.blockPrivateNetwork) {
       this.relay = await startRelay();
       if (proxy) fb.warning('--proxy is ignored with --kiln-block-private-network');
@@ -39,8 +40,9 @@ export class Chromium {
       proxyServer,
       proxyBypassList: proxyBypass.join(';') || undefined,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
+      xslt: opts.xslt,
       env: withFonts ? noAliasEnv(work) : {},
-      meanwhile,
+      meanwhile: opts.meanwhile,
     });
     this.fontFamily = await fonts.family;
     this.stopDeadline = deadline(this.session, g.kiln.timeout, () => {
