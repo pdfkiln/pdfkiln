@@ -400,6 +400,29 @@ describe('interface', () => {
     }
   });
 
+  test('--cookie: with every request of a page or a header that has no host, as in wkhtmltopdf; to its own host from a page loaded from its address', async () => {
+    const out = join(dir, 'cookie-sites.pdf');
+    const seen = () => Object.fromEntries([...seenCookies].sort());
+    const all = { '127.0.0.1/seen/a.css': 'k=v', '127.0.0.1/seen/sub/b.css': 'k=v', 'localhost/seen/c.css': 'k=v', '127.0.0.1/seen/d.svg': 'k=v' };
+    // A file, and the standard input, which goes through one.
+    for (const [input, opts] of [[file('cookie-sites.html', seenPage()), {}], ['-', { stdin: seenPage() }]] as const) {
+      seenCookies.clear();
+      const r = await run(['-q', '--cookie', 'k', 'v', input, out], opts);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(seen(), all, input);
+    }
+    seenCookies.clear();
+    let r = await run(['-q', '--cookie', 'k', 'v', `${other}/seen/page`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(seen(), { ...all, '127.0.0.1/seen/a.css': 'none', '127.0.0.1/seen/sub/b.css': 'none', '127.0.0.1/seen/d.svg': 'none', 'localhost/seen/page': 'k=v' });
+    // A header given as a file, under a page of another host.
+    seenCookies.clear();
+    const header = file('cookie-header.html', `<link rel="stylesheet" href="${base}/seen/header.css"><p>header</p>`);
+    r = await run(['-q', '--cookie', 'k', 'v', '--header-html', header, `${other}/ok`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(seen(), { '127.0.0.1/seen/header.css': 'k=v' });
+  });
+
   test('--load-error-handling: a page that does not load aborts, is skipped or is kept', async () => {
     const bad = await new Promise<string>((ok) => {
       const s = createTcpServer();

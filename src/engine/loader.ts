@@ -54,17 +54,21 @@ export interface LoadSpec {
   // servers') go with each request whose URL they match, whatever the
   // page's site, in the order of Qt's jar. Chromium keeps a cookie without
   // SameSite from a request to another site, and a page opened from a
-  // file is another site to every server.
+  // file is another site to every server. --cookie goes to the host of a
+  // page loaded from its address only, which wkhtmltopdf sent to every
+  // site; a page that has none, a file or the standard input, sends it
+  // with every request, as wkhtmltopdf.
   qtCookies?: QtJar;
   userStyleSheet?: string; // CSS text
   // Or its http or https URL, loaded as the page's style sheets are.
   userStyleSheetUrl?: string;
   // The native interface's own: headers for every request to the page's
   // host and no other, a style sheet after the page's own, which it
-  // overrides, and an element to wait for before the delay. site: the URL
-  // whose host is the page's, for these headers and the cookies, when the
-  // page printed is not it (Markdown read from a URL).
+  // overrides, and an element to wait for before the delay.
   siteHeaders?: [string, string][];
+  // The URL whose host is the page's, for the headers and the cookies,
+  // when the page printed is not it: Markdown read from a URL, header
+  // pages printed in a page of their own.
   site?: string;
   css?: string;
   waitFor?: string;
@@ -329,12 +333,14 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     return cdp.send('Fetch.continueRequest', { requestId, headers });
   };
 
-  // The cookies wkhtmltopdf sends with a request (LoadSpec.qtCookies), or ''.
+  // The cookies wkhtmltopdf sends with a request (LoadSpec.qtCookies), or
+  // '': --cookie too, from a page that has no host.
+  const everywhere = (spec.site ?? spec.url).startsWith('file:') ? load.cookies : [];
   const qtCookie = async (e: FetchPaused): Promise<string> => {
     const url = e.request.url;
     if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return '';
     const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
-    return spec.qtCookies.line(cookies, url);
+    return spec.qtCookies.line(cookies, url, everywhere);
   };
 
   const serveFile = async (e: FetchPaused) => {

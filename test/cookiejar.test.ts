@@ -40,6 +40,9 @@ test('the Cookie header of a request: the longest paths first, then in the jar\'
   assert.equal(jar.line([held('srv', '1', 'odoo.test'), held('dot', '1', '.odoo.test'), held('host', '1', 'odoo.test')], 'http://odoo.test/a.css'), 'host=1; dot=1; srv=1');
   assert.equal(jar.line([held('sec', '1', 'localhost', '/', true)], 'http://localhost/'), '');
   assert.equal(jar.line([], 'http://odoo.test/'), '');
+  // --cookie, given, comes last, whatever the URL.
+  assert.equal(jar.line([held('srv', '1', 'odoo.test')], 'http://odoo.test/a.css', [['g', '1']]), 'srv=1; g=1');
+  assert.equal(jar.line([], 'http://other.test/', [['g', '1']]), 'g=1');
 });
 
 test('the jar written back: in its order, unchanged cookies as read, the file\'s cookies Chromium did not take kept, a server\'s last', () => {

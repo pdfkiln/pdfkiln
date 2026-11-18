@@ -86,13 +86,14 @@ export class QtJar {
   // The Cookie header of a request, from the cookies Chromium matches to
   // its URL (cookiesForUrl): the longest paths first, then in the jar's
   // order; a secure cookie over https only, where Chromium also gives it
-  // to http://localhost. Empty without a cookie.
-  line(cookies: (Named & { path: string; secure: boolean })[], url: string): string {
+  // to http://localhost. Then extra, --cookie's, sent whatever the URL
+  // (MyCookieJar::useCookie). Empty without a cookie.
+  line(cookies: (Named & { path: string; secure: boolean })[], url: string, extra: [string, string][] = []): string {
     const https = url.startsWith('https:');
-    return this.ordered(cookies.filter((c) => https || !c.secure))
-      .sort((a, b) => b.path.length - a.path.length)
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ');
+    return [
+      ...this.ordered(cookies.filter((c) => https || !c.secure)).sort((a, b) => b.path.length - a.path.length),
+      ...extra.map(([name, value]) => ({ name, value })),
+    ].map((c) => `${c.name}=${c.value}`).join('; ');
   }
 
   // The jar to write back (MyCookieJar::saveToFile), from the cookies

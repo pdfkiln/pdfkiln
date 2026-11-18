@@ -200,6 +200,8 @@ export async function renderHtml(context: BrowserContext, urls: string[], b: Box
   const lp = await openPage(context, {
     ...b.spec,
     url: pathToFileURL(file).href,
+    // The header page's host, not this page's, decides where --cookie goes.
+    site: urls[0],
     isMain: false,
     viewport: { width: w, height: h },
     // wkhtmltopdf loads each header page on its own: it may read itself.

@@ -10,8 +10,9 @@ GitHub release.
 
 Called as `wkhtmltopdf`, bugs fixed:
 
-- The cookies of `--cookie-jar`, and those a server sets during the conversion, go with every request whose address they match, whatever the site of the page, as in wkhtmltopdf 0.12.6. Up to 1.3.0, the style sheets, images and fonts that a page opened from a file loads from a server, or that a page loads from another site, went without them: Odoo, which passes its session this way, printed its reports without their style and header on a server with several databases.
+- The cookies of `--cookie-jar` go with every request whose address they match, whatever the site of the page, as in wkhtmltopdf 0.12.6. Up to 1.3.0, the style sheets, images and fonts that a page opened from a file loads from a server, or that a page loads from another site, went without them: Odoo 15 and later, which pass their session this way, printed their reports without their style and header on a server with several databases.
 - A `--cookie-jar` file is kept as wkhtmltopdf 0.12.6 keeps it: a line Chromium cannot take, such as a path that does not start with `/`, no longer stops the conversion with "unknown error", and the file is written back in its order, with the lines it cannot use and the expiry dates as they were.
+- `--cookie` goes with every request of a page given as a file or on the standard input, and of a `--header-html` or `--footer-html` page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it went with none. Odoo 13 and 14 pass their session this way. From a page loaded from its address, it still goes to that page's host only.
 
 ## 1.3.0
 
