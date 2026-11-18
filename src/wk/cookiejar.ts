@@ -48,6 +48,68 @@ export function readJar(path: string): JarCookie[] {
   return out;
 }
 
+interface Named { name: string; value: string; domain?: string; path?: string }
+
+// A cookie's identity in Qt's jar: its name, domain and path.
+const keyOf = (c: Named) => `${c.name}\n${(c.domain ?? '').toLowerCase()}\n${c.path || '/'}`;
+
+// A conversion's cookies as Qt's jar keeps them (QNetworkCookieJar), which
+// Chromium, that holds them, does not: in order, those of --cookie-jar as
+// read, then each cookie a server sets, last (setCookiesFromUrl), one
+// whose value it changed included; and the file's cookies Chromium does
+// not take (no domain, expired, a path that does not start with /).
+export class QtJar {
+  private ranks = new Map<string, { value: string; rank: number }>();
+  private next = 0;
+  private read: JarCookie[] = [];
+  private taken = new Set<string>();
+
+  // The cookies of the file, and those Chromium took.
+  loaded(read: JarCookie[], taken: Named[]): void {
+    this.read = read;
+    this.taken = new Set(taken.map(keyOf));
+    for (const c of read) this.rank(c);
+  }
+
+  private rank(c: Named): number {
+    const key = keyOf(c);
+    const r = this.ranks.get(key);
+    if (r && r.value === c.value) return r.rank;
+    this.ranks.set(key, { value: c.value, rank: this.next });
+    return this.next++;
+  }
+
+  private ordered<T extends Named>(cookies: T[]): T[] {
+    return cookies.map((c) => ({ c, rank: this.rank(c) })).sort((a, b) => a.rank - b.rank).map(({ c }) => c);
+  }
+
+  // The Cookie header of a request, from the cookies Chromium matches to
+  // its URL (cookiesForUrl): the longest paths first, then in the jar's
+  // order; a secure cookie over https only, where Chromium also gives it
+  // to http://localhost. Empty without a cookie.
+  line(cookies: (Named & { path: string; secure: boolean })[], url: string): string {
+    const https = url.startsWith('https:');
+    return this.ordered(cookies.filter((c) => https || !c.secure))
+      .sort((a, b) => b.path.length - a.path.length)
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ');
+  }
+
+  // The jar to write back (MyCookieJar::saveToFile), from the cookies
+  // Chromium holds at the end: in the jar's order, one unchanged as it was
+  // read (Chromium caps an expiry at 400 days), and the file's cookies
+  // Chromium did not take, unless a server set one in its place.
+  toWrite(held: JarCookie[]): JarCookie[] {
+    const read = new Map(this.read.map((c) => [keyOf(c), c]));
+    const kept = held.map((c) => {
+      const r = read.get(keyOf(c));
+      return r && r.value === c.value ? r : c;
+    });
+    const heldKeys = new Set(held.map(keyOf));
+    return this.ordered([...kept, ...this.read.filter((c) => !this.taken.has(keyOf(c)) && !heldKeys.has(keyOf(c)))]);
+  }
+}
+
 export function writeJar(path: string, cookies: JarCookie[]): void {
   const lines = cookies.map((c) => {
     let s = `${c.name}=${c.value}`;

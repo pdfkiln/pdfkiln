@@ -246,7 +246,10 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0): P
   if (!r) throw new Error(`${u.hostname} has no address`);
   if (opts.follow && r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && hops < 10) {
     r.resume();
-    return relayRequest(new URL(r.headers.location, u).href, { ...opts, method: 'GET', body: undefined }, hops + 1);
+    const next = new URL(r.headers.location, u);
+    // The cookies were those of this host.
+    const headers = next.host === u.host ? opts.headers : Object.fromEntries(Object.entries(opts.headers ?? {}).filter(([k]) => !/^cookie$/i.test(k)));
+    return relayRequest(next.href, { ...opts, headers, method: 'GET', body: undefined }, hops + 1);
   }
   const chunks: Buffer[] = [];
   for await (const c of r) chunks.push(c as Buffer);

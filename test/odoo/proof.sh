@@ -3,9 +3,11 @@
 # (debian:trixie, ubuntu:24.04, ubuntu:26.04: the three Odoo 20 supports).
 # Odoo comes from git in a venv, as its documentation installs it from
 # source, with the distribution's PostgreSQL. Its demo database prints
-# the documents of docs.py through its own route (print.py), once per
-# engine, the server restarted each time (Odoo looks for the engine once
-# per process):
+# the documents of docs.py through its own route (print.py), beside a
+# second database, as on a server that hosts several: Odoo then serves the
+# report's style sheets only to the session it gives the engine
+# (--cookie-jar). Once per engine, the server restarted each time (Odoo
+# looks for the engine once per process):
 # - wkhtmltopdf from the distribution, where there is one (Ubuntu 24.04:
 #   0.12.6 without patched qt);
 # - wkhtmltopdf 0.12.6.1-3 with patched qt, the official package of the
@@ -56,6 +58,7 @@ as_odoo "${odoo[@]}" server -c "$home/odoo.conf" -d odoo -i sale_management,acco
   --with-demo --stop-after-init --logfile "$out/init.log"
 as_odoo env ODOO_PROOF_DOCS="$home/docs.json" "${odoo[@]}" shell -c "$home/odoo.conf" -d odoo --no-http --log-level warn < "$here/docs.py"
 cp "$home/docs.json" "$out/docs.json"
+as_odoo "${odoo[@]}" server -c "$home/odoo.conf" -d second -i base --stop-after-init --logfile "$out/init-second.log"
 
 python3 - "$out/platform.json" "$ID" "$VERSION_ID" "$VERSION_CODENAME" "$arch" "$branch" \
   "$(as_odoo git -C "$home/src" log -1 --format='%H %cs')" "$("$home/venv/bin/python" -V)" "$(runuser -u postgres -- psql -tAc 'show server_version')" <<'EOF'
@@ -78,7 +81,8 @@ run() {
   mkdir -p "$out/$name"
   chown odoo "$out/$name"
   runuser -u postgres -- psql -qtA -d odoo -c "UPDATE ir_config_parameter SET value = '$param' WHERE key = 'report.pdf_engine_default'"
-  as_odoo "${odoo[@]}" server -c "$home/odoo.conf" -d odoo "$@" --logfile "$out/$name/odoo.log" &
+  # Both databases offered: with one, Odoo would pick it without the session.
+  as_odoo "${odoo[@]}" server -c "$home/odoo.conf" -d odoo,second "$@" --logfile "$out/$name/odoo.log" &
   local pid=$!
   for _ in $(seq 120); do curl -fs -o /dev/null http://127.0.0.1:8069/web/login && break; sleep 1; done
   as_odoo "$home/venv/bin/python" -I "$here/print.py" "$home/docs.json" "$out/$name" "$name" || true

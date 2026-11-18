@@ -13,6 +13,7 @@ import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
+import { QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
 import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
 import { anchorsOf, fragmentOf, linkHeadings, markTargets, pageKey, tocAnchorNames, type Anchor } from './links.js';
@@ -167,7 +168,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
     const fontFamily = chromium.fontFamily;
     step('launch');
-    if (g.cookieJar) await loadJar(context, g.cookieJar);
+    const jar = new QtJar();
+    if (g.cookieJar) await loadJar(context, g.cookieJar, jar);
 
     // The page itself: a URL, a file, or the standard input.
     let stdin: Buffer | undefined;
@@ -225,6 +227,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: insecure,
+      qtCookies: jar,
       userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.css : undefined,
       userStyleSheetUrl: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.url : undefined,
     });
@@ -238,7 +241,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     const measureAt = (o: PdfObject, h: HeaderFooter, scale: number) => {
       const url = guessUrlFromString(h.htmlUrl);
       const spec = specOf(o, false);
-      const key = JSON.stringify([url, scale, spec]);
+      // The jar is the conversion's, the same for every header.
+      const key = JSON.stringify([url, scale, { ...spec, qtCookies: undefined }]);
       let m = measured.get(key);
       if (!m) {
         m = measure(context, url, { width: contentWidth, scale, spec }, fb);
@@ -280,7 +284,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     fb.progressChanged(100, '100%');
     step('load');
     const pages = loaded.filter((l): l is LoadedPage => Boolean(l));
-    if (g.cookieJar && pages[0]) await saveJar(pages[0], g.cookieJar);
+    if (g.cookieJar && pages[0]) await saveJar(pages[0], g.cookieJar, jar);
     let errorCode = Math.max(0, ...pages.map((l) => l.errorCode));
     if (loaded.some((l, i) => l && !l.ok && objects[i]!.load.loadErrorHandling === 'abort')) return fail(errorCode);
     // A header or footer page that does not load stops the conversion too,

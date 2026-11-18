@@ -10,6 +10,7 @@ import { emulate, openPage } from '../engine/loader.js';
 import { decodePng, toBmp, toPpm, toSvg, toXbm, toXpm } from '../engine/raster.js';
 import { chromiumVersion, version } from '../version.js';
 import { Chromium, loadJar, saveJar } from './chromium.js';
+import { QtJar } from './cookiejar.js';
 import { readStyleSheet, type Io, type Result } from './convert.js';
 import type { Feedback } from './feedback.js';
 import { KILN_OPTIONS, OPTIONS, type OptionSpec, type Target } from './options.js';
@@ -177,7 +178,8 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
     fb.progressChanged(0, '0%');
     const block = g.kiln.blockPrivateNetwork;
     const context = await chromium.start(g, o.load.proxy, o.load.bypassProxyForHosts, work, fb, io.onTimeout);
-    if (g.cookieJar) await loadJar(context, g.cookieJar);
+    const jar = new QtJar();
+    if (g.cookieJar) await loadJar(context, g.cookieJar, jar);
     let url = guessUrlFromString(s.in);
     if (s.in === '-') {
       const file = join(work, 'stdin.html');
@@ -196,10 +198,11 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
       fontFamily: chromium.fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
+      qtCookies: jar,
       ...(o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet).then((u) => ({ userStyleSheet: u.css, userStyleSheetUrl: u.url })) : {}),
     }, fb);
     fb.progressChanged(100, '100%');
-    if (g.cookieJar) await saveJar(l, g.cookieJar);
+    if (g.cookieJar) await saveJar(l, g.cookieJar, jar);
     const errorCode = l.errorCode;
     if (!l.ok && o.load.loadErrorHandling === 'abort') return fail(errorCode);
 

@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { BrowserContext, CDPSession, Page } from 'puppeteer-core';
 import type { LoadPage, PostItem, Web } from '../wk/settings.js';
+import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
@@ -49,6 +50,12 @@ export interface LoadSpec {
   // wkhtmltopdf does, the requests made here included. Chromium must be
   // started to ignore them too (LaunchOptions).
   ignoreCertificateErrors: boolean;
+  // wkhtmltopdf's cookies: those Chromium holds (the --cookie-jar's, the
+  // servers') go with each request whose URL they match, whatever the
+  // page's site, in the order of Qt's jar. Chromium keeps a cookie without
+  // SameSite from a request to another site, and a page opened from a
+  // file is another site to every server.
+  qtCookies?: QtJar;
   userStyleSheet?: string; // CSS text
   // Or its http or https URL, loaded as the page's style sheets are.
   userStyleSheetUrl?: string;
@@ -70,6 +77,12 @@ const MEDIA = new Set(['css', 'js', 'png', 'jpg', 'jpeg', 'gif']);
 // WebKit never sent them: their errors are not the page's, and the wait
 // does not wait for them.
 const isReport = (type?: string) => type === 'Ping' || type === 'CSPViolationReport';
+
+// Requests whose cookies stay Chromium's (LoadSpec.qtCookies): their
+// credentials decide, which the Fetch domain does not tell. Qt's WebKit
+// sent none either with an XMLHttpRequest to another origin without
+// withCredentials (measured on 0.12.6).
+const OWN_COOKIES = new Set(['XHR', 'Fetch', 'EventSource', 'Preflight', 'Ping', 'CSPViolationReport']);
 
 // QFileInfo(url).completeSuffix(): what follows the first dot of the name.
 function completeSuffix(url: string): string {
@@ -275,7 +288,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     if (!web.loadImages && e.resourceType === 'Image') {
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
     }
-    if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e);
+    if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e, await qtCookie(e));
     // --custom-header without propagation, and --post: the page request
     // only.
     const headersHere = !mainHeadersSent && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
@@ -302,12 +315,26 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !names.has(h.name.toLowerCase()));
       for (const [name, value] of spec.siteHeaders!) headers.push({ name, value });
     }
+    // wkhtmltopdf's cookies, in place of those Chromium would send.
+    const cookie = await qtCookie(e);
+    if (cookie) {
+      headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !/^cookie$/i.test(h.name));
+      headers.push({ name: 'Cookie', value: cookie });
+    }
     // Chromium cannot be given a client certificate: the command makes
     // the request.
     if (clientCert && url.startsWith('https:')) return relayTls(e, headers, postData);
     if (main || site) return cdp.send('Fetch.continueRequest', { requestId, headers, ...(postData ? { method: 'POST', postData: postData.toString('base64') } : {}) });
-    if (rewrite && e.resourceType === 'Stylesheet') return cdp.send('Fetch.continueRequest', { requestId, interceptResponse: true });
-    return cdp.send('Fetch.continueRequest', { requestId });
+    if (rewrite && e.resourceType === 'Stylesheet') return cdp.send('Fetch.continueRequest', { requestId, headers, interceptResponse: true });
+    return cdp.send('Fetch.continueRequest', { requestId, headers });
+  };
+
+  // The cookies wkhtmltopdf sends with a request (LoadSpec.qtCookies), or ''.
+  const qtCookie = async (e: FetchPaused): Promise<string> => {
+    const url = e.request.url;
+    if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return '';
+    const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
+    return spec.qtCookies.line(cookies, url);
   };
 
   const serveFile = async (e: FetchPaused) => {
@@ -378,11 +405,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
   };
 
-  const relayFont = async (e: FetchPaused) => {
+  const relayFont = async (e: FetchPaused, cookie: string) => {
     const { requestId, request } = e;
     if (e.networkId) answered.add(e.networkId);
     try {
-      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '' }, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
+      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '', ...(cookie ? { cookie } : {}) }, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
       const headers = r.headers
         .filter(([k]) => !/^(access-control-allow-origin|content-encoding|content-length|transfer-encoding|connection)$/i.test(k))
         .map(([name, value]) => ({ name, value }));

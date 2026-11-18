@@ -8,7 +8,7 @@ import type { BrowserContext } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
 import { noAliasEnv, qtDefaultFamily } from '../engine/fonts.js';
 import { startRelay, type Relay } from '../engine/relay.js';
-import { readJar, writeJar } from './cookiejar.js';
+import { readJar, writeJar, type QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
 import type { LoadedPage } from '../engine/loader.js';
 import type { PdfGlobal, Proxy } from './settings.js';
@@ -60,16 +60,23 @@ export class Chromium {
   }
 }
 
-export async function loadJar(context: BrowserContext, path: string): Promise<void> {
-  const cookies = readJar(path).filter((c) => c.domain);
-  if (!cookies.length) return;
-  await context.setCookie(...cookies.map((c) => ({
+export async function loadJar(context: BrowserContext, path: string, jar: QtJar): Promise<void> {
+  const read = readJar(path);
+  const cookies = read.filter((c) => c.domain).map((c) => ({
     name: c.name, value: c.value, domain: c.domain!, path: c.path ?? '/', secure: c.secure, httpOnly: c.httpOnly,
     expires: c.expires,
-  })));
+  }));
+  if (cookies.length) {
+    // One cookie Chromium refuses fails them all: then one by one, as Qt
+    // takes each.
+    await context.setCookie(...cookies).catch(async () => {
+      for (const c of cookies) await context.setCookie(c).catch(() => {});
+    });
+  }
+  jar.loaded(read, cookies.length ? await context.cookies() : []);
 }
 
-export async function saveJar(lp: LoadedPage, path: string): Promise<void> {
+export async function saveJar(lp: LoadedPage, path: string, jar: QtJar): Promise<void> {
   const { cookies } = await lp.cdp.send('Network.getAllCookies') as { cookies: { name: string; value: string; domain: string; path: string; expires: number; secure: boolean; httpOnly: boolean; session: boolean }[] };
-  writeJar(path, cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.session ? undefined : c.expires, secure: c.secure, httpOnly: c.httpOnly })));
+  writeJar(path, jar.toWrite(cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.session ? undefined : c.expires, secure: c.secure, httpOnly: c.httpOnly }))));
 }

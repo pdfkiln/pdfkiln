@@ -6,6 +6,13 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.3.1
+
+Called as `wkhtmltopdf`, bugs fixed:
+
+- The cookies of `--cookie-jar`, and those a server sets during the conversion, go with every request whose address they match, whatever the site of the page, as in wkhtmltopdf 0.12.6. Up to 1.3.0, the style sheets, images and fonts that a page opened from a file loads from a server, or that a page loads from another site, went without them: Odoo, which passes its session this way, printed its reports without their style and header on a server with several databases.
+- A `--cookie-jar` file is kept as wkhtmltopdf 0.12.6 keeps it: a line Chromium cannot take, such as a path that does not start with `/`, no longer stops the conversion with "unknown error", and the file is written back in its order, with the lines it cannot use and the expiry dates as they were.
+
 ## 1.3.0
 
 Three new features, called as `pdfkiln`.

@@ -101,6 +101,8 @@ let imgHeader = '';
 let imgCookie = '';
 // The Cookie of the last /show-cookie request.
 let shownCookie = '';
+// The Cookie of each /seen/ request, by host and path.
+const seenCookies = new Map<string, string>();
 // The Cookie and X-Test of the last /user.css request.
 let userCssRequest = '';
 // X-Test and Cookie of the last /md/doc.md request, and of its image.
@@ -115,6 +117,12 @@ before(async () => {
     if (path === '/show-cookie') {
       shownCookie = String(req.headers.cookie ?? 'none');
       return html(`<p>Cookie: ${shownCookie}</p>`);
+    }
+    if (path?.startsWith('/seen/')) {
+      seenCookies.set(`${(req.headers.host ?? '').replace(/:\d+$/, '')}${path}`, String(req.headers.cookie ?? 'none'));
+      if (path === '/seen/page') return html(seenPage());
+      if (path.endsWith('.css')) return res.writeHead(200, { 'content-type': 'text/css' }).end('p { color: blue }');
+      return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
     }
     if (path === '/post') {
       let body = '';
@@ -183,6 +191,9 @@ before(async () => {
   base = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
   other = base.replace('127.0.0.1', 'localhost');
 });
+// Style sheets and an image on two sites, 127.0.0.1 and localhost.
+const seenPage = () => `<link rel="stylesheet" href="${base}/seen/a.css"><link rel="stylesheet" href="${base}/seen/sub/b.css">
+  <link rel="stylesheet" href="${other}/seen/c.css"><img src="${base}/seen/d.svg"><p>seen</p>`;
 after(() => {
   for (const h of hangs) h();
   hangs = [];
@@ -363,6 +374,30 @@ describe('interface', () => {
     r = await run(['-q', '--cookie-jar', join(dir, 'no-such-folder', 'jar.txt'), `${base}/ok`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.ok(existsSync(out));
+  });
+
+  test('--cookie-jar: each request gets the cookies that match its URL, from a page opened from a file or from another site, as in wkhtmltopdf', async () => {
+    // As Odoo writes it, the domain the host of the report URL; secure,
+    // it goes over https only. Chromium takes neither of the last two,
+    // which go back to the file all the same.
+    const jar = 'ip=1; HttpOnly; domain=127.0.0.1; path=/;\nsub=1; domain=127.0.0.1; path=/seen/sub/;\n'
+      + 'sec=1; secure; domain=127.0.0.1; path=/;\nlh=1; domain=localhost; path=/;\n'
+      + 'nodomain=1; path=/;\nrelative=1; domain=127.0.0.1; path=relative;\n';
+    const sent = {
+      '127.0.0.1/seen/a.css': 'ip=1',
+      '127.0.0.1/seen/sub/b.css': 'sub=1; ip=1',
+      'localhost/seen/c.css': 'lh=1',
+      '127.0.0.1/seen/d.svg': 'ip=1',
+    };
+    const out = join(dir, 'jar-sites.pdf');
+    for (const [input, page] of [[file('jar-sites.html', seenPage()), {}], [`${other}/seen/page`, { 'localhost/seen/page': 'lh=1' }]] as const) {
+      seenCookies.clear();
+      const path = file('jar-sites.txt', jar);
+      const r = await run(['-q', '--cookie-jar', path, input, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(Object.fromEntries([...seenCookies].sort()), Object.fromEntries(Object.entries({ ...sent, ...page }).sort()), input);
+      assert.equal(readFileSync(path, 'utf8'), jar);
+    }
   });
 
   test('--load-error-handling: a page that does not load aborts, is skipped or is kept', async () => {
