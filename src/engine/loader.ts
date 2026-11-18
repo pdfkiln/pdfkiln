@@ -14,7 +14,7 @@ import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
-import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert } from './relay.js';
+import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert, type RelayProxy } from './relay.js';
 import { isBlock, Withheld } from './withheld.js';
 
 export interface Reporter {
@@ -70,6 +70,9 @@ export interface LoadSpec {
   // when the page printed is not it: Markdown read from a URL, header
   // pages printed in a page of their own.
   site?: string;
+  // Chromium's proxy (--proxy, --bypass-proxy-for), which the fonts
+  // fetched here go through as the page's other requests do.
+  proxy?: RelayProxy;
   css?: string;
   waitFor?: string;
 }
@@ -484,7 +487,19 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const hostHeaders = await fontHeaders(e);
     if (e.networkId) answered.add(e.networkId);
     try {
-      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '' }, hostHeaders, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
+      // As the page's other requests: through Chromium's proxy, with the
+      // headers of --custom-header-propagation, and --username and
+      // --password for a server that asks.
+      const r = await relayGet(request.url, {
+        block: spec.blockPrivateNetwork,
+        headers: { 'user-agent': request.headers['User-Agent'] ?? '', ...(load.repeatCustomHeaders ? Object.fromEntries(load.customHeaders) : {}) },
+        hostHeaders,
+        proxy: spec.proxy,
+        login: load.username ? { user: load.username, password: load.password } : undefined,
+        tls: clientCert,
+        insecure: spec.ignoreCertificateErrors,
+        untrusted: sslErrorIgnored,
+      });
       const headers = r.headers
         .filter(([k]) => !/^(access-control-allow-origin|content-encoding|content-length|transfer-encoding|connection)$/i.test(k))
         .map(([name, value]) => ({ name, value }));

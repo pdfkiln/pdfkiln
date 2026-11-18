@@ -227,6 +227,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: insecure,
+      proxy: chromium.upstream,
       qtCookies: jar,
       userStyleSheet: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.css : undefined,
       userStyleSheetUrl: o.web.userStyleSheet ? userCss.get(o.web.userStyleSheet)?.url : undefined,

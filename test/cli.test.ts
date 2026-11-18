@@ -6,10 +6,11 @@
 // (bench/requirements.txt) and are skipped without it.
 import assert from 'node:assert/strict';
 import childProcess, { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { createServer as createTcpServer, type AddressInfo } from 'node:net';
+import { connect as connectTcp, createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -107,6 +108,31 @@ const seenCookies = new Map<string, string>();
 const fontRequests = new Map<string, string>();
 // The Cookie and Content-Language of each /xhr/ request, by path.
 const xhrRequests = new Map<string, string>();
+// Each /login/ path, "authorized" once it was.
+const loginRequests = new Map<string, string>();
+// The challenge of /login/digest.woff, and the check of its answer for
+// user:pass (RFC 2617, qop auth).
+const REALM = 'pdfkiln';
+const NONCE = 'n0nce';
+function digestOk(h: string | undefined, method: string): boolean {
+  if (!h?.startsWith('Digest ')) return false;
+  const p = Object.fromEntries([...h.matchAll(/(\w+)=(?:"([^"]*)"|([^,\s]*))/g)].map((m) => [m[1]!, m[2] ?? m[3] ?? '']));
+  const md5 = (s: string) => createHash('md5').update(s).digest('hex');
+  const ha1 = md5(`user:${REALM}:pass`);
+  const ha2 = md5(`${method}:${p.uri}`);
+  return p.username === 'user' && p.realm === REALM && p.nonce === NONCE && p.qop === 'auth' && p.response === md5(`${ha1}:${NONCE}:${p.nc}:${p.cnonce}:auth:${ha2}`);
+}
+// Pipes a connection to a port of 127.0.0.1, head first.
+function tunnelTo(client: Socket, port: number, head: Buffer): void {
+  client.pause();
+  const up = connectTcp(port, '127.0.0.1', () => {
+    up.write(head);
+    client.pipe(up);
+    up.pipe(client);
+  });
+  up.on('error', () => client.destroy());
+  client.on('error', () => up.destroy());
+}
 // The Cookie and X-Test of the last /user.css request.
 let userCssRequest = '';
 // X-Test and Cookie of the last /md/doc.md request, and of its image.
@@ -139,6 +165,29 @@ before(async () => {
         .end(`<!doctype html><style>@font-face { font-family: A; src: url(/font/a.woff) } @font-face { font-family: B; src: url(${other}/font/b.woff) }
         @font-face { font-family: C; src: url(/font/moved) } .a { font-family: A } .b { font-family: B } .c { font-family: C }</style>
         <p class="a">a</p><p class="b">b</p><p class="c">c</p>`);
+    }
+    // Fonts behind a login, Basic and Digest, in a page behind Basic.
+    if (path?.startsWith('/login/')) {
+      const digest = path === '/login/digest.woff';
+      const ok = digest ? digestOk(req.headers.authorization, req.method ?? 'GET') : req.headers.authorization === `Basic ${Buffer.from('user:pass').toString('base64')}`;
+      if (!ok) {
+        loginRequests.set(path, loginRequests.get(path) ?? '401');
+        return res.writeHead(401, { 'www-authenticate': digest ? `Digest realm="${REALM}", nonce="${NONCE}", qop="auth", algorithm=MD5` : 'Basic realm="pdfkiln"' }).end();
+      }
+      loginRequests.set(path, 'authorized');
+      if (path === '/login/page') {
+        return html(`<style>@font-face { font-family: B; src: url(/login/basic.woff) } @font-face { font-family: D; src: url(/login/digest.woff) }
+          .b { font-family: B } .d { font-family: D }</style><p class="b">basic</p><p class="d">digest</p>`);
+      }
+      return res.writeHead(200, { 'content-type': 'font/woff' }).end();
+    }
+    // Fonts for a page behind a proxy: of its host, over https on the port
+    // ?tls= gives, and of localhost, which goes around the proxy.
+    if (path === '/proxied-fonts') {
+      const tls = new URL(req.url ?? '', base).searchParams.get('tls');
+      return html(`<style>@font-face { font-family: P; src: url(/font/p.woff) } @font-face { font-family: S; src: url(https://pdfkiln-proxied.invalid:${tls}/font) }
+        @font-face { font-family: L; src: url(${other}/font/l.woff) } .p { font-family: P } .s { font-family: S } .l { font-family: L }</style>
+        <p class="p">p</p><p class="s">s</p><p class="l">l</p>`);
     }
     if (path?.startsWith('/xhr/')) {
       xhrRequests.set(path, `${req.headers.cookie ?? 'none'}, ${req.headers['content-language'] ?? 'none'}`);
@@ -371,6 +420,17 @@ describe('interface', () => {
     r = await run(['-q', '--custom-header', 'X-Test', 'yes', '--no-custom-header-propagation', `${base}/headers`, out]);
     assert.equal(r.code, 0);
     assert.equal(imgHeader, 'yes');
+    // To the fonts, which the command fetches itself, of every host and
+    // after a redirect, as in wkhtmltopdf.
+    fontRequests.clear();
+    r = await run(['-q', '--custom-header', 'X-Test', 'yes', '--custom-header-propagation', `${base}/fonts`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(Object.fromEntries([...fontRequests].sort()), {
+      '127.0.0.1/font/a.woff': 'yes, srv=1',
+      '127.0.0.1/font/moved': 'yes, srv=1',
+      'localhost/font/b.woff': 'yes, no cookie',
+      'localhost/font/c.woff': 'yes, no cookie',
+    });
   });
 
   test('--read-args-from-stdin: one conversion per line', async () => {
@@ -618,9 +678,86 @@ describe('interface', () => {
     assert.equal(r.stderr, `Warning: Failed to load ${base}/missing.css (ignore)\n`);
   });
 
-  test('--username and --password answer the server\'s HTTP authentication', async () => {
-    const r = await run(['-q', '--username', 'user', '--password', 'pass', `${base}/auth`, join(dir, 'auth.pdf')]);
+  test('--username and --password answer the server\'s HTTP authentication, for the fonts too, Basic or Digest, as in wkhtmltopdf', async () => {
+    let r = await run(['-q', '--username', 'user', '--password', 'pass', `${base}/auth`, join(dir, 'auth.pdf')]);
     assert.equal(r.code, 0, r.stderr);
+    loginRequests.clear();
+    r = await run(['-q', '--username', 'user', '--password', 'pass', `${base}/login/page`, join(dir, 'auth.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(Object.fromEntries([...loginRequests].sort()), { '/login/basic.woff': 'authorized', '/login/digest.woff': 'authorized', '/login/page': 'authorized' });
+  });
+
+  test('--proxy: the fonts the command fetches go through it too, over http, in a tunnel for https, by SOCKS 5, as in wkhtmltopdf', async (t) => {
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    const port = Number(new URL(base).port);
+    const tls = Number(new URL(s.url).port);
+    const seen: string[] = [];
+    const auth = `Basic ${Buffer.from('pu:pp').toString('base64')}`;
+    let login = false;
+    // An http proxy, to this file's server, and by CONNECT to the
+    // self-signed one; with login, it asks for pu:pp.
+    const proxy = createServer((req, res) => {
+      if (login && req.headers['proxy-authorization'] !== auth) return res.writeHead(407, { 'proxy-authenticate': 'Basic realm="proxy"' }).end();
+      seen.push(req.url ?? '');
+      const u = new URL(req.url ?? '');
+      const up = httpRequest({ host: '127.0.0.1', port, path: u.pathname + u.search, method: req.method, headers: req.headers }, (r) => {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        r.pipe(res);
+      });
+      up.on('error', () => res.writeHead(502).end());
+      req.pipe(up);
+    });
+    proxy.on('connect', (req: IncomingMessage, client: Socket, head: Buffer) => {
+      if (login && req.headers['proxy-authorization'] !== auth) {
+        return client.end('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="proxy"\r\nContent-Length: 0\r\n\r\n');
+      }
+      seen.push(`CONNECT ${req.url}`);
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      tunnelTo(client, tls, head);
+    });
+    // A SOCKS 5 proxy, without authentication, which takes a name: the
+    // self-signed server for its port, this file's for the others.
+    const socks = createTcpServer((c) => {
+      c.once('data', () => {
+        c.write(Buffer.from([5, 0]));
+        c.once('data', (d: Buffer) => {
+          const name = d.subarray(5, 5 + d[4]!).toString();
+          const to = d.readUInt16BE(5 + d[4]!);
+          seen.push(`SOCKS ${name}:${to}`);
+          c.pause();
+          c.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
+          tunnelTo(c, to === tls ? tls : port, Buffer.alloc(0));
+        });
+      });
+    });
+    await new Promise<void>((ok) => proxy.listen(0, '127.0.0.1', ok));
+    await new Promise<void>((ok) => socks.listen(0, '127.0.0.1', ok));
+    const at = (server: Server | ReturnType<typeof createTcpServer>) => (server.address() as AddressInfo).port;
+    // A host that resolves nowhere: only the proxy reaches it.
+    const page = `http://pdfkiln-proxied.invalid:${port}/proxied-fonts?tls=${tls}`;
+    const out = join(dir, 'proxy-fonts.pdf');
+    try {
+      for (const [via, logged, asks] of [
+        [`http://127.0.0.1:${at(proxy)}`, [`http://pdfkiln-proxied.invalid:${port}/font/p.woff`, `CONNECT pdfkiln-proxied.invalid:${tls}`], false],
+        [`http://pu:pp@127.0.0.1:${at(proxy)}`, [`http://pdfkiln-proxied.invalid:${port}/font/p.woff`, `CONNECT pdfkiln-proxied.invalid:${tls}`], true],
+        [`socks5://127.0.0.1:${at(socks)}`, [`SOCKS pdfkiln-proxied.invalid:${port}`, `SOCKS pdfkiln-proxied.invalid:${tls}`], false],
+      ] as const) {
+        seen.length = 0;
+        fontRequests.clear();
+        login = asks;
+        const r = await run(['-q', '--proxy', via, page, out]);
+        assert.equal(r.code, 0, `${via}: ${r.stderr}`);
+        for (const l of logged) assert.ok(seen.includes(l), `${via}: ${l} in ${JSON.stringify(seen)}`);
+        // Loopback goes around the proxy, as Chromium's requests do.
+        assert.ok(!seen.some((l) => l.includes('localhost')), `${via}: ${JSON.stringify(seen)}`);
+        assert.deepEqual(Object.fromEntries([...fontRequests].sort()), { 'localhost/font/l.woff': 'no header, no cookie', 'pdfkiln-proxied.invalid/font/p.woff': 'no header, no cookie' }, via);
+      }
+    } finally {
+      proxy.close();
+      socks.close();
+      s.close();
+    }
   });
 
   test('--replace fills a header variable of its own', async (t) => {

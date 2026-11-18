@@ -7,7 +7,7 @@
 import type { BrowserContext } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
 import { noAliasEnv, qtDefaultFamily } from '../engine/fonts.js';
-import { startRelay, type Relay } from '../engine/relay.js';
+import { startRelay, type Relay, type RelayProxy } from '../engine/relay.js';
 import { readJar, writeJar, type QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
 import type { LoadedPage } from '../engine/loader.js';
@@ -16,6 +16,9 @@ import type { PdfGlobal, Proxy } from './settings.js';
 export class Chromium {
   session?: Session;
   relay?: Relay;
+  // The proxy Chromium goes through, for the requests the command makes
+  // itself (fonts): none with the relay.
+  upstream?: RelayProxy;
   fontFamily?: string;
   private stopDeadline = () => {};
 
@@ -34,6 +37,7 @@ export class Chromium {
     // Even loopback addresses go through the relay.
     const proxyServer = relay?.url ?? (proxy ? `${proxy.type}://${proxy.host}:${proxy.port}` : undefined);
     const proxyBypass = relay ? ['<-loopback>'] : proxy?.host ? bypass : [];
+    this.upstream = !relay && proxy?.host ? { server: proxy, bypass } : undefined;
     this.session = await launch({
       dir: work,
       noSandbox: g.kiln.noSandbox,

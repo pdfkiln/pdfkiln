@@ -198,6 +198,7 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
       fontFamily: chromium.fontFamily,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
+      proxy: chromium.upstream,
       qtCookies: jar,
       ...(o.web.userStyleSheet ? await readStyleSheet(o.web.userStyleSheet).then((u) => ({ userStyleSheet: u.css, userStyleSheetUrl: u.url })) : {}),
     }, fb);
