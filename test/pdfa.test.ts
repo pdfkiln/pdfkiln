@@ -124,3 +124,19 @@ test('converting a file that is already PDF/A leaves it one', async () => {
   assert.match(packet, /<pdfaid:part>3<\/pdfaid:part>/);
   assert.equal((packet.match(/<pdfaid:part>/g) ?? []).length, 1, 'the XMP declares the part twice');
 });
+
+test('declaredPdfa: the part and conformance an XMP declares, as elements or attributes, compressed or not', async () => {
+  const { declaredPdfa } = await import('../src/pdf/pdfa.js');
+  const withXmp = async (xmp: string, compress: boolean) => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    const dict = { Type: 'Metadata', Subtype: 'XML' };
+    doc.catalog.set(PDFName.of('Metadata'), doc.context.register(compress ? doc.context.flateStream(xmp, dict) : doc.context.stream(xmp, dict)));
+    return PDFDocument.load(await doc.save(), { updateMetadata: false });
+  };
+  assert.deepEqual(declaredPdfa(await withXmp('<rdf:Description pdfaid:part="2" pdfaid:conformance="B"/>', true)), { part: 2, conformance: 'B' });
+  assert.deepEqual(declaredPdfa(await withXmp("<rdf:Description pdfaid:part='1' pdfaid:conformance='A'/>", false)), { part: 1, conformance: 'A' });
+  assert.deepEqual(declaredPdfa(await withXmp('<pdfaid:part>3</pdfaid:part><pdfaid:conformance>u</pdfaid:conformance>', false)), { part: 3, conformance: 'U' });
+  assert.equal(declaredPdfa(await withXmp('<dc:title>not PDF/A</dc:title>', false)), null);
+  assert.equal(declaredPdfa(await PDFDocument.create()), null);
+});

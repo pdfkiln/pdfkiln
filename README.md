@@ -167,7 +167,8 @@ pdfkiln cover.pdf report.md annex.pdf report.pdf
 - A PDF's links to its own pages keep working, and with `--outline` its bookmarks join those of the printed pages. What its catalog holds stays out: a script run on opening, attached files. With a PDF first, the document takes its title.
 - PDFs alone are merged without starting Chromium.
 - A PDF from a URL is fetched under the rules of a page: no private address without `--allow-private-network`, its certificate checked unless `--allow-invalid-certificates`, `--header` and `--cookie` for its host.
-- Refused: an encrypted PDF (PDFKiln does not remove a password or restrictions), a file that is not a PDF, a PDF on the standard input; a PDF input for an image or with `--tagged`, and with `--pdfa` or `--factur-x`, since PDFKiln cannot check that a PDF made elsewhere conforms to PDF/A.
+- With `--pdfa` or `--factur-x`, a PDF input must be PDF/A itself, as its metadata declares: an invoice in Factur-X with its terms of sale in one file, `pdfkiln --factur-x invoice.xml invoice.html terms.pdf invoice.pdf`. PDFKiln checks the fonts of every page and takes the rest on the PDF's word. Refused: a PDF that is not PDF/A (export it as PDF/A-2b or 3b where it is made), a PDF/A for print, in CMYK (PDFKiln's PDF/A is in sRGB), PDF/A-4, and for a level of part 2, a PDF/A-3 with a file attached to its pages.
+- Refused too: an encrypted PDF (PDFKiln does not remove a password or restrictions), a file that is not a PDF, a PDF on the standard input, and a PDF input for an image or with `--tagged`.
 
 ## Differences from wkhtmltopdf
 

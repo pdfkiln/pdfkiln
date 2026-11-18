@@ -87,7 +87,7 @@ document's folder, or for a URL from the web.
 
 Files and http(s) URLs named .pdf are PDFs: their pages go in as they are,
 with their links, and their bookmarks with --outline. Not for an image, nor
-with --pdfa, --factur-x or --tagged.
+with --tagged; with --pdfa or --factur-x, a PDF that is PDF/A itself.
 
 An output named .png, .webp, .jpg or .jpeg is an image of one input, in
 screen media: the whole page, in a window 1280 pixels wide.
@@ -509,22 +509,16 @@ export async function nativeMain(args: string[]): Promise<number> {
     }
   }
   // A PDF input goes into a PDF as it is: no image is made of it, no
-  // structure tree read from it, and PDFKiln cannot check that a PDF made
-  // elsewhere conforms to PDF/A.
+  // structure tree read from it. With --pdfa or --factur-x, each must be
+  // PDF/A itself (archivable), checked once read.
   const firstPdf = inputs.find(isPdf);
-  if (firstPdf !== undefined) {
-    const refusal = image
-      ? `an image is made from HTML or Markdown, not from a PDF (${firstPdf})`
-      : v.tagged
-        ? `--tagged takes an HTML or Markdown input, not a PDF (${firstPdf})`
-        : archived
-          ? `${v['factur-x'] !== undefined ? '--factur-x' : '--pdfa'} takes HTML and Markdown inputs, not a PDF (${firstPdf}): PDFKiln cannot check that a PDF made elsewhere conforms`
-          : '';
-    if (refusal) {
-      stderr(`pdfkiln: ${refusal}\n`);
-      return 1;
-    }
+  if (firstPdf !== undefined && (image || v.tagged)) {
+    stderr(image
+      ? `pdfkiln: an image is made from HTML or Markdown, not from a PDF (${firstPdf})\n`
+      : `pdfkiln: --tagged takes an HTML or Markdown input, not a PDF (${firstPdf})\n`);
+    return 1;
   }
+  const archiveOption = v['factur-x'] !== undefined ? '--factur-x' : '--pdfa';
   // Chromium, for any input but a PDF file: a PDF from a URL is fetched with
   // Chromium's user agent, as Markdown is.
   const chromium = inputs.some((input) => pdfPath(input) === null);
@@ -571,11 +565,53 @@ export async function nativeMain(args: string[]): Promise<number> {
     for (const m of unloaded) out.error(m);
     return unloaded.size > 0;
   };
+  // A PDF input, read and checked: its document, or false once its error
+  // is said.
+  const takePdf = async (input: string, bytes: Buffer): Promise<PDFDocument | false> => {
+    const [lib] = await pdfModules();
+    const doc = await readPdf(lib, bytes);
+    if (typeof doc === 'string') {
+      out.error(`could not load ${input}: ${doc}`);
+      return false;
+    }
+    if (archived) {
+      const { archivable } = await import('../pdf/archive.js');
+      const reason = archivable(doc, archived.level);
+      if (reason) {
+        stderr(`pdfkiln: ${archiveOption}: ${input} ${reason}\n`);
+        return false;
+      }
+    }
+    return doc;
+  };
   const work = mkdtempSync(join(tmpdir(), 'pdfkiln-'));
   let session: Session | undefined;
   let stop = () => {};
   try {
     step('options');
+    // The PDF files, read now: one that cannot go in costs no render. Each
+    // occurrence is read apart, its links pinned in its own copy (merge).
+    const pdfFiles = new Map<number, PDFDocument>();
+    for (const [i, input] of inputs.entries()) {
+      const path = pdfPath(input);
+      if (!path) continue;
+      const unusable = notAFile(input, pathToFileURL(path).href);
+      if (unusable) {
+        out.error(`could not load ${input}: ${unusable}`);
+        return 1;
+      }
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(path);
+      } catch (e) {
+        out.error(`could not load ${input}: ${words((e as NodeJS.ErrnoException).code ?? String(e))}`);
+        return 1;
+      }
+      const doc = await takePdf(input, bytes);
+      if (!doc) return 1;
+      pdfFiles.set(i, doc);
+    }
+    if (pdfFiles.size) step('pdf');
     if (blockPrivate && chromium) relay = await startRelay();
     step('relay');
     if (v['no-sandbox'] && chromium) out.warning("Chromium's sandbox is off (--no-sandbox)");
@@ -650,31 +686,28 @@ export async function nativeMain(args: string[]): Promise<number> {
       }
       // A PDF made elsewhere: read, fetched for a URL under the rules of a
       // page, and its pages added as they are.
-      const pdfFile = pdfPath(input);
       const pdfAt = pdfUrl(input);
-      if (pdfFile || pdfAt) {
-        let bytes: Buffer;
-        try {
-          if (pdfAt) {
-            const r = await fetchUrl(pdfAt);
-            if (r.status < 200 || r.status >= 300) {
-              out.error(`could not load ${input}: HTTP ${r.status}`);
-              return 1;
-            }
-            bytes = r.body;
-          } else bytes = readFileSync(pdfFile!);
-        } catch (e) {
-          out.error(`could not load ${input}: ${pdfAt ? why(pdfAt, e as Error) : words((e as NodeJS.ErrnoException).code ?? String(e))}`);
-          return 1;
+      if (pdfFiles.has(i) || pdfAt) {
+        let doc = pdfFiles.get(i);
+        if (!doc) {
+          let r: { status: number; body: Buffer };
+          try {
+            r = await fetchUrl(pdfAt!);
+          } catch (e) {
+            out.error(`could not load ${input}: ${why(pdfAt!, e as Error)}`);
+            return 1;
+          }
+          if (r.status < 200 || r.status >= 300) {
+            out.error(`could not load ${input}: HTTP ${r.status}`);
+            return 1;
+          }
+          const taken = await takePdf(input, r.body);
+          if (!taken) return 1;
+          doc = taken;
+          step('pdf');
         }
-        const [lib, { readOutline }] = pdfLib!;
-        const doc = await readPdf(lib, bytes);
-        if (typeof doc === 'string') {
-          out.error(`could not load ${input}: ${doc}`);
-          return 1;
-        }
+        const [, { readOutline }] = pdfLib!;
         parts.push({ doc, outline: v.outline ? readOutline(doc) : [], pdf: true });
-        step('pdf');
         continue;
       }
       // A PDF on the standard input would be printed as text.

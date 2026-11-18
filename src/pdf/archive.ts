@@ -15,7 +15,7 @@ import { attachInvoice, readInvoice, type Invoice } from './facturx.js';
 import { READ, WRITE } from './modules.js';
 import { ArchiveError, applyPdfa, readLevel, type Level } from './pdfa.js';
 
-export { ArchiveError };
+export { archivable, ArchiveError } from './pdfa.js';
 
 export interface Request {
   // The PDF/A level the file gets.

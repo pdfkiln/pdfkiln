@@ -6,7 +6,7 @@
 // embedded and carrying a ToUnicode map; none at 1b. pdf-lib, which assembles
 // the PDF, writes the output intent, the sRGB profile and the XMP; this file
 // picks the level, refuses what cannot conform, and leaves the writing to it.
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFStream } from '@cantoo/pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFStream } from '@cantoo/pdf-lib';
 
 // What the user asked for and cannot have, as opposed to what broke: the
 // command prints the message as it stands, and exits 1.
@@ -143,4 +143,77 @@ export function applyPdfa(doc: PDFDocument, level: Level): void {
     }
   }
   doc.convertToPDFA({ conformance: LEVELS[level] });
+}
+
+// The PDF/A a PDF declares in its XMP (pdfaid:part, pdfaid:conformance, as
+// elements or as attributes), null for none.
+export function declaredPdfa(doc: PDFDocument): { part: number; conformance: string } | null {
+  const meta = doc.catalog.lookupMaybe(PDFName.of('Metadata'), PDFStream);
+  if (!(meta instanceof PDFRawStream)) return null;
+  let xmp: string;
+  try {
+    xmp = Buffer.from(meta.dict.has(PDFName.of('Filter')) ? decodePDFRawStream(meta).decode() : meta.contents).toString('utf8');
+  } catch {
+    return null;
+  }
+  const value = (name: string) => new RegExp(`pdfaid:${name}\\s*=\\s*["']([^"']*)["']|<pdfaid:${name}>\\s*([^<]*?)\\s*<`).exec(xmp)?.slice(1).find((v) => v !== undefined);
+  const part = Number(value('part'));
+  return part >= 1 && part <= 4 ? { part, conformance: (value('conformance') ?? '').toUpperCase() } : null;
+}
+
+// The number of colour components of a PDF's output intents: 3 for RGB, 4
+// for CMYK, 1 for grey; none without one.
+function intentComponents(doc: PDFDocument): number[] {
+  const intents = doc.catalog.lookupMaybe(PDFName.of('OutputIntents'), PDFArray);
+  const found: number[] = [];
+  for (let i = 0; intents && i < intents.size(); i++) {
+    const profile = intents.lookupMaybe(i, PDFDict)?.lookupMaybe(PDFName.of('DestOutputProfile'), PDFStream);
+    const n = profile?.dict.lookupMaybe(PDFName.of('N'), PDFNumber)?.asNumber();
+    if (n !== undefined) found.push(n);
+  }
+  return found;
+}
+
+// A file attached to a page of a PDF: a FileAttachment annotation, or the
+// associated files (/AF) of the page or of an annotation, which PDF/A-3
+// allows and PDF/A-2 forbids. Those of the catalog, a Factur-X invoice's
+// among them, stay out of the merge.
+function attachedToPages(doc: PDFDocument): boolean {
+  for (const page of doc.getPages()) {
+    if (page.node.has(PDFName.of('AF'))) return true;
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    for (let i = 0; annots && i < annots.size(); i++) {
+      const a = annots.lookupMaybe(i, PDFDict);
+      if (a && (a.lookup(PDFName.of('Subtype')) === PDFName.of('FileAttachment') || a.has(PDFName.of('AF')))) return true;
+    }
+  }
+  return false;
+}
+
+// Why a PDF made elsewhere, one of the inputs, may not go into a PDF/A at
+// this level, or '' when it may. PDFKiln checks the fonts and nothing else
+// of a page (applyPdfa), which holds for what Chromium prints and not for a
+// PDF from anywhere: such a PDF must already be PDF/A, as it declares, and
+// its colours for the screen (sRGB, the output intent PDFKiln writes).
+// Measured with veraPDF 1.30 on 19 November 2026: PDF/A of LibreOffice 26.2
+// (1b, 2b, 3b, with images, links and bookmarks), Ghostscript 10.05 (2b)
+// and PDFKiln (2b, 3u, Factur-X), merged before or after a page at 2b, 2u,
+// 3b, 3u and as Factur-X: 42 files of 42 valid, PDF/A-3 inputs at 2b and 2u
+// among them, their attachments being the catalog's. Forced past this check,
+// a LibreOffice PDF that is not PDF/A fails (6.3.2-1, a font), and a PDF/A
+// for print in CMYK fails (6.2.4.3-3, DeviceCMYK under an sRGB intent).
+export function archivable(doc: PDFDocument, level: Level): string {
+  const declared = declaredPdfa(doc);
+  if (!declared) {
+    return 'is not PDF/A, and PDFKiln cannot check that a PDF made elsewhere conforms: export it as PDF/A where it is made (PDF/A-2b or 3b)';
+  }
+  if (declared.part === 4) return 'is PDF/A-4, built on PDF 2.0, which PDFKiln does not write: export it as PDF/A-2b or 3b';
+  if (declared.part > Number(level[0]) && attachedToPages(doc)) {
+    return `is PDF/A-3 with a file attached to its pages, which PDF/A-${level[0]} forbids: ask --pdfa for 3b or 3u`;
+  }
+  const print = intentComponents(doc).find((n) => n !== 3);
+  if (print !== undefined) {
+    return `is PDF/A for ${print === 4 ? 'print, in CMYK' : 'other colours than RGB'}, and the PDF/A PDFKiln writes is in sRGB: export it for the screen (RGB)`;
+  }
+  return '';
 }

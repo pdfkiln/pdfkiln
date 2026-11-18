@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString } from '@cantoo/pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString, StandardFonts } from '@cantoo/pdf-lib';
 import { launch } from '../src/engine/browser.js';
 import { version } from '../src/version.js';
 
@@ -2028,7 +2028,7 @@ describe('native interface', () => {
       assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/missing.pdf: HTTP 404\n`);
     });
 
-    test('refused: a PDF that is encrypted or not one; with --pdfa, --factur-x, --tagged, or for an image', async () => {
+    test('refused: a PDF that is encrypted or not one; one not PDF/A with --pdfa or --factur-x; with --tagged, or for an image', async () => {
       const terms = join(dir, 'native-terms.pdf');
       writeFileSync(terms, await madeElsewhere());
       const locked = await PDFDocument.create();
@@ -2042,8 +2042,8 @@ describe('native interface', () => {
         [[page, lockedFile, out], `pdfkiln: error: could not load ${lockedFile}: the PDF is encrypted, and PDFKiln does not remove its password or restrictions\n`],
         [[page, file('native/pdf/fake.pdf', '<p>not a PDF</p>'), out], `pdfkiln: error: could not load ${join(dir, 'native/pdf/fake.pdf')}: not a PDF\n`],
         [[page, 'missing.pdf', out], 'pdfkiln: error: could not load missing.pdf: no such file\n'],
-        [['--pdfa', page, terms, out], `pdfkiln: --pdfa takes HTML and Markdown inputs, not a PDF (${terms}): PDFKiln cannot check that a PDF made elsewhere conforms\n`],
-        [['--factur-x', invoiceXml, page, terms, out], `pdfkiln: --factur-x takes HTML and Markdown inputs, not a PDF (${terms}): PDFKiln cannot check that a PDF made elsewhere conforms\n`],
+        [['--pdfa', page, terms, out], `pdfkiln: --pdfa: ${terms} is not PDF/A, and PDFKiln cannot check that a PDF made elsewhere conforms: export it as PDF/A where it is made (PDF/A-2b or 3b)\n`],
+        [['--factur-x', invoiceXml, page, terms, out], `pdfkiln: --factur-x: ${terms} is not PDF/A, and PDFKiln cannot check that a PDF made elsewhere conforms: export it as PDF/A where it is made (PDF/A-2b or 3b)\n`],
         [['--tagged', terms, out], `pdfkiln: --tagged takes an HTML or Markdown input, not a PDF (${terms})\n`],
         [[terms, join(dir, 'refused-pdf.png')], `pdfkiln: an image is made from HTML or Markdown, not from a PDF (${terms})\n`],
       ];
@@ -2057,6 +2057,58 @@ describe('native interface', () => {
       const r = await native(['-', out], await madeElsewhere());
       assert.equal(r.code, 1);
       assert.equal(r.stderr, 'pdfkiln: error: could not load -: the standard input is a PDF: give it as a file named .pdf\n');
+    });
+
+    test('with --pdfa or --factur-x, a PDF that is PDF/A itself, for the screen, of a part the level takes', async () => {
+      const page = file('native/pdf/archived.html', '<style>body { font-family: "Liberation Sans", Arial, sans-serif }</style><h1>Facture 2026/11/000042</h1>');
+      const annex2b = join(dir, 'annex-2b.pdf');
+      const annex3b = join(dir, 'annex-3b.pdf');
+      let r = await native(['--pdfa=2b', page, annex2b]);
+      assert.equal(r.code, 0, r.stderr);
+      r = await native(['--pdfa=3b', page, annex3b]);
+      assert.equal(r.code, 0, r.stderr);
+      const out = join(dir, 'archived-with-annex.pdf');
+      r = await native(['--pdfa', page, annex2b, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: [] });
+      r = await native(['--factur-x', invoiceXml, page, annex3b, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await archived(out), { part: '3', conformance: 'B', files: ['factur-x.xml /Data'] });
+      r = await native(['--pdfa=2u', annex2b, page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await archived(out), { part: '2', conformance: 'U', files: [] });
+      // PDF/A-3 into PDF/A-2: its catalog's attachments stay out, one on a
+      // page would not.
+      r = await native(['--pdfa=2b', page, annex3b, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await archived(out), { part: '2', conformance: 'B', files: [] });
+      const attached = await PDFDocument.load(readFileSync(annex3b), { updateMetadata: false });
+      attached.getPage(0).node.set(PDFName.of('Annots'), attached.context.obj([attached.context.register(attached.context.obj({ Type: 'Annot', Subtype: 'FileAttachment', Rect: [0, 0, 10, 10] }))]));
+      const annexAttached = join(dir, 'annex-attached.pdf');
+      writeFileSync(annexAttached, await attached.save());
+      rmSync(out);
+      r = await native(['--pdfa=2b', page, annexAttached, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: --pdfa: ${annexAttached} is PDF/A-3 with a file attached to its pages, which PDF/A-2 forbids: ask --pdfa for 3b or 3u\n`);
+      // PDF/A for print, its output intent in CMYK.
+      const print = await PDFDocument.load(readFileSync(annex2b), { updateMetadata: false });
+      const intent = print.catalog.lookup(PDFName.of('OutputIntents'), PDFArray).lookup(0, PDFDict);
+      intent.lookup(PDFName.of('DestOutputProfile'), PDFStream).dict.set(PDFName.of('N'), print.context.obj(4));
+      const cmyk = join(dir, 'annex-cmyk.pdf');
+      writeFileSync(cmyk, await print.save());
+      r = await native(['--pdfa', page, cmyk, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: --pdfa: ${cmyk} is PDF/A for print, in CMYK, and the PDF/A PDFKiln writes is in sRGB: export it for the screen (RGB)\n`);
+      // Declared PDF/A, its font not embedded: the check of the fonts sees it.
+      const fake = await PDFDocument.create();
+      fake.addPage([200, 200]).drawText('x', { font: await fake.embedFont(StandardFonts.Helvetica) });
+      fake.convertToPDFA({ conformance: '2B' });
+      const fakeFile = join(dir, 'annex-fake.pdf');
+      writeFileSync(fakeFile, await fake.save());
+      r = await native(['--pdfa', page, fakeFile, out]);
+      assert.equal(r.code, 1);
+      assert.match(r.stderr, /^pdfkiln: error: --pdfa: a font is not embedded in the PDF \(Helvetica\)/);
+      assert.equal(existsSync(out), false);
     });
 
     test('--from markdown leaves a PDF a PDF', async () => {
