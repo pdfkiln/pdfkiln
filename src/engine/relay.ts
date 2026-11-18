@@ -372,6 +372,8 @@ export interface RelayOptions {
   // Headers for this URL's host only, over those of the same name: left
   // out at a redirect to another host (cookies, the native --header).
   hostHeaders?: Record<string, string>;
+  // Or those of each hop of a redirect, given by the caller.
+  hostHeadersFor?: (url: string) => Promise<Record<string, string>>;
   body?: Buffer;
   tls?: ClientCert;
   // Redirects followed here (fonts), or given back to Chromium.
@@ -452,7 +454,8 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0, an
   if (opts.follow && r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && hops < 10) {
     r.resume();
     const next = new URL(r.headers.location, u);
-    return relayRequest(next.href, { ...opts, hostHeaders: next.host === u.host ? opts.hostHeaders : undefined, method: 'GET', body: undefined }, hops + 1);
+    const hostHeaders = opts.hostHeadersFor ? await opts.hostHeadersFor(next.href) : next.host === u.host ? opts.hostHeaders : undefined;
+    return relayRequest(next.href, { ...opts, hostHeaders, method: 'GET', body: undefined }, hops + 1);
   }
   const chunks: Buffer[] = [];
   for await (const c of r) chunks.push(c as Buffer);

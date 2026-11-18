@@ -194,9 +194,12 @@ before(async () => {
       return res.writeHead(200, { 'content-type': 'text/plain' }).end('x');
     }
     if (path === '/xhr-page') return html(xhrPage());
+    // A font of another host, moved to the page's.
+    if (path === '/fonts-back') return html(`<style>@font-face { font-family: H; src: url(${other}/font/back) } p { font-family: H }</style><p>h</p>`);
     if (path?.startsWith('/font/')) {
       fontRequests.set(`${(req.headers.host ?? '').replace(/:\d+$/, '')}${path}`, `${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`);
       if (path === '/font/moved') return res.writeHead(302, { location: `${other}/font/c.woff` }).end();
+      if (path === '/font/back') return res.writeHead(302, { location: `${base}/font/home.woff` }).end();
       return res.writeHead(200, { 'content-type': 'font/woff' }).end();
     }
     if (path === '/post') {
@@ -519,6 +522,17 @@ describe('interface', () => {
       assert.deepEqual(Object.fromEntries([...seenCookies].sort()), Object.fromEntries(Object.entries({ ...sent, ...page }).sort()), input);
       assert.equal(readFileSync(path, 'utf8'), jar);
     }
+    // Fonts, which the command fetches and follows itself: each hop of a
+    // redirect gets the cookies of its own host, the longest path first.
+    fontRequests.clear();
+    const r = await run(['-q', '--cookie-jar', file('jar-fonts.txt', 'ip=1; domain=127.0.0.1; path=/;\nlh=1; domain=localhost; path=/;\n'), `${base}/fonts`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(Object.fromEntries([...fontRequests].sort()), {
+      '127.0.0.1/font/a.woff': 'no header, srv=1; ip=1',
+      '127.0.0.1/font/moved': 'no header, srv=1; ip=1',
+      'localhost/font/b.woff': 'no header, lh=1',
+      'localhost/font/c.woff': 'no header, lh=1',
+    });
   });
 
   test('--cookie-jar: an XMLHttpRequest with withCredentials gets the jar\'s cookies, from a page opened from a file or of another site, as in wkhtmltopdf', async () => {
@@ -563,6 +577,11 @@ describe('interface', () => {
       'localhost/font/b.woff': 'no header, no cookie',
       'localhost/font/c.woff': 'no header, no cookie',
     });
+    // From a page given as a file, it follows the font to another host.
+    fontRequests.clear();
+    r = await run(['-q', '--cookie', 'k', 'v', file('cookie-font.html', `<style>@font-face { font-family: C; src: url(${base}/font/moved) } p { font-family: C }</style><p>c</p>`), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(Object.fromEntries([...fontRequests].sort()), { '127.0.0.1/font/moved': 'no header, k=v', 'localhost/font/c.woff': 'no header, k=v' });
   });
 
   test('--cookie-jar with --cookie: the jar keeps the servers\' cookies, not those of --cookie, which go last, as in wkhtmltopdf', async () => {
@@ -1630,6 +1649,12 @@ describe('native interface', () => {
       'localhost/font/b.woff': 'no header, no cookie',
       'localhost/font/c.woff': 'no header, no cookie',
     });
+    // Secure by default: a font that another host moves to the input's
+    // takes neither there, that request being chosen by another site.
+    fontRequests.clear();
+    r = await native([...send, `${base}/fonts-back`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(Object.fromEntries([...fontRequests].sort()), { '127.0.0.1/font/home.woff': 'no header, no cookie', 'localhost/font/back': 'no header, no cookie' });
     for (const [flag, value, message] of [['--header', 'no colon', '"name: value"'], ['--cookie', 'nameonly', 'name=value']]) {
       r = await native([flag!, value!, `${base}/ok`, out]);
       assert.equal(r.code, 1);

@@ -18,6 +18,7 @@ Called as `wkhtmltopdf`, bugs fixed:
 - A secure cookie of `--cookie-jar` goes over https only, as in wkhtmltopdf 0.12.6: up to 1.3.0, it also went over http to the local machine, such as `http://127.0.0.1`.
 - An XMLHttpRequest with `withCredentials` gets the cookies of `--cookie-jar` that match its address, as in wkhtmltopdf 0.12.6: up to 1.3.0, it went without them from a page opened from a file, or to another site than the page's.
 - Web fonts follow `--proxy`, `--custom-header-propagation`, `--username` and `--password` as the page's other requests do, as in wkhtmltopdf 0.12.6. Up to 1.3.0, PDFKiln, which fetches fonts itself, sent them around the proxy, without the propagated headers, and could not log in for them: a font that only the proxy reaches, or behind a login, stopped the conversion.
+- A web font redirected to another host gets there the cookies of `--cookie-jar` for that host, and `--cookie` from a page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it got none there.
 - With a client certificate (`--ssl-crt-path`), the page's https requests, which PDFKiln makes itself, go through `--proxy` and answer `--username` and `--password`, as in wkhtmltopdf 0.12.6: up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
 
 Called as `pdfkiln`, bug fixed:

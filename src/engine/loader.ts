@@ -385,9 +385,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Chromium's.
   const everywhere = (spec.site ?? spec.url).startsWith('file:') ? load.cookies : [];
   const qtCookie = async (e: FetchPaused): Promise<string | undefined> => {
-    const url = e.request.url;
-    if (!spec.qtCookies || !/^https?:/.test(url)) return undefined;
     if (OWN_COOKIES.has(e.resourceType) && !(e.resourceType === 'XHR' && e.request.urlFragment === CREDENTIALS)) return undefined;
+    return jarCookie(e.request.url);
+  };
+  const jarCookie = async (url: string): Promise<string | undefined> => {
+    if (!spec.qtCookies || !/^https?:/.test(url)) return undefined;
     const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
     return spec.qtCookies.line(cookies, url, everywhere);
   };
@@ -506,6 +508,14 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
         block: spec.blockPrivateNetwork,
         headers: { 'user-agent': request.headers['User-Agent'] ?? '', ...(load.repeatCustomHeaders ? Object.fromEntries(load.customHeaders) : {}) },
         hostHeaders,
+        // wkhtmltopdf's cookies at each hop of a redirect, as for its other
+        // requests. Called as pdfkiln, none: a font another host sends to
+        // the input's host takes neither --header nor --cookie there, that
+        // host's request being chosen by another site.
+        hostHeadersFor: spec.qtCookies ? async (url: string): Promise<Record<string, string>> => {
+          const cookie = await jarCookie(url);
+          return cookie ? { cookie } : {};
+        } : undefined,
         proxy: spec.proxy,
         login: load.username ? { user: load.username, password: load.password } : undefined,
         tls: clientCert,
