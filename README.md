@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG (below). This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG; and it takes PDFs made elsewhere among its inputs: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice (below). This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -154,6 +154,20 @@ pdfkiln --element "#chart" --scale 2 report.html chart.png
 - WebP is lossless, which keeps text sharp, unless `--quality` asks for less. JPEG takes a quality of 90 unless `--quality` says otherwise. `--transparent` leaves out the white behind a page that paints no background, in PNG and WebP.
 - An image takes one input, HTML or Markdown, from a file, a URL or the standard input, under the rules of a PDF: the same access rules and options (`--css`, `--wait-for`, `--header`, `--cookie`, `--fail-on-resource-error`), and no image when the input does not load. Markdown is laid out in a column, as GitHub shows a README.
 - WebP stops at 16383 pixels a side, JPEG at 65535: a longer page is refused, with its size; PNG, `--height` or `--element` capture it.
+
+## PDF inputs
+
+`pdfkiln` takes PDFs made elsewhere among its inputs, a file or an http or https URL named `.pdf`: their pages go into the output as they are, in the order of the inputs, before or after the pages it prints. The terms of sale after an invoice, an annex, a cover.
+
+```sh
+pdfkiln invoice.html terms.pdf invoice.pdf
+pdfkiln cover.pdf report.md annex.pdf report.pdf
+```
+
+- A PDF's links to its own pages keep working, and with `--outline` its bookmarks join those of the printed pages. What its catalog holds stays out: a script run on opening, attached files. With a PDF first, the document takes its title.
+- PDFs alone are merged without starting Chromium.
+- A PDF from a URL is fetched under the rules of a page: no private address without `--allow-private-network`, its certificate checked unless `--allow-invalid-certificates`, `--header` and `--cookie` for its host.
+- Refused: an encrypted PDF (PDFKiln does not remove a password or restrictions), a file that is not a PDF, a PDF on the standard input; a PDF input for an image or with `--tagged`, and with `--pdfa` or `--factur-x`, since PDFKiln cannot check that a PDF made elsewhere conforms to PDF/A.
 
 ## Differences from wkhtmltopdf
 

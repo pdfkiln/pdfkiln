@@ -34,7 +34,10 @@
 //   the properties that no option does;
 // - an image instead of a PDF, for an output named .png, .webp, .jpg or
 //   .jpeg, or with --to: one input captured in screen media
-//   (src/native/image.ts).
+//   (src/native/image.ts);
+// - PDFs made elsewhere among the inputs, a file or an http(s) URL named
+//   .pdf: their pages go in as they are, their links and bookmarks kept;
+//   Chromium does not start when every input is a PDF file.
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -69,6 +72,7 @@ Examples:
   pdfkiln - - < page.html > page.pdf        # standard input and output
   pdfkiln notes.md notes.pdf                # Markdown
   pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
+  pdfkiln invoice.html terms.pdf out.pdf    # a PDF after the page
   pdfkiln https://example.com page.png      # an image: PNG, WebP or JPEG
 
 Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
@@ -76,17 +80,22 @@ input; the output is a file, or - for the standard output. Paper size,
 margins, headers and footers come from the page's CSS (@page and its margin
 boxes): A4 with 1 cm margins otherwise.
 
-An output named .png, .webp, .jpg or .jpeg is an image of one input, in
-screen media: the whole page, in a window 1280 pixels wide.
-
 Files and http(s) URLs named .md or .markdown are Markdown: GitHub's
 dialect, with math ($...$, $$...$$) and a front matter, printed with
 PDFKiln's style sheet, without JavaScript. Its images may come from the
 document's folder, or for a URL from the web.
 
+Files and http(s) URLs named .pdf are PDFs: their pages go in as they are,
+with their links, and their bookmarks with --outline. Not for an image, nor
+with --pdfa, --factur-x or --tagged.
+
+An output named .png, .webp, .jpg or .jpeg is an image of one input, in
+screen media: the whole page, in a window 1280 pixels wide.
+
 Rendering:
-  --from markdown             Read every input as Markdown, whatever its name
-                              (README, notes.txt, a URL, the standard input)
+  --from markdown             Read every input but PDFs as Markdown, whatever
+                              its name (README, notes.txt, a URL, the
+                              standard input)
   --css <file>                Add a style sheet after the page's own
   --media <print|screen>      CSS media type (default: print; screen for an
                               image)
@@ -170,6 +179,35 @@ const URL_INPUT = /^(https?|file|data):/i;
 // A Markdown file; with --from markdown, every input. No --from html: Chromium
 // reads a file by its name, and takes a .md one for a download.
 const MARKDOWN_NAME = /\.(md|markdown)$/i;
+
+// A PDF made elsewhere, by its name.
+const PDF_NAME = /\.pdf$/i;
+
+// The bytes of a PDF: its header within its first kilobyte, as readers
+// accept it.
+const isPdfData = (b: Buffer): boolean => b.subarray(0, 1024).includes('%PDF-');
+
+// A PDF input, read; the reason otherwise. An encrypted one is refused:
+// PDFKiln does not lift a password or restrictions.
+async function readPdf(lib: typeof import('@cantoo/pdf-lib'), bytes: Buffer): Promise<PDFDocument | string> {
+  if (!isPdfData(bytes)) return 'not a PDF';
+  let doc: PDFDocument;
+  try {
+    doc = await lib.PDFDocument.load(bytes, READ);
+  } catch (e) {
+    if (e instanceof lib.EncryptedPDFError) return 'the PDF is encrypted, and PDFKiln does not remove its password or restrictions';
+    return `not a readable PDF (${(e as Error).message})`;
+  }
+  return doc.getPageCount() ? doc : 'the PDF has no page';
+}
+
+// --timeout when Chromium does not run: every input a PDF file.
+function timer(seconds: number, onTimeout: () => void): () => void {
+  if (!seconds || seconds * 1000 > 2 ** 31 - 1) return () => {};
+  const t = setTimeout(onTimeout, seconds * 1000);
+  t.unref();
+  return () => clearTimeout(t);
+}
 
 // The Markdown renderer, loaded on demand like pdf-lib (src/pdf/modules.ts):
 // while Chromium starts, and only when an input is Markdown.
@@ -390,15 +428,29 @@ export async function nativeMain(args: string[]): Promise<number> {
     stderr('pdfkiln: --from takes markdown\n');
     return 1;
   }
+  // Whether an input is a PDF made elsewhere: a file's or an http(s) URL's
+  // name, whatever --from says. The standard input is never one.
+  const localPath = (input: string): string | null => {
+    if (input === '-') return null;
+    return URL_INPUT.test(input) ? (/^file:/i.test(input) ? filePath(URL.parse(input)?.href ?? '') : null) : resolve(input);
+  };
+  const pdfPath = (input: string): string | null => {
+    const path = localPath(input);
+    return path && PDF_NAME.test(path) ? path : null;
+  };
+  const pdfUrl = (input: string): string | null => {
+    const u = /^https?:/i.test(input) ? URL.parse(input) : null;
+    return u && PDF_NAME.test(u.pathname) ? u.href : null;
+  };
+  const isPdf = (input: string) => pdfPath(input) !== null || pdfUrl(input) !== null;
   // Whether an input is Markdown: --from, or a file's or an http(s) URL's
   // name. - is HTML but with --from markdown; any other URL is HTML.
   const markdownPath = (input: string): string | null => {
-    if (input === '-') return null;
-    const path = URL_INPUT.test(input) ? (/^file:/i.test(input) ? filePath(URL.parse(input)?.href ?? '') : null) : resolve(input);
+    const path = isPdf(input) ? null : localPath(input);
     return path && (v.from === 'markdown' || MARKDOWN_NAME.test(path)) ? path : null;
   };
   const markdownUrl = (input: string): string | null => {
-    const u = /^https?:/i.test(input) ? URL.parse(input) : null;
+    const u = /^https?:/i.test(input) && !isPdf(input) ? URL.parse(input) : null;
     return u && (v.from === 'markdown' || MARKDOWN_NAME.test(u.pathname)) ? u.href : null;
   };
   const isMarkdown = (input: string) => (input === '-' ? v.from === 'markdown' : markdownPath(input) !== null || markdownUrl(input) !== null);
@@ -456,6 +508,26 @@ export async function nativeMain(args: string[]): Promise<number> {
       return 1;
     }
   }
+  // A PDF input goes into a PDF as it is: no image is made of it, no
+  // structure tree read from it, and PDFKiln cannot check that a PDF made
+  // elsewhere conforms to PDF/A.
+  const firstPdf = inputs.find(isPdf);
+  if (firstPdf !== undefined) {
+    const refusal = image
+      ? `an image is made from HTML or Markdown, not from a PDF (${firstPdf})`
+      : v.tagged
+        ? `--tagged takes an HTML or Markdown input, not a PDF (${firstPdf})`
+        : archived
+          ? `${v['factur-x'] !== undefined ? '--factur-x' : '--pdfa'} takes HTML and Markdown inputs, not a PDF (${firstPdf}): PDFKiln cannot check that a PDF made elsewhere conforms`
+          : '';
+    if (refusal) {
+      stderr(`pdfkiln: ${refusal}\n`);
+      return 1;
+    }
+  }
+  // Chromium, for any input but a PDF file: a PDF from a URL is fetched with
+  // Chromium's user agent, as Markdown is.
+  const chromium = inputs.some((input) => pdfPath(input) === null);
   const blockPrivate = !v['allow-private-network'];
   const insecure = Boolean(v['allow-invalid-certificates']);
 
@@ -504,10 +576,10 @@ export async function nativeMain(args: string[]): Promise<number> {
   let stop = () => {};
   try {
     step('options');
-    if (blockPrivate) relay = await startRelay();
+    if (blockPrivate && chromium) relay = await startRelay();
     step('relay');
-    if (v['no-sandbox']) out.warning("Chromium's sandbox is off (--no-sandbox)");
-    session = await launch({
+    if (v['no-sandbox'] && chromium) out.warning("Chromium's sandbox is off (--no-sandbox)");
+    if (chromium) session = await launch({
       dir: work,
       noSandbox: v['no-sandbox'],
       proxyServer: relay?.url,
@@ -522,17 +594,18 @@ export async function nativeMain(args: string[]): Promise<number> {
     // pdf-lib, which an image does not need.
     const pdfLib = image ? undefined : await pdfModules();
     step('modules');
-    stop = deadline(session, timeout, () => {
+    const late = () => {
       removeQuietly(work);
       stderr(`pdfkiln: error: the conversion took longer than ${timeout} s (--timeout)\n`);
       process.exit(1);
-    });
-    const context = session.browser.defaultBrowserContext();
+    };
+    stop = session ? deadline(session, timeout, late) : timer(timeout, late);
+    const context = session?.browser.defaultBrowserContext();
     // A Markdown URL, fetched here with the relay's check at every redirect
     // and Chromium's user agent; --header and --cookie go to its host
     // only, as with a page. A redirect elsewhere than http(s) is its status.
-    const userAgent = await session.browser.userAgent();
-    const fetchMarkdown = async (start: string): Promise<{ status: number; body: Buffer; url: string }> => {
+    const userAgent = session ? await session.browser.userAgent() : '';
+    const fetchUrl = async (start: string): Promise<{ status: number; body: Buffer; url: string }> => {
       const host = URL.parse(start)?.hostname;
       let at = start;
       for (let hop = 0; ; hop++) {
@@ -559,7 +632,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     let stdin: Buffer | undefined;
     // The front matter of the first Markdown input that has one.
     let front: FrontMatter | undefined;
-    const parts: { doc: PDFDocument; outline: OutlineItem[] }[] = [];
+    const parts: { doc: PDFDocument; outline: OutlineItem[]; pdf?: boolean }[] = [];
     for (const [i, input] of inputs.entries()) {
       let url: string;
       const mdPath = markdownPath(input);
@@ -573,6 +646,40 @@ export async function nativeMain(args: string[]): Promise<number> {
       const unusable = url ? notAFile(input, url) : 'not a valid URL';
       if (unusable) {
         out.error(`could not load ${input}: ${unusable}`);
+        return 1;
+      }
+      // A PDF made elsewhere: read, fetched for a URL under the rules of a
+      // page, and its pages added as they are.
+      const pdfFile = pdfPath(input);
+      const pdfAt = pdfUrl(input);
+      if (pdfFile || pdfAt) {
+        let bytes: Buffer;
+        try {
+          if (pdfAt) {
+            const r = await fetchUrl(pdfAt);
+            if (r.status < 200 || r.status >= 300) {
+              out.error(`could not load ${input}: HTTP ${r.status}`);
+              return 1;
+            }
+            bytes = r.body;
+          } else bytes = readFileSync(pdfFile!);
+        } catch (e) {
+          out.error(`could not load ${input}: ${pdfAt ? why(pdfAt, e as Error) : words((e as NodeJS.ErrnoException).code ?? String(e))}`);
+          return 1;
+        }
+        const [lib, { readOutline }] = pdfLib!;
+        const doc = await readPdf(lib, bytes);
+        if (typeof doc === 'string') {
+          out.error(`could not load ${input}: ${doc}`);
+          return 1;
+        }
+        parts.push({ doc, outline: v.outline ? readOutline(doc) : [], pdf: true });
+        step('pdf');
+        continue;
+      }
+      // A PDF on the standard input would be printed as text.
+      if (input === '-' && isPdfData(stdin!)) {
+        out.error('could not load -: the standard input is a PDF: give it as a file named .pdf');
         return 1;
       }
       // Markdown: the page printed is its HTML, written next to the others
@@ -589,7 +696,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         let text: string;
         try {
           if (mdUrl) {
-            const r = await fetchMarkdown(mdUrl);
+            const r = await fetchUrl(mdUrl);
             if (r.status < 200 || r.status >= 300) {
               out.error(`could not load ${input}: HTTP ${r.status}`);
               return 1;
@@ -628,7 +735,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       failure = '';
       // What the input before asked for once printed is not in the PDF.
       unloaded.clear();
-      const lp = await openPage(context, {
+      const lp = await openPage(context!, {
         url,
         web,
         load: base.load,
@@ -703,6 +810,12 @@ export async function nativeMain(args: string[]): Promise<number> {
     // its first heading or its file's name), unless --title; the others
     // when given, or from the front matter of Markdown.
     if (v.title !== undefined) merged.doc.setTitle(v.title);
+    // A document whose first input is a PDF starts empty: its title is that
+    // PDF's.
+    else if (parts[0]!.pdf) {
+      const title = parts[0]!.doc.getTitle();
+      if (title) merged.doc.setTitle(title);
+    }
     const author = v.author ?? front?.author;
     if (author !== undefined) merged.doc.setAuthor(author);
     const subject = v.subject ?? front?.subject;

@@ -1,6 +1,7 @@
 // Puts the PDFs printed by Chromium together: one document, in order, with
 // wkhtmltopdf's page sizes, its outline, its title, and the header and
-// footer stamps drawn on each page.
+// footer stamps drawn on each page. The native interface adds PDFs made
+// elsewhere, its PDF inputs, whose pages go in as they are.
 import {
   PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFRawStream, PDFRef, PDFStream, PDFString,
   type PDFObject,
@@ -16,15 +17,56 @@ export interface OutlineItem {
 const text = (o: PDFObject | undefined): string =>
   o instanceof PDFString || o instanceof PDFHexString ? o.decodeText() : '';
 
-// The outline Chromium writes with generateDocumentOutline: explicit
-// destinations [page /XYZ x y z].
+// A named destination, from the catalog's /Dests dictionary (PDF 1.1) or
+// its /Names /Dests tree: the array, or a dictionary that holds it as /D.
+function namedDest(doc: PDFDocument, name: string): PDFObject | undefined {
+  const old = doc.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict)?.get(PDFName.of(name));
+  if (old) return old;
+  // The tree: leaves of /Names [key value ...], nodes of /Kids.
+  const walk = (node: PDFDict | undefined, depth: number): PDFObject | undefined => {
+    if (!node || depth > 32) return undefined;
+    const names = node.lookupMaybe(PDFName.of('Names'), PDFArray);
+    for (let i = 0; names && i + 1 < names.size(); i += 2) if (text(names.lookup(i)) === name) return names.get(i + 1);
+    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
+    for (let i = 0; kids && i < kids.size(); i++) {
+      const found = walk(kids.lookupMaybe(i, PDFDict), depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return walk(doc.catalog.lookupMaybe(PDFName.of('Names'), PDFDict)?.lookupMaybe(PDFName.of('Dests'), PDFDict), 0);
+}
+
+// A destination as an explicit array [page /XYZ x y z], from what a link or
+// a bookmark gives: the array, a name or a string naming one, or a
+// dictionary holding it as /D.
+export function resolveDest(doc: PDFDocument, d: PDFObject | undefined, depth = 0): PDFArray | undefined {
+  if (d === undefined || depth > 4) return undefined;
+  const v = d instanceof PDFRef ? doc.context.lookup(d) : d;
+  if (v instanceof PDFArray) return v;
+  if (v instanceof PDFDict) return resolveDest(doc, v.get(PDFName.of('D')), depth + 1);
+  if (v instanceof PDFName || v instanceof PDFString || v instanceof PDFHexString) return resolveDest(doc, namedDest(doc, v.decodeText()), depth + 1);
+  return undefined;
+}
+
+// Where a link or a bookmark goes: its /Dest, or the /D of its GoTo action;
+// nothing for an action of another kind (a URI, a script).
+function destOf(d: PDFDict): PDFObject | undefined {
+  const action = d.lookupMaybe(PDFName.of('A'), PDFDict);
+  if (action) return action.lookup(PDFName.of('S')) === PDFName.of('GoTo') ? action.get(PDFName.of('D')) : undefined;
+  return d.get(PDFName.of('Dest'));
+}
+
+// The outline of a PDF: Chromium's, with generateDocumentOutline, gives
+// explicit destinations [page /XYZ x y z]; a PDF made elsewhere may name
+// them, or go to them by a GoTo action.
 export function readOutline(doc: PDFDocument): OutlineItem[] {
   const pages = doc.getPages().map((p) => p.ref.toString());
   const outlines = doc.catalog.lookupMaybe(PDFName.of('Outlines'), PDFDict);
   const walk = (first: PDFDict | undefined): OutlineItem[] => {
     const items: OutlineItem[] = [];
     for (let d = first, guard = 0; d && guard < 100000; d = d.lookupMaybe(PDFName.of('Next'), PDFDict), guard++) {
-      const dest = d.lookupMaybe(PDFName.of('Dest'), PDFArray) ?? null;
+      const dest = resolveDest(doc, destOf(d)) ?? null;
       const ref = dest?.get(0);
       items.push({
         title: text(d.lookup(PDFName.of('Title'))),
@@ -105,6 +147,50 @@ export function prune(doc: PDFDocument): void {
 export interface Part {
   doc: PDFDocument;
   outline: OutlineItem[] | null; // null: not in the outline
+  // A PDF made elsewhere, not printed by Chromium.
+  pdf?: boolean;
+}
+
+// The links of a PDF made elsewhere to its own pages, as page numbers:
+// pdf-lib copies the page a link points to a second time, outside the page
+// tree, and a named destination stays a name of a tree it does not copy
+// (measured, pdf-lib 2.11.1): the links went nowhere. unpinLinks makes the
+// numbers the copied pages again. A link to no page of the file is dropped;
+// the others (a URI, another file) stay as they are.
+function pinLinks(doc: PDFDocument): void {
+  const index = new Map(doc.getPages().map((p, i) => [p.ref.toString(), i]));
+  for (const page of doc.getPages()) {
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    for (let i = (annots?.size() ?? 0) - 1; annots && i >= 0; i--) {
+      const a = annots.lookupMaybe(i, PDFDict);
+      if (!a || a.lookup(PDFName.of('Subtype')) !== PDFName.of('Link')) continue;
+      const action = a.lookupMaybe(PDFName.of('A'), PDFDict);
+      if (action && action.lookup(PDFName.of('S')) !== PDFName.of('GoTo')) continue;
+      const dest = resolveDest(doc, destOf(a));
+      const target = dest?.get(0);
+      const n = target instanceof PDFRef ? index.get(target.toString()) : undefined;
+      if (!dest || n === undefined) {
+        annots.remove(i);
+        continue;
+      }
+      const pinned = doc.context.obj([PDFNumber.of(n)]);
+      for (let j = 1; j < dest.size(); j++) pinned.push(dest.get(j));
+      a.delete(PDFName.of('A'));
+      a.set(PDFName.of('Dest'), pinned);
+    }
+  }
+}
+
+function unpinLinks(pages: PDFPage[]): void {
+  for (const page of pages) {
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    for (let i = 0; annots && i < annots.size(); i++) {
+      const dest = annots.lookupMaybe(i, PDFDict)?.lookupMaybe(PDFName.of('Dest'), PDFArray);
+      const n = dest?.get(0);
+      const target = n instanceof PDFNumber ? pages[n.asNumber()] : undefined;
+      if (target) dest!.set(0, target.ref);
+    }
+  }
 }
 
 export interface Assembled {
@@ -115,9 +201,17 @@ export interface Assembled {
 }
 
 // Appends every part to the first, keeping the named destinations of
-// internal links (Chromium's /Dests dictionary), renamed per part.
+// internal links (Chromium's /Dests dictionary), renamed per part. A PDF made
+// elsewhere is never the base: what its catalog holds (a script run on
+// opening, attached files, a form, its metadata) would come along. A new
+// document takes its pages then, as it takes the others'.
 export async function merge(parts: Part[], keepStructure: boolean): Promise<Assembled> {
-  const base = parts[0]!.doc;
+  const fresh = Boolean(parts[0]!.pdf);
+  const base = fresh ? await PDFDocument.create({ updateMetadata: false }) : parts[0]!.doc;
+  if (fresh) {
+    base.setCreationDate(new Date());
+    base.setModificationDate(new Date());
+  }
   const ctx = base.context;
   if (!keepStructure) {
     base.catalog.delete(PDFName.of('StructTreeRoot'));
@@ -125,17 +219,21 @@ export async function merge(parts: Part[], keepStructure: boolean): Promise<Asse
   }
   base.catalog.delete(PDFName.of('Outlines'));
   let dests = base.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
-  const offsets = [0];
-  for (let k = 1; k < parts.length; k++) {
+  const offsets = fresh ? [] : [0];
+  for (let k = fresh ? 0 : 1; k < parts.length; k++) {
     const src = parts[k]!.doc;
+    const pdf = Boolean(parts[k]!.pdf);
     offsets.push(base.getPageCount());
+    if (pdf) pinLinks(src);
     const srcPages = src.getPages();
     const copied = await base.copyPages(src, srcPages.map((_, i) => i));
     const map = new Map<string, PDFRef>();
     srcPages.forEach((p, i) => map.set(p.ref.toString(), copied[i]!.ref));
     for (const p of copied) base.addPage(p);
-    // Internal links of this part: rename their destinations.
-    const srcDests = src.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
+    if (pdf) unpinLinks(copied);
+    // Internal links of a part printed by Chromium: rename their
+    // destinations.
+    const srcDests = pdf ? undefined : src.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
     if (srcDests) {
       if (!dests) {
         dests = ctx.obj({});

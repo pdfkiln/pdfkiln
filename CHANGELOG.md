@@ -8,13 +8,15 @@ GitHub release.
 
 ## 1.4.0
 
-Called as `pdfkiln`, a new output:
+Called as `pdfkiln`, two new features:
 
 - **Images**: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG, for the preview of a shared link, a thumbnail or a picture in an email: the whole page, in screen media, in a window 1280 pixels wide, its images that wait to be scrolled to (`loading="lazy"`) loaded. `--width` and `--height` set the window, and with `--height` the image is the window alone; `--element` captures one element; `--scale 2` doubles the pixels; `--quality` sets the quality of JPEG and WebP, which is lossless without it; `--transparent` leaves out the white behind a page without a background. Markdown, URLs, the standard input (`--to png` writes to the standard output) and the other options work as for a PDF. An output named `.png`, `.webp`, `.jpg` or `.jpeg`, which got a PDF, now gets an image.
+- **PDF inputs**: a PDF made elsewhere, a file or an http or https URL named `.pdf`, goes among the inputs, its pages as they are: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice. Its links to its own pages keep working, and `--outline` keeps its bookmarks; PDFs alone are merged without Chromium. An encrypted PDF is refused, and so is a PDF input with `--pdfa`, `--factur-x` or `--tagged`, or for an image.
 
 ```sh
 pdfkiln https://example.com page.png
 pdfkiln --width 1200 --height 630 card.html card.webp
+pdfkiln invoice.html terms.pdf invoice.pdf
 ```
 
 Bugs fixed:

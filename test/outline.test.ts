@@ -26,3 +26,24 @@ test('the other titles as Chromium wrote them', () => {
   assert.notEqual(undoubleTitles(original, ['A'])[0], original[0]);
   assert.equal(original[0]!.title, 'AA');
 });
+
+test('a destination by name, from a tree of kids or the /Dests dictionary, or by a GoTo action', async () => {
+  const { PDFDocument, PDFName, PDFString } = await import('@cantoo/pdf-lib');
+  const { resolveDest } = await import('../src/pdf/assemble.js');
+  const doc = await PDFDocument.create();
+  const pages = [doc.addPage(), doc.addPage(), doc.addPage()];
+  const ctx = doc.context;
+  const to = (i: number) => ctx.obj([pages[i]!.ref, PDFName.of('Fit')]);
+  // A tree as word processors write it: kids, each a leaf of names.
+  const leaf = (names: [string, unknown][]) => ctx.register(ctx.obj({ Names: names.flatMap(([k, v]) => [PDFString.of(k), v]) } as never));
+  const tree = ctx.obj({ Kids: [leaf([['a', to(0)], ['b', ctx.obj({ D: to(1) })]]), leaf([['c', to(2)]])] });
+  doc.catalog.set(PDFName.of('Names'), ctx.obj({ Dests: ctx.register(tree) }));
+  doc.catalog.set(PDFName.of('Dests'), ctx.obj({ old: to(2) }));
+  const page = (d: unknown) => pages.findIndex((p) => p.ref.toString() === String((d as { get(i: number): unknown } | undefined)?.get(0)));
+  assert.equal(page(resolveDest(doc, PDFString.of('a'))), 0);
+  assert.equal(page(resolveDest(doc, PDFString.of('b'))), 1);
+  assert.equal(page(resolveDest(doc, PDFString.of('c'))), 2);
+  assert.equal(page(resolveDest(doc, PDFName.of('old'))), 2);
+  assert.equal(page(resolveDest(doc, ctx.obj({ D: PDFString.of('a') }))), 0);
+  assert.equal(resolveDest(doc, PDFString.of('missing')), undefined);
+});

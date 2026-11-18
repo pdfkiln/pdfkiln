@@ -140,6 +140,8 @@ let userCssRequest = '';
 // X-Test and Cookie of the last /md/doc.md request, and of its image.
 let mdRequest = '';
 let mdImageRequest = '';
+// What /terms.pdf serves.
+let servedPdf: Buffer = Buffer.alloc(0);
 before(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
@@ -271,6 +273,8 @@ before(async () => {
     if (path === '/third-party') return html(`<img src="${other}/img">`);
     if (path === '/img') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text y="10">${req.headers['x-test'] ?? 'none'}</text></svg>`);
     // An image and a frame that wait to be scrolled to, far below the window.
+    if (path === '/terms.pdf') return res.writeHead(200, { 'content-type': 'application/pdf' }).end(servedPdf);
+    if (path === '/fake.pdf') return html('<p>not a PDF</p>');
     if (path === '/deferred') {
       return html('<style>body { margin: 0 } div { height: 8000px }</style><div></div><img loading="lazy" src="/deferred/green.svg" width="200" height="200" style="display: block"><iframe loading="lazy" src="/deferred/green.html" width="200" height="200" style="display: block; border: 0"></iframe>');
     }
@@ -1374,9 +1378,9 @@ describe('security', () => {
 
 describe('native interface', () => {
   const pdfkiln = bundled ? join(root, 'dist', 'bundle', 'pdfkiln.cjs') : join(root, 'dist', 'src', 'bin', 'pdfkiln.js');
-  const native = (args: string[], stdin = ''): Promise<Run> => new Promise((ok) => {
+  const native = (args: string[], stdin: string | Buffer = '', env?: NodeJS.ProcessEnv): Promise<Run> => new Promise((ok) => {
     const t0 = performance.now();
-    const child = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, args), { cwd: dir });
+    const child = spawn(...command(process.env.PDFKILN_TEST_PDFKILN, pdfkiln, args), { cwd: dir, env: env && { ...process.env, ...env } });
     const out: Buffer[] = [];
     let err = '';
     child.stdout.on('data', (d: Buffer) => out.push(d));
@@ -1738,7 +1742,7 @@ describe('native interface', () => {
     assert.match(r.stdout.toString(), /\nImages:\n {2}--to <png\|webp\|jpeg\|pdf> {4}Format of the output/);
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
     assert.match(r.stdout.toString(), /\nDocument properties \(default: from the front matter of Markdown\):\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
-    assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input as Markdown, whatever its name\n/);
+    assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input but PDFs as Markdown, whatever\n/);
     assert.match(r.stdout.toString(), /\n {2}--fail-on-resource-error {4}Fail, without a PDF, /);
     // pdfkiln serve is gone (1.2.0).
     assert.doesNotMatch(r.stdout.toString(), /\bserve\b/);
@@ -1902,6 +1906,167 @@ describe('native interface', () => {
       const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
       assert.equal(doc.getPageCount(), 3);
       assert.equal(doc.getAuthor(), 'First');
+    });
+  });
+
+  describe('PDF inputs', () => {
+    // A PDF made elsewhere: two pages of 400 x 500 pt, a link from the first
+    // to the second by an explicit destination, another by a name of its
+    // /Names tree, one to the web, bookmarks by a GoTo action and by a
+    // name, a script run on opening, and a title.
+    const madeElsewhere = async (): Promise<Buffer> => {
+      const src = await PDFDocument.create();
+      const p1 = src.addPage([400, 500]);
+      const p2 = src.addPage([400, 500]);
+      const ctx = src.context;
+      const link = (o: Record<string, unknown>) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 50, 50], ...o } as never));
+      p1.node.set(PDFName.of('Annots'), ctx.obj([
+        link({ Dest: [p2.ref, PDFName.of('XYZ'), 0, 500, 0] }),
+        link({ A: { S: 'GoTo', D: PDFString.of('second') } }),
+        link({ A: { S: 'URI', URI: PDFString.of('https://example.com/') } }),
+      ]));
+      src.catalog.set(PDFName.of('Names'), ctx.obj({ Dests: ctx.register(ctx.obj({ Names: [PDFString.of('second'), ctx.obj([p2.ref, PDFName.of('Fit')])] })) }));
+      const [one, two, root] = [ctx.nextRef(), ctx.nextRef(), ctx.nextRef()];
+      ctx.assign(one, ctx.obj({ Title: PDFHexString.fromText('Part one'), Parent: root, Next: two, A: { S: 'GoTo', D: [p1.ref, PDFName.of('Fit')] } }));
+      ctx.assign(two, ctx.obj({ Title: PDFHexString.fromText('Part two'), Parent: root, Prev: one, Dest: PDFString.of('second') }));
+      ctx.assign(root, ctx.obj({ Type: 'Outlines', First: one, Last: two, Count: 2 }));
+      src.catalog.set(PDFName.of('Outlines'), root);
+      src.catalog.set(PDFName.of('OpenAction'), ctx.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') }));
+      src.setTitle('General terms');
+      return Buffer.from(await src.save());
+    };
+    // Each page's size, where each link goes, the bookmarks, the title,
+    // pages left outside the page tree, and what the catalog took from the
+    // inputs.
+    const contents = async (f: string) => {
+      const doc = await PDFDocument.load(readFileSync(f), { updateMetadata: false });
+      const pages = doc.getPages();
+      const at = (ref: unknown) => `p${pages.findIndex((p) => p.ref.toString() === String(ref)) + 1}`;
+      const dests = doc.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
+      const links: string[] = [];
+      pages.forEach((p, i) => {
+        const annots = p.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+        for (let k = 0; annots && k < annots.size(); k++) {
+          const a = annots.lookup(k, PDFDict);
+          const d = a.get(PDFName.of('Dest'));
+          const named = d instanceof PDFName ? dests?.lookupMaybe(d, PDFArray) : undefined;
+          const uri = a.lookupMaybe(PDFName.of('A'), PDFDict)?.lookup(PDFName.of('URI'));
+          const to = d instanceof PDFArray ? at(d.get(0)) : named ? at(named.get(0)) : uri instanceof PDFString || uri instanceof PDFHexString ? uri.decodeText() : '?';
+          links.push(`p${i + 1} ${to}`);
+        }
+      });
+      const outline: string[] = [];
+      const walk = (d: PDFDict | undefined): void => {
+        for (; d; d = d.lookupMaybe(PDFName.of('Next'), PDFDict)) {
+          outline.push(`${(d.lookup(PDFName.of('Title')) as PDFHexString).decodeText()} ${at(d.lookup(PDFName.of('Dest'), PDFArray).get(0))}`);
+          walk(d.lookupMaybe(PDFName.of('First'), PDFDict));
+        }
+      };
+      walk(doc.catalog.lookupMaybe(PDFName.of('Outlines'), PDFDict)?.lookupMaybe(PDFName.of('First'), PDFDict));
+      const tree = new Set(pages.map((p) => p.ref.toString()));
+      const astray = doc.context.enumerateIndirectObjects().filter(([r, o]) => o instanceof PDFDict && o.lookup(PDFName.of('Type')) === PDFName.of('Page') && !tree.has(r.toString())).length;
+      return {
+        sizes: pages.map((p) => `${Math.round(p.getWidth())} x ${Math.round(p.getHeight())}`),
+        links, outline, title: doc.getTitle(), astray,
+        catalog: ['OpenAction', 'Names', 'AcroForm'].filter((k) => doc.catalog.has(PDFName.of(k))),
+      };
+    };
+    const A4 = '596 x 842';
+    const CARD = '400 x 500';
+
+    test('a PDF after the page or before it: its pages as they are, its links and bookmarks kept, its catalog left', async () => {
+      const terms = join(dir, 'native-terms.pdf');
+      writeFileSync(terms, await madeElsewhere());
+      const page = file('native/pdf/invoice.html', '<title>Invoice 42</title><h1>Invoice</h1><a href="#total">to the total</a><p id="total" style="margin-top: 1500px">Total</p>');
+      const out = join(dir, 'with-terms.pdf');
+      let r = await native(['--outline', page, terms, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      assert.deepEqual(await contents(out), {
+        sizes: [A4, A4, CARD, CARD],
+        links: ['p1 p2', 'p3 p4', 'p3 p4', 'p3 https://example.com/'],
+        outline: ['Invoice p1', 'Part one p3', 'Part two p4'],
+        title: 'Invoice 42', astray: 0, catalog: [],
+      });
+      // First, the PDF gives the title, and its script on opening stays out.
+      r = await native([terms, page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await contents(out), {
+        sizes: [CARD, CARD, A4, A4],
+        links: ['p1 p2', 'p1 p2', 'p1 https://example.com/', 'p3 p4'],
+        outline: [],
+        title: 'General terms', astray: 0, catalog: [],
+      });
+    });
+
+    test('PDFs alone: merged without Chromium', async () => {
+      const terms = join(dir, 'native-terms.pdf');
+      writeFileSync(terms, await madeElsewhere());
+      const out = join(dir, 'pdfs-alone.pdf');
+      // A Chromium that cannot start: a conversion that started it fails.
+      const r = await native([terms, terms, out], '', { PDFKILN_CHROMIUM: join(dir, 'no-chromium', 'chrome') });
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual((await contents(out)).sizes, [CARD, CARD, CARD, CARD]);
+      assert.deepEqual((await contents(out)).links, ['p1 p2', 'p1 p2', 'p1 https://example.com/', 'p3 p4', 'p3 p4', 'p3 https://example.com/']);
+    });
+
+    test('a PDF from a URL: fetched under the rules of a page', async () => {
+      servedPdf = await madeElsewhere();
+      const page = file('native/pdf/short.html', '<p>Invoice</p>');
+      const out = join(dir, 'url-terms.pdf');
+      let r = await native(['--allow-private-network', page, `${base}/terms.pdf`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual((await contents(out)).sizes, [A4, CARD, CARD]);
+      r = await native([page, `${base}/terms.pdf`, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/terms.pdf: 127.0.0.1 is a private address (--allow-private-network to reach it)\n`);
+      r = await native(['--allow-private-network', page, `${base}/fake.pdf`, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/fake.pdf: not a PDF\n`);
+      r = await native(['--allow-private-network', page, `${base}/missing.pdf`, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/missing.pdf: HTTP 404\n`);
+    });
+
+    test('refused: a PDF that is encrypted or not one; with --pdfa, --factur-x, --tagged, or for an image', async () => {
+      const terms = join(dir, 'native-terms.pdf');
+      writeFileSync(terms, await madeElsewhere());
+      const locked = await PDFDocument.create();
+      locked.addPage([200, 200]);
+      locked.encrypt({ userPassword: 'secret', ownerPassword: 'owner', permissions: {} });
+      const lockedFile = join(dir, 'native-locked.pdf');
+      writeFileSync(lockedFile, await locked.save());
+      const page = file('native/pdf/refused.html', '<p>x</p>');
+      const out = join(dir, 'refused-pdf.pdf');
+      const cases: [string[], string][] = [
+        [[page, lockedFile, out], `pdfkiln: error: could not load ${lockedFile}: the PDF is encrypted, and PDFKiln does not remove its password or restrictions\n`],
+        [[page, file('native/pdf/fake.pdf', '<p>not a PDF</p>'), out], `pdfkiln: error: could not load ${join(dir, 'native/pdf/fake.pdf')}: not a PDF\n`],
+        [[page, 'missing.pdf', out], 'pdfkiln: error: could not load missing.pdf: no such file\n'],
+        [['--pdfa', page, terms, out], `pdfkiln: --pdfa takes HTML and Markdown inputs, not a PDF (${terms}): PDFKiln cannot check that a PDF made elsewhere conforms\n`],
+        [['--factur-x', invoiceXml, page, terms, out], `pdfkiln: --factur-x takes HTML and Markdown inputs, not a PDF (${terms}): PDFKiln cannot check that a PDF made elsewhere conforms\n`],
+        [['--tagged', terms, out], `pdfkiln: --tagged takes an HTML or Markdown input, not a PDF (${terms})\n`],
+        [[terms, join(dir, 'refused-pdf.png')], `pdfkiln: an image is made from HTML or Markdown, not from a PDF (${terms})\n`],
+      ];
+      for (const [args, message] of cases) {
+        const r = await native(args);
+        assert.equal(r.code, 1, args.join(' '));
+        assert.equal(r.stderr, message);
+      }
+      assert.equal(existsSync(out), false);
+      // On the standard input, a PDF would be printed as text.
+      const r = await native(['-', out], await madeElsewhere());
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: error: could not load -: the standard input is a PDF: give it as a file named .pdf\n');
+    });
+
+    test('--from markdown leaves a PDF a PDF', async () => {
+      const terms = join(dir, 'native-terms.pdf');
+      writeFileSync(terms, await madeElsewhere());
+      const notes = file('native/pdf/notes.txt', '# Notes\n\ntext\n');
+      const out = join(dir, 'md-terms.pdf');
+      const r = await native(['--from', 'markdown', notes, terms, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual((await contents(out)).sizes, [A4, CARD, CARD]);
     });
   });
 
