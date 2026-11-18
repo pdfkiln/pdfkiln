@@ -191,6 +191,9 @@ export interface RelayOptions {
   block: boolean;
   method?: string;
   headers?: Record<string, string>;
+  // Headers for this URL's host only, over those of the same name: left
+  // out at a redirect to another host (cookies, the native --header).
+  hostHeaders?: Record<string, string>;
   body?: Buffer;
   tls?: ClientCert;
   // Redirects followed here (fonts), or given back to Chromium.
@@ -217,7 +220,7 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0): P
       port: u.port || (u.protocol === 'https:' ? 443 : 80),
       path: u.pathname + u.search,
       method: opts.method ?? 'GET',
-      headers: { host: u.host, ...opts.headers },
+      headers: { host: u.host, ...opts.headers, ...opts.hostHeaders },
       rejectUnauthorized: !opts.insecure,
       ...(opts.tls && u.protocol === 'https:' ? opts.tls : {}),
     }, (r) => {
@@ -247,9 +250,7 @@ export async function relayRequest(url: string, opts: RelayOptions, hops = 0): P
   if (opts.follow && r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && hops < 10) {
     r.resume();
     const next = new URL(r.headers.location, u);
-    // The cookies were those of this host.
-    const headers = next.host === u.host ? opts.headers : Object.fromEntries(Object.entries(opts.headers ?? {}).filter(([k]) => !/^cookie$/i.test(k)));
-    return relayRequest(next.href, { ...opts, headers, method: 'GET', body: undefined }, hops + 1);
+    return relayRequest(next.href, { ...opts, hostHeaders: next.host === u.host ? opts.hostHeaders : undefined, method: 'GET', body: undefined }, hops + 1);
   }
   const chunks: Buffer[] = [];
   for await (const c of r) chunks.push(c as Buffer);

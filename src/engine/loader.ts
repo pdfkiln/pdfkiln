@@ -313,7 +313,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     if (!web.loadImages && e.resourceType === 'Image') {
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
     }
-    if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e, await qtCookie(e));
+    if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e);
     // --custom-header without propagation, and --post: the page request
     // only.
     const headersHere = !mainHeadersSent && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
@@ -334,7 +334,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     // The native --header: with every request to the page's host, in place
     // of the browser's own of the same name, and to no other host.
-    const site = Boolean(spec.siteHeaders?.length) && URL.parse(url)?.hostname === URL.parse(spec.site ?? spec.url)?.hostname;
+    const site = Boolean(spec.siteHeaders?.length) && onInputHost(url);
     if (site) {
       const names = new Set(spec.siteHeaders!.map(([name]) => name.toLowerCase()));
       headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !names.has(h.name.toLowerCase()));
@@ -363,6 +363,28 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return undefined;
     const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
     return spec.qtCookies.line(cookies, url, everywhere);
+  };
+
+  // The input's host, the only one the native --header and --cookie go to.
+  const inputHost = URL.parse(spec.site ?? spec.url)?.hostname;
+  const onInputHost = (url: string) => Boolean(inputHost) && URL.parse(url)?.hostname === inputHost;
+
+  // A font is fetched here, where Chromium adds nothing: its headers for
+  // its host only, as the page's other requests have them. wkhtmltopdf's
+  // cookies; called as pdfkiln, on the input's host, the cookies Chromium
+  // holds for it, the longest path first, and the native --header.
+  const fontHeaders = async (e: FetchPaused): Promise<Record<string, string>> => {
+    if (spec.qtCookies) {
+      const cookie = await qtCookie(e);
+      return cookie ? { cookie } : {};
+    }
+    const url = e.request.url;
+    if (!onInputHost(url)) return {};
+    const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
+    const h: Record<string, string> = {};
+    if (cookies.length) h.cookie = cookies.sort((a, b) => b.path.length - a.path.length).map((c) => `${c.name}=${c.value}`).join('; ');
+    for (const [name, value] of spec.siteHeaders ?? []) h[name] = value;
+    return h;
   };
 
   const serveFile = async (e: FetchPaused) => {
@@ -433,11 +455,12 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
   };
 
-  const relayFont = async (e: FetchPaused, cookie?: string) => {
+  const relayFont = async (e: FetchPaused) => {
     const { requestId, request } = e;
+    const hostHeaders = await fontHeaders(e);
     if (e.networkId) answered.add(e.networkId);
     try {
-      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '', ...(cookie ? { cookie } : {}) }, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
+      const r = await relayGet(request.url, { block: spec.blockPrivateNetwork, headers: { 'user-agent': request.headers['User-Agent'] ?? '' }, hostHeaders, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
       const headers = r.headers
         .filter(([k]) => !/^(access-control-allow-origin|content-encoding|content-length|transfer-encoding|connection)$/i.test(k))
         .map(([name, value]) => ({ name, value }));

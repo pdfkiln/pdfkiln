@@ -17,6 +17,10 @@ Called as `wkhtmltopdf`, bugs fixed:
 - A cookie that a server sets for a page of another site, or for a page opened from a file, is kept, sent with the next requests and written to the `--cookie-jar` file, as in wkhtmltopdf 0.12.6. Up to 1.3.0, it was lost.
 - A secure cookie of `--cookie-jar` goes over https only, as in wkhtmltopdf 0.12.6: up to 1.3.0, it also went over http to the local machine, such as `http://127.0.0.1`.
 
+Called as `pdfkiln`, bug fixed:
+
+- A web font from the input's host gets `--header`, `--cookie` and the cookies that host set, as the page's other requests to it do: up to 1.3.0, it got none of them. A font that redirects to another host takes none of them there.
+
 ## 1.3.0
 
 Three new features, called as `pdfkiln`.
