@@ -463,7 +463,19 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     const sent = body ?? (request.postDataEntries?.length ? Buffer.concat(request.postDataEntries.map((p) => Buffer.from(p.bytes ?? '', 'base64'))) : undefined);
     try {
-      const r = await relayRequest(request.url, { block: spec.blockPrivateNetwork, method: body ? 'POST' : request.method, headers: h, body: sent, tls: clientCert, insecure: spec.ignoreCertificateErrors, untrusted: sslErrorIgnored });
+      // As Chromium would: through its proxy, and with --username and
+      // --password for a server that asks.
+      const r = await relayRequest(request.url, {
+        block: spec.blockPrivateNetwork,
+        method: body ? 'POST' : request.method,
+        headers: h,
+        body: sent,
+        proxy: spec.proxy,
+        login: load.username ? { user: load.username, password: load.password } : undefined,
+        tls: clientCert,
+        insecure: spec.ignoreCertificateErrors,
+        untrusted: sslErrorIgnored,
+      });
       const responseHeaders = r.headers
         .filter(([k]) => !/^(content-encoding|content-length|transfer-encoding|connection|keep-alive)$/i.test(k))
         .map(([name, value]) => ({ name, value }));

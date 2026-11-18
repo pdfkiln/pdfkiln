@@ -149,6 +149,7 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 - On Windows, wkhtmltopdf's Qt takes font metrics from GDI, rounded to whole pixels: lines of `line-height: normal` are mostly 1 to 2 px taller between 10 and 16 px, and the glyphs are drawn larger (Arial at 12 px drawn at 13.4 px; `node dist/bench/gdi.js`). PDFKiln renders the same page on every system, the one wkhtmltopdf gives on Linux.
 - `--user-style-sheet` also takes an http or https URL, which wkhtmltopdf 0.12.6 ignores: its Qt WebKit only reads a local file or a `data:` URL.
 - `--cookie` goes with the requests to the page's host only when the page is loaded from an http or https address, where wkhtmltopdf sends it to every site the page calls. A page given as a file or on the standard input has no host: there, as in wkhtmltopdf, it goes with every request.
+- With `--proxy`, the proxy resolves the names of https addresses too, as Chromium has it, so `--proxy-hostname-lookup` has no effect: wkhtmltopdf resolves them itself unless it is given.
 - Not provided: the C library `libwkhtmltox`.
 
 ## Known issues in 1.0

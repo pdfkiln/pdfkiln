@@ -309,6 +309,29 @@ async function selfSignedServer(): Promise<{ url: string; close: () => void } | 
   return { url: `https://localhost:${(tls.address() as AddressInfo).port}/`, close: () => tls.close() };
 }
 
+// A test CA, a server certificate for localhost and a client certificate,
+// "Kiln client", its key under the password "secret", made in d. Null
+// without openssl.
+function clientCerts(d: string): { key: Buffer; cert: Buffer; ca: Buffer; args: string[] } | null {
+  mkdirSync(d, { recursive: true });
+  const ossl = (...a: string[]) => execFileSync('openssl', a, { cwd: d, stdio: 'ignore' });
+  try {
+    ossl('req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-days', '2', '-subj', '/CN=Test CA');
+    ossl('req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'server.key', '-out', 'server.csr', '-subj', '/CN=localhost');
+    ossl('x509', '-req', '-in', 'server.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'server.crt', '-days', '2');
+    ossl('req', '-newkey', 'rsa:2048', '-passout', 'pass:secret', '-keyout', 'client.key', '-out', 'client.csr', '-subj', '/CN=Kiln client');
+    ossl('x509', '-req', '-in', 'client.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'client.crt', '-days', '2');
+  } catch {
+    return null;
+  }
+  return {
+    key: readFileSync(join(d, 'server.key')),
+    cert: readFileSync(join(d, 'server.crt')),
+    ca: readFileSync(join(d, 'ca.crt')),
+    args: ['--ssl-crt-path', join(d, 'client.crt'), '--ssl-key-path', join(d, 'client.key'), '--ssl-key-password', 'secret'],
+  };
+}
+
 describe('interface', () => {
   test('--version', async () => {
     const r = await run(['--version']);
@@ -955,25 +978,9 @@ print(json.dumps(out))`;
   });
 
   test('--ssl-crt-path, --ssl-key-path, --ssl-key-password: the client certificate', async (t) => {
-    const d = join(dir, 'tls');
-    mkdirSync(d, { recursive: true });
-    const ossl = (...a: string[]) => execFileSync('openssl', a, { cwd: d, stdio: 'ignore' });
-    try {
-      ossl('req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-days', '2', '-subj', '/CN=Test CA');
-      ossl('req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'server.key', '-out', 'server.csr', '-subj', '/CN=localhost');
-      ossl('x509', '-req', '-in', 'server.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'server.crt', '-days', '2');
-      ossl('req', '-newkey', 'rsa:2048', '-passout', 'pass:secret', '-keyout', 'client.key', '-out', 'client.csr', '-subj', '/CN=Kiln client');
-      ossl('x509', '-req', '-in', 'client.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'client.crt', '-days', '2');
-    } catch {
-      return t.skip('openssl missing');
-    }
-    const tls = createHttpsServer({
-      key: readFileSync(join(d, 'server.key')),
-      cert: readFileSync(join(d, 'server.crt')),
-      ca: readFileSync(join(d, 'ca.crt')),
-      requestCert: true,
-      rejectUnauthorized: true,
-    }, (req, res) => {
+    const c = clientCerts(join(dir, 'tls'));
+    if (!c) return t.skip('openssl missing');
+    const tls = createHttpsServer({ key: c.key, cert: c.cert, ca: c.ca, requestCert: true, rejectUnauthorized: true }, (req, res) => {
       if (req.url === '/moved') return res.writeHead(302, { location: '/page' }).end();
       if (req.url === '/style.css') return res.writeHead(200, { 'content-type': 'text/css' }).end('p::after { content: " and styled" }');
       const cn = (req.socket as TLSSocket).getPeerCertificate().subject?.CN;
@@ -984,8 +991,7 @@ print(json.dumps(out))`;
     try {
       const url = `https://localhost:${(tls.address() as AddressInfo).port}/moved`;
       const out = join(dir, 'tls.pdf');
-      const cert = ['--ssl-crt-path', join(d, 'client.crt'), '--ssl-key-path', join(d, 'client.key'), '--ssl-key-password', 'secret'];
-      const r = await run(['-q', '--cookie', 'k', 'v', url, ...cert, out]);
+      const r = await run(['-q', '--cookie', 'k', 'v', url, ...c.args, out]);
       assert.equal(r.code, 0, r.stderr);
       if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /GET by Kiln client with k=v and styled/);
       // Without it, the server refuses the page.
@@ -994,6 +1000,48 @@ print(json.dumps(out))`;
       tls.close();
     }
     if (!hasPyMuPDF) t.skip('PyMuPDF missing');
+  });
+
+  test('--ssl-crt-path: the requests the command makes go through --proxy and answer --username and --password, as in wkhtmltopdf', async (t) => {
+    const c = clientCerts(join(dir, 'tls-proxy'));
+    if (!c) return t.skip('openssl missing');
+    const seen: string[] = [];
+    const login = `Basic ${Buffer.from('user:pass').toString('base64')}`;
+    // Behind a login: the page and its image, with the client's certificate.
+    const tls = createHttpsServer({ key: c.key, cert: c.cert, ca: c.ca, requestCert: true, rejectUnauthorized: true }, (req, res) => {
+      if (req.headers.authorization !== login) {
+        seen.push(`${req.url} 401`);
+        return res.writeHead(401, { 'www-authenticate': 'Basic realm="pdfkiln"' }).end();
+      }
+      seen.push(`${req.url} ${(req.socket as TLSSocket).getPeerCertificate().subject?.CN}`);
+      if (req.url === '/image') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+      res.writeHead(200, { 'content-type': 'text/html' }).end('<title>T</title><p>page</p><img src="/image">');
+    });
+    // A proxy that only tunnels, to that server.
+    const proxy = createServer((_req, res) => res.writeHead(502).end());
+    proxy.on('connect', (req: IncomingMessage, client: Socket, head: Buffer) => {
+      seen.push(`CONNECT ${req.url}`);
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      tunnelTo(client, (tls.address() as AddressInfo).port, head);
+    });
+    await new Promise<void>((ok) => tls.listen(0, '127.0.0.1', ok));
+    await new Promise<void>((ok) => proxy.listen(0, '127.0.0.1', ok));
+    const port = (tls.address() as AddressInfo).port;
+    const out = join(dir, 'tls-proxy.pdf');
+    const send = [...c.args, '--username', 'user', '--password', 'pass'];
+    try {
+      let r = await run(['-q', ...send, `https://localhost:${port}/page`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(seen.includes('/page Kiln client') && seen.includes('/image Kiln client'), JSON.stringify(seen));
+      // A host that only the proxy reaches.
+      seen.length = 0;
+      r = await run(['-q', ...send, '--proxy', `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`, `https://pdfkiln-proxied.invalid:${port}/page`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(seen.includes(`CONNECT pdfkiln-proxied.invalid:${port}`) && seen.includes('/page Kiln client') && seen.includes('/image Kiln client'), JSON.stringify(seen));
+    } finally {
+      tls.close();
+      proxy.close();
+    }
   });
 
   test('the JavaScript delay waits for what is pending, not more', async (t) => {
