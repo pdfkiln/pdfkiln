@@ -38,8 +38,10 @@ test('the Cookie header of a request: the longest paths first, then in the jar\'
   assert.equal(jar.line(matched, 'https://odoo.test/sub/a.css'), 'sub=1; host=1; dot=1; sec=1');
   // A cookie a server set comes after those of the file.
   assert.equal(jar.line([held('srv', '1', 'odoo.test'), held('dot', '1', '.odoo.test'), held('host', '1', 'odoo.test')], 'http://odoo.test/a.css'), 'host=1; dot=1; srv=1');
+  // A secure cookie Chromium would send over http to localhost: an empty
+  // header, so that it adds none; no cookie at all, no header.
   assert.equal(jar.line([held('sec', '1', 'localhost', '/', true)], 'http://localhost/'), '');
-  assert.equal(jar.line([], 'http://odoo.test/'), '');
+  assert.equal(jar.line([], 'http://odoo.test/'), undefined);
   // --cookie, given, comes last, whatever the URL.
   assert.equal(jar.line([held('srv', '1', 'odoo.test')], 'http://odoo.test/a.css', [['g', '1']]), 'srv=1; g=1');
   assert.equal(jar.line([], 'http://other.test/', [['g', '1']]), 'g=1');

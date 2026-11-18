@@ -15,6 +15,7 @@ Called as `wkhtmltopdf`, bugs fixed:
 - `--cookie` goes with every request of a page given as a file or on the standard input, and of a `--header-html` or `--footer-html` page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it went with none. Odoo 13 and 14 pass their session this way. From a page loaded from its address, it still goes to that page's host only.
 - With `--cookie-jar`, the cookies of `--cookie` are no longer written to the file, and they come after the jar's cookies in each request, as in wkhtmltopdf 0.12.6.
 - A cookie that a server sets for a page of another site, or for a page opened from a file, is kept, sent with the next requests and written to the `--cookie-jar` file, as in wkhtmltopdf 0.12.6. Up to 1.3.0, it was lost.
+- A secure cookie of `--cookie-jar` goes over https only, as in wkhtmltopdf 0.12.6: up to 1.3.0, it also went over http to the local machine, such as `http://127.0.0.1`.
 
 ## 1.3.0
 

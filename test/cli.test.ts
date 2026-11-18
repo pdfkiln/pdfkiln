@@ -439,6 +439,16 @@ describe('interface', () => {
     assert.equal(shownCookie, 'secret=1; k=v');
   });
 
+  test('--cookie-jar: a secure cookie never goes over http, to localhost neither, as in wkhtmltopdf', async () => {
+    const out = join(dir, 'jar-secure.pdf');
+    // Alone, it leaves an empty Cookie header, where wkhtmltopdf sends none.
+    for (const [jar, sent] of [['sec=1; secure; domain=127.0.0.1; path=/;\n', ''], ['sec=1; secure; domain=127.0.0.1; path=/;\nip=1; domain=127.0.0.1; path=/;\n', 'ip=1']] as const) {
+      const r = await run(['-q', '--cookie-jar', file('jar-secure.txt', jar), `${base}/show-cookie`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(shownCookie, sent, jar);
+    }
+  });
+
   test('--cookie-jar: a cookie a server sets for a page opened from a file is kept, sent and written, as in wkhtmltopdf', async () => {
     const jar = join(dir, 'jar-set.txt');
     rmSync(jar, { force: true });

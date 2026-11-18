@@ -342,7 +342,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     // wkhtmltopdf's cookies, in place of those Chromium would send.
     const cookie = await qtCookie(e);
-    if (cookie) {
+    if (cookie !== undefined) {
       headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !/^cookie$/i.test(h.name));
       headers.push({ name: 'Cookie', value: cookie });
     }
@@ -354,12 +354,13 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     return cdp.send('Fetch.continueRequest', { requestId, headers });
   };
 
-  // The cookies wkhtmltopdf sends with a request (LoadSpec.qtCookies), or
-  // '': --cookie too, from a page that has no host.
+  // The Cookie header wkhtmltopdf sends with a request (LoadSpec.qtCookies),
+  // --cookie's too from a page that has no host; undefined to leave
+  // Chromium's.
   const everywhere = (spec.site ?? spec.url).startsWith('file:') ? load.cookies : [];
-  const qtCookie = async (e: FetchPaused): Promise<string> => {
+  const qtCookie = async (e: FetchPaused): Promise<string | undefined> => {
     const url = e.request.url;
-    if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return '';
+    if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return undefined;
     const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
     return spec.qtCookies.line(cookies, url, everywhere);
   };
@@ -432,7 +433,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
   };
 
-  const relayFont = async (e: FetchPaused, cookie: string) => {
+  const relayFont = async (e: FetchPaused, cookie?: string) => {
     const { requestId, request } = e;
     if (e.networkId) answered.add(e.networkId);
     try {

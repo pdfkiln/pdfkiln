@@ -104,8 +104,10 @@ export class QtJar {
   // its URL (cookiesForUrl): the longest paths first, then in the jar's
   // order; a secure cookie over https only, where Chromium also gives it
   // to http://localhost. Then extra, --cookie's, sent whatever the URL
-  // (MyCookieJar::useCookie). Empty without a cookie.
-  line(cookies: (Named & { path: string; secure: boolean })[], url: string, extra: [string, string][] = []): string {
+  // (MyCookieJar::useCookie). Undefined without a cookie; empty when none
+  // is sent but Chromium holds one for the URL, so that it adds none.
+  line(cookies: (Named & { path: string; secure: boolean })[], url: string, extra: [string, string][] = []): string | undefined {
+    if (!cookies.length && !extra.length) return undefined;
     const https = url.startsWith('https:');
     const sent = cookies.filter((c) => https || !c.secure);
     const given = sent.filter((c) => this.givenRank(c) !== undefined).sort((a, b) => this.givenRank(a)! - this.givenRank(b)!);
