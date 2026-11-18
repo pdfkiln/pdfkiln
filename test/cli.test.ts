@@ -121,6 +121,10 @@ before(async () => {
     if (path?.startsWith('/seen/')) {
       seenCookies.set(`${(req.headers.host ?? '').replace(/:\d+$/, '')}${path}`, String(req.headers.cookie ?? 'none'));
       if (path === '/seen/page') return html(seenPage());
+      // A script that sets a cookie, then asks for an image.
+      if (path === '/seen/set.js') {
+        return res.writeHead(200, { 'content-type': 'text/javascript', 'set-cookie': 'srv=1; Path=/' }).end(`document.write('<img src="${base}/seen/after.svg">');`);
+      }
       if (path.endsWith('.css')) return res.writeHead(200, { 'content-type': 'text/css' }).end('p { color: blue }');
       return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
     }
@@ -421,6 +425,28 @@ describe('interface', () => {
     r = await run(['-q', '--cookie', 'k', 'v', '--header-html', header, `${other}/ok`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.deepEqual(seen(), { '127.0.0.1/seen/header.css': 'k=v' });
+  });
+
+  test('--cookie-jar with --cookie: the jar keeps the servers\' cookies, not those of --cookie, which go last, as in wkhtmltopdf', async () => {
+    const jar = join(dir, 'jar-and-cookie.txt');
+    const out = join(dir, 'jar-and-cookie.pdf');
+    rmSync(jar, { force: true });
+    let r = await run(['-q', '--cookie', 'k', 'v', '--cookie-jar', jar, `${base}/set-cookie`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(readFileSync(jar, 'utf8'), 'secret=1; domain=127.0.0.1; path=/;\n');
+    r = await run(['-q', '--cookie', 'k', 'v', '--cookie-jar', jar, `${base}/show-cookie`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(shownCookie, 'secret=1; k=v');
+  });
+
+  test('--cookie-jar: a cookie a server sets for a page opened from a file is kept, sent and written, as in wkhtmltopdf', async () => {
+    const jar = join(dir, 'jar-set.txt');
+    rmSync(jar, { force: true });
+    seenCookies.clear();
+    const r = await run(['-q', '--cookie-jar', jar, file('jar-set.html', `<p>set</p><script src="${base}/seen/set.js"></script>`), join(dir, 'jar-set.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(seenCookies.get('127.0.0.1/seen/after.svg'), 'srv=1');
+    assert.equal(readFileSync(jar, 'utf8'), 'srv=1; domain=127.0.0.1; path=/;\n');
   });
 
   test('--load-error-handling: a page that does not load aborts, is skipped or is kept', async () => {

@@ -43,6 +43,21 @@ test('the Cookie header of a request: the longest paths first, then in the jar\'
   // --cookie, given, comes last, whatever the URL.
   assert.equal(jar.line([held('srv', '1', 'odoo.test')], 'http://odoo.test/a.css', [['g', '1']]), 'srv=1; g=1');
   assert.equal(jar.line([], 'http://other.test/', [['g', '1']]), 'g=1');
+  // Held by Chromium for the page's host, last too, in its order.
+  jar.gave([['g', '1'], ['h', '2']], 'odoo.test');
+  assert.equal(jar.line([held('h', '2', 'odoo.test'), held('srv', '1', 'odoo.test'), held('g', '1', 'odoo.test')], 'http://odoo.test/'), 'srv=1; g=1; h=2');
+});
+
+test('the jar written back: without the cookies of --cookie, unless a server changed one', () => {
+  const jar = new QtJar();
+  jar.loaded([], []);
+  jar.gave([['g', '1'], ['h', '2']], '127.0.0.1');
+  const out = jar.toWrite([
+    { name: 'g', value: '1', domain: '127.0.0.1', path: '/' },
+    { name: 'srv', value: '1', domain: '127.0.0.1', path: '/' },
+    { name: 'h', value: 'new', domain: '127.0.0.1', path: '/' },
+  ]);
+  assert.deepEqual(out.map((c) => `${c.name}=${c.value}`), ['srv=1', 'h=new']);
 });
 
 test('the jar written back: in its order, unchanged cookies as read, the file\'s cookies Chromium did not take kept, a server\'s last', () => {

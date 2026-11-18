@@ -88,6 +88,14 @@ const isReport = (type?: string) => type === 'Ping' || type === 'CSPViolationRep
 // withCredentials (measured on 0.12.6).
 const OWN_COOKIES = new Set(['XHR', 'Fetch', 'EventSource', 'Preflight', 'Ping', 'CSPViolationReport']);
 
+// Why Chromium refuses a cookie a server sets, where Qt's jar took it:
+// SameSite, which Qt did not know, and the blocking of other sites' cookies.
+const SITE_REFUSALS = new Set([
+  'SameSiteStrict', 'SameSiteLax', 'SameSiteUnspecifiedTreatedAsLax', 'SameSiteNoneInsecure',
+  'SchemefulSameSiteStrict', 'SchemefulSameSiteLax', 'SchemefulSameSiteUnspecifiedTreatedAsLax',
+  'ThirdPartyPhaseout', 'ThirdPartyBlockedInFirstPartySet', 'UserPreferences',
+]);
+
 // QFileInfo(url).completeSuffix(): what follows the first dot of the name.
 function completeSuffix(url: string): string {
   const name = url.split('/').pop() ?? '';
@@ -247,6 +255,19 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // reports an error status only (measured on 0.12.6).
   const withheld = new Withheld(inflight);
   cdp.on('Network.responseReceivedExtraInfo', (e: { requestId: string; statusCode: number }) => withheld.status(e.requestId, e.statusCode));
+  // A cookie Chromium refuses to take from a response to a page of another
+  // site, or opened from a file: wkhtmltopdf keeps it (LoadSpec.qtCookies),
+  // so it is set here, without SameSite.
+  if (spec.qtCookies) {
+    cdp.on('Network.responseReceivedExtraInfo', (e: { requestId: string; blockedCookies?: { blockedReasons: string[]; cookie?: { name: string; value: string; domain: string; path: string; expires: number; secure: boolean; httpOnly: boolean; session: boolean } }[] }) => {
+      const url = urls.get(e.requestId);
+      const kept = (e.blockedCookies ?? []).flatMap((b) => (b.cookie && b.blockedReasons.every((r) => SITE_REFUSALS.has(r)) ? [b.cookie] : []));
+      if (!url || !kept.length) return;
+      cdp.send('Network.setCookies', {
+        cookies: kept.map((c) => ({ name: c.name, value: c.value, url, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, expires: c.session ? undefined : c.expires })),
+      }).catch(() => {});
+    });
+  }
   cdp.on('Network.loadingFailed', (e: { requestId: string; errorText: string; canceled?: boolean; blockedReason?: string; corsErrorStatus?: { corsError?: string } }) => {
     inflight.delete(e.requestId);
     const url = urls.get(e.requestId) ?? '';
@@ -516,6 +537,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     await cdp.send('Network.setCookies', {
       cookies: load.cookies.map(([name, value]) => ({ name, value, url: cookieUrl })),
     });
+    spec.qtCookies?.gave(load.cookies, URL.parse(cookieUrl)?.hostname ?? '');
   }
 
   // Load, then run-script, then window-status, then the delay.
