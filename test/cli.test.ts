@@ -5,7 +5,7 @@
 // unprivileged user: the sandbox stays on. Text checks use PyMuPDF
 // (bench/requirements.txt) and are skipped without it.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import childProcess, { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString } from '@cantoo/pdf-lib';
+import { launch } from '../src/engine/browser.js';
 import { version } from '../src/version.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -948,6 +949,34 @@ describe('security', () => {
     assert.equal(r.code, 1);
     assert.match(r.stderr, /^Error: .+\n(.+\n)*Exit with code 1, due to unknown error\.\n$/);
     assert.doesNotMatch(r.stderr, /\n\s+at /);
+  });
+
+  // Puppeteer's browser.close() runs taskkill, its error let through to
+  // stderr, when Chromium's answer to Browser.close is lost: seen in CI
+  // (18/11/2026) as "ERROR: The process ... not found." after a PDF.
+  // Disconnected first, the answer is lost every time. The engine from the
+  // sources, with their Chromium: not run against a package.
+  test('closing Chromium never runs Puppeteer\'s taskkill, even without its answer', { skip: Boolean(process.env.PDFKILN_TEST_WKHTMLTOPDF) && 'the engine, tested from the sources' }, async () => {
+    const execSync = childProcess.execSync;
+    const commands: string[] = [];
+    childProcess.execSync = ((command: string, ...rest: unknown[]) => {
+      commands.push(String(command));
+      return (execSync as (...a: unknown[]) => unknown)(command, ...rest);
+    }) as typeof childProcess.execSync;
+    try {
+      for (const answered of [true, false]) {
+        const work = mkdtempSync(join(dir, 'close-'));
+        const session = await launch({ dir: work });
+        // An answer first: Puppeteer has nothing left to write.
+        await session.browser.version();
+        if (!answered) await session.browser.disconnect();
+        await session.close();
+        rmSync(work, { recursive: true, force: true });
+      }
+    } finally {
+      childProcess.execSync = execSync;
+    }
+    assert.deepEqual(commands.filter((c) => /taskkill/i.test(c)), []);
   });
 
   test('Ctrl+C or SIGTERM: Chromium and the temporary folder go too', { skip: process.platform === 'win32' && 'POSIX signals' }, async () => {

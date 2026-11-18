@@ -283,9 +283,28 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
       // the process group is faster than a graceful close. On Windows,
       // taskkill costs about 0.85 s by itself: it only goes after a
       // Chromium that did not close (its other processes leave with it).
+      // Browser.close is sent here rather than by browser.close(): when its
+      // answer is lost, Chromium already leaving, Puppeteer runs taskkill
+      // with its output let through, and "ERROR: The process ... not
+      // found." reached the caller's stderr (CI, 18/11/2026).
       if (process.platform === 'win32') {
-        await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
-        if (browser.process()?.exitCode === null) killTree(pid);
+        const child = browser.process();
+        const exited = new Promise<void>((done) => {
+          if (!child || child.exitCode !== null || child.signalCode !== null) done();
+          else child.once('exit', () => done());
+        });
+        // Without its connection, Chromium cannot be asked: killed at once.
+        if (browser.connected) {
+          void (async () => {
+            const cdp = await browser.target().createCDPSession();
+            await cdp.send('Browser.close');
+          })().catch(() => {});
+          let timer: NodeJS.Timeout | undefined;
+          await Promise.race([exited, new Promise<void>((done) => (timer = setTimeout(done, 5000)))]);
+          clearTimeout(timer);
+        }
+        if (child?.exitCode === null) killTree(pid);
+        await browser.disconnect().catch(() => {});
         await removeWhenFree(profile);
       } else {
         browser.disconnect().catch(() => {});
