@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
-import type { BrowserContext, CDPSession, Page } from 'puppeteer-core';
+import type { BrowserContext, CDPSession, Frame, Page } from 'puppeteer-core';
 import type { LoadPage, PostItem, Web } from '../wk/settings.js';
 import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
@@ -175,6 +175,13 @@ function clientCertOf(load: LoadPage): ClientCert | undefined {
   } catch {
     return undefined;
   }
+}
+
+// The frames that hold a document. One that waits to be scrolled to
+// (loading=lazy) has none, and its URL is empty: Puppeteer would wait its
+// default timeout, 30 s, for a document to evaluate in, at each call.
+export function documentFrames(page: Page): Frame[] {
+  return page.frames().filter((f) => f.url() !== '');
 }
 
 // The blank tab Chromium opens at start serves the first page of a
@@ -672,7 +679,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Chromium loads as any other style sheet, the wait ending once it has
   // loaded or failed.
   if (spec.userStyleSheet || spec.userStyleSheetUrl) {
-    await Promise.all(page.frames().map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
+    await Promise.all(documentFrames(page).map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
       const at = document.head ?? document.documentElement;
       if (!href) {
         const s = document.createElement('style');
@@ -744,7 +751,7 @@ async function settle(page: Page, inflight: Set<string>, ms: number): Promise<vo
   let quietSince = 0;
   const busy = async () => {
     if (inflight.size) return true;
-    for (const f of page.frames()) {
+    for (const f of documentFrames(page)) {
       const b = await f.evaluate(() => {
         const w = window as unknown as { __pdfkilnBusy?: () => boolean };
         if (w.__pdfkilnBusy?.()) return true;
@@ -766,7 +773,7 @@ async function settle(page: Page, inflight: Set<string>, ms: number): Promise<vo
 export async function emulate(lp: LoadedPage): Promise<void> {
   const e = lp.spec.emulation;
   if (!e) return;
-  await Promise.all(lp.page.frames().map((f) => f.evaluate(emulateInPage, e).catch(() => {})));
+  await Promise.all(documentFrames(lp.page).map((f) => f.evaluate(emulateInPage, e).catch(() => {})));
 }
 
 interface FetchPaused {

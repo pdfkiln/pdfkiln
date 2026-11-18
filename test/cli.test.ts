@@ -270,6 +270,12 @@ before(async () => {
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
     if (path === '/img') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text y="10">${req.headers['x-test'] ?? 'none'}</text></svg>`);
+    // An image and a frame that wait to be scrolled to, far below the window.
+    if (path === '/deferred') {
+      return html('<style>body { margin: 0 } div { height: 8000px }</style><div></div><img loading="lazy" src="/deferred/green.svg" width="200" height="200" style="display: block"><iframe loading="lazy" src="/deferred/green.html" width="200" height="200" style="display: block; border: 0"></iframe>');
+    }
+    if (path === '/deferred/green.svg') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#0f0"/></svg>');
+    if (path === '/deferred/green.html') return html('<style>body { margin: 0; background: #0f0 }</style>');
     if (path === '/hang') {
       hangs.push(() => res.end());
       return;
@@ -1758,6 +1764,18 @@ describe('native interface', () => {
     // .md is Moldova's domain, but a missing notes.md is a file.
     r = await native(['notes.md', join(dir, 'm.pdf')]);
     assert.equal(r.stderr, 'pdfkiln: error: could not load notes.md: no such file\n');
+  });
+
+  test('a frame that waits to be scrolled to holds neither mode', async () => {
+    // Up to 1.3.0, Puppeteer waited 30 s for its document at each step that
+    // reaches every frame: 30 s in this mode, 60 s in the compatible one.
+    const out = join(dir, 'deferred.pdf');
+    let r = await native(['--allow-private-network', `${base}/deferred`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
+    r = await run([`${base}/deferred`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
   });
 
   describe('Markdown', () => {

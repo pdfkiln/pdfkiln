@@ -6,6 +6,12 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.4.0
+
+Bugs fixed:
+
+- A page with an iframe that waits to be scrolled to (`loading="lazy"`), too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
+
 ## 1.3.1
 
 Called as `wkhtmltopdf`, bugs fixed:

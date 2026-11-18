@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer-core';
 import { executablePath } from './chromium.js';
+import { documentFrames } from './engine/loader.js';
 import { applyMediaWidth, roundFontSizes } from './wkemulation.js';
 
 export interface Margins { top: number; right: number; bottom: number; left: number }
@@ -135,7 +136,7 @@ export async function emulate(page: Page, opts: RenderOptions): Promise<() => Pr
   }
   return async () => {
     if (opts.mediaViewport) await applyMediaWidth(cdp, ...opts.mediaViewport);
-    await Promise.all(page.frames().map(async (frame) => {
+    await Promise.all(documentFrames(page).map(async (frame) => {
       if (opts.roundFontSizes) await frame.evaluate(roundFontSizes);
       if (opts.truncateTopMargin) await frame.evaluate(truncateTopMargin);
     }));
