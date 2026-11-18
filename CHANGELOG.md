@@ -8,26 +8,29 @@ GitHub release.
 
 ## 1.3.1
 
-Called as `wkhtmltopdf`, bugs fixed:
+Odoo 15 and later print their reports with their style and header on a server with several databases, as with wkhtmltopdf. Called as `wkhtmltopdf`, cookies, fonts and the requests of a client certificate now follow the rules of wkhtmltopdf 0.12.6. Called as `pdfkiln`, `--header` and `--cookie` no longer go with a request that another site redirects to the input's host.
 
-- The cookies of `--cookie-jar` go with every request whose address they match, whatever the site of the page, as in wkhtmltopdf 0.12.6. Up to 1.3.0, the style sheets, images and fonts that a page opened from a file loads from a server, or that a page loads from another site, went without them: Odoo 15 and later, which pass their session this way, printed their reports without their style and header on a server with several databases.
-- A `--cookie-jar` file is kept as wkhtmltopdf 0.12.6 keeps it: a line Chromium cannot take, such as a path that does not start with `/`, no longer stops the conversion with "unknown error", and the file is written back in its order, with the lines it cannot use and the expiry dates as they were.
-- `--cookie` goes with every request of a page given as a file or on the standard input, and of a `--header-html` or `--footer-html` page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it went with none. Odoo 13 and 14 pass their session this way. From a page loaded from its address, it still goes to that page's host only.
-- With `--cookie-jar`, the cookies of `--cookie` are no longer written to the file, and they come after the jar's cookies in each request, as in wkhtmltopdf 0.12.6.
-- A cookie that a server sets for a page of another site, or for a page opened from a file, is kept, sent with the next requests and written to the `--cookie-jar` file, as in wkhtmltopdf 0.12.6. Up to 1.3.0, it was lost.
-- A secure cookie of `--cookie-jar` goes over https only, as in wkhtmltopdf 0.12.6: up to 1.3.0, it also went over http to the local machine, such as `http://127.0.0.1`.
-- An XMLHttpRequest with `withCredentials` gets the cookies of `--cookie-jar` that match its address, as in wkhtmltopdf 0.12.6: up to 1.3.0, it went without them from a page opened from a file, or to another site than the page's.
-- Web fonts follow `--proxy`, `--custom-header-propagation`, `--username` and `--password` as the page's other requests do, as in wkhtmltopdf 0.12.6. Up to 1.3.0, PDFKiln, which fetches fonts itself, sent them around the proxy, without the propagated headers, and could not log in for them: a font that only the proxy reaches, or behind a login, stopped the conversion.
-- A web font redirected to another host gets there the cookies of `--cookie-jar` for that host, and `--cookie` from a page given as a file, as in wkhtmltopdf 0.12.6: up to 1.3.0, it got none there.
-- With a client certificate (`--ssl-crt-path`), the page's https requests, which PDFKiln makes itself, go through `--proxy` and answer `--username` and `--password`, as in wkhtmltopdf 0.12.6: up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
+Security, called as `pdfkiln`:
 
-Called as `pdfkiln`, security:
+- **Redirects from another site**: a request that another site sends to the input's host by a redirect, for an image, a style sheet, a script, a frame or a font, no longer takes `--header` and `--cookie` there, since that site chose it. Up to 1.3.0, all but the fonts took them. The input itself keeps them through its own redirects, such as a login on another site.
 
-- A request that another site sends to the input's host by a redirect, for an image, a style sheet, a script, a frame or a font, takes neither `--header` nor `--cookie` there, since that site chose it: up to 1.3.0, all but the fonts took them. The input itself keeps them through its own redirects, such as a login on another site.
+Called as `wkhtmltopdf`, cookies, now as in wkhtmltopdf 0.12.6:
+
+- **`--cookie-jar`**: its cookies go with every request whose address they match, whatever the site of the page. Up to 1.3.0, the style sheets, images and fonts of a page opened from a file, or of another site than the page's, went without them: Odoo 15 and later, which pass their session this way, printed their reports without style or header on a server with several databases.
+- **`--cookie`**: it goes with every request of a page given as a file or on the standard input, and of a `--header-html` or `--footer-html` page given as a file. Up to 1.3.0, it went with none. Odoo 13 and 14 pass their session this way. From a page loaded from its address, it still goes to that page's host only.
+- **The jar file** is read and written back as wkhtmltopdf keeps it. A line Chromium cannot take, such as a path that does not start with `/`, no longer stops the conversion with "unknown error", and the file keeps its order, the lines it cannot use and its expiry dates. The cookies of `--cookie` are no longer written to it, and come after the jar's in each request.
+- **Cookies set by a server** for a page of another site, or for a page opened from a file, are kept, sent with the next requests and written to the jar. Up to 1.3.0, they were lost.
+- **Secure cookies** of the jar go over https only. Up to 1.3.0, they also went over http to the local machine, such as `http://127.0.0.1`.
+- **XMLHttpRequest**: one with `withCredentials` gets the jar's cookies that match its address. Up to 1.3.0, it went without them from a page opened from a file, or to another site than the page's.
+
+Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.12.6:
+
+- **Web fonts**, which PDFKiln fetches itself, follow `--proxy`, `--custom-header-propagation`, `--username` and `--password`, as the page's other requests do. Up to 1.3.0, they went around the proxy, without the propagated headers and without logging in: a font that only the proxy reaches, or behind a login, stopped the conversion. A font redirected to another host gets there the jar's cookies for that host, and `--cookie` from a page given as a file; up to 1.3.0, it got none there.
+- **Client certificate** (`--ssl-crt-path`): the page's https requests, which PDFKiln also makes itself, go through `--proxy` and answer `--username` and `--password`. Up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
 
 Called as `pdfkiln`, bug fixed:
 
-- A web font from the input's host gets `--header`, `--cookie` and the cookies that host set, as the page's other requests to it do: up to 1.3.0, it got none of them. A font that redirects to another host takes none of them there.
+- **Fonts of the input's host** get `--header`, `--cookie` and the cookies that host set, as the page's other requests to it do. Up to 1.3.0, they got none of them. A font that redirects to another host takes none of them there.
 
 ## 1.3.0
 
