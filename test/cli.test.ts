@@ -105,6 +105,8 @@ let shownCookie = '';
 const seenCookies = new Map<string, string>();
 // The X-Test and Cookie of each /font/ request, by host and path.
 const fontRequests = new Map<string, string>();
+// The Cookie and Content-Language of each /xhr/ request, by path.
+const xhrRequests = new Map<string, string>();
 // The Cookie and X-Test of the last /user.css request.
 let userCssRequest = '';
 // X-Test and Cookie of the last /md/doc.md request, and of its image.
@@ -138,6 +140,11 @@ before(async () => {
         @font-face { font-family: C; src: url(/font/moved) } .a { font-family: A } .b { font-family: B } .c { font-family: C }</style>
         <p class="a">a</p><p class="b">b</p><p class="c">c</p>`);
     }
+    if (path?.startsWith('/xhr/')) {
+      xhrRequests.set(path, `${req.headers.cookie ?? 'none'}, ${req.headers['content-language'] ?? 'none'}`);
+      return res.writeHead(200, { 'content-type': 'text/plain' }).end('x');
+    }
+    if (path === '/xhr-page') return html(xhrPage());
     if (path?.startsWith('/font/')) {
       fontRequests.set(`${(req.headers.host ?? '').replace(/:\d+$/, '')}${path}`, `${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`);
       if (path === '/font/moved') return res.writeHead(302, { location: `${other}/font/c.woff` }).end();
@@ -213,6 +220,18 @@ before(async () => {
 // Style sheets and an image on two sites, 127.0.0.1 and localhost.
 const seenPage = () => `<link rel="stylesheet" href="${base}/seen/a.css"><link rel="stylesheet" href="${base}/seen/sub/b.css">
   <link rel="stylesheet" href="${other}/seen/c.css"><img src="${base}/seen/d.svg"><p>seen</p>`;
+// XMLHttpRequests to 127.0.0.1, withCredentials set after open(): one
+// synchronous with a header, one asynchronous, and one without it.
+const xhrPage = () => `<p>xhr</p><script>
+  const send = (name, credentials, async) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', '${base}/xhr/' + name, async);
+    if (name === 'sync') x.setRequestHeader('Content-Language', 'fr');
+    x.withCredentials = credentials;
+    try { x.send(); } catch (e) {}
+  };
+  send('sync', true, false); send('async', true, true); send('plain', false, false);
+</script>`;
 after(() => {
   for (const h of hangs) h();
   hangs = [];
@@ -416,6 +435,16 @@ describe('interface', () => {
       assert.equal(r.code, 0, r.stderr);
       assert.deepEqual(Object.fromEntries([...seenCookies].sort()), Object.fromEntries(Object.entries({ ...sent, ...page }).sort()), input);
       assert.equal(readFileSync(path, 'utf8'), jar);
+    }
+  });
+
+  test('--cookie-jar: an XMLHttpRequest with withCredentials gets the jar\'s cookies, from a page opened from a file or of another site, as in wkhtmltopdf', async () => {
+    const out = join(dir, 'jar-xhr.pdf');
+    for (const input of [file('jar-xhr.html', xhrPage()), `${other}/xhr-page`]) {
+      xhrRequests.clear();
+      const r = await run(['-q', '--cookie-jar', file('jar-xhr.txt', 'ip=1; domain=127.0.0.1; path=/;\n'), input, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(Object.fromEntries([...xhrRequests].sort()), { '/xhr/async': 'ip=1, none', '/xhr/plain': 'none, none', '/xhr/sync': 'ip=1, fr' }, input);
     }
   });
 

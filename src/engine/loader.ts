@@ -85,8 +85,31 @@ const isReport = (type?: string) => type === 'Ping' || type === 'CSPViolationRep
 // Requests whose cookies stay Chromium's (LoadSpec.qtCookies): their
 // credentials decide, which the Fetch domain does not tell. Qt's WebKit
 // sent none either with an XMLHttpRequest to another origin without
-// withCredentials (measured on 0.12.6).
+// withCredentials (measured on 0.12.6). One with withCredentials gets the
+// jar's, as in wkhtmltopdf: MARK_CREDENTIALS opens it again, its URL
+// marked with CREDENTIALS, a fragment, which is not sent.
 const OWN_COOKIES = new Set(['XHR', 'Fetch', 'EventSource', 'Preflight', 'Ping', 'CSPViolationReport']);
+const CREDENTIALS = '#pdfkiln-credentials';
+const MARK_CREDENTIALS = `(() => {
+  const X = XMLHttpRequest.prototype, { open, send, setRequestHeader } = X, opened = new WeakMap();
+  X.open = function (...args) { opened.set(this, { args, headers: [] }); return open.apply(this, args); };
+  X.setRequestHeader = function (name, value) { opened.get(this)?.headers.push([name, value]); return setRequestHeader.call(this, name, value); };
+  X.send = function (...body) {
+    const o = opened.get(this);
+    if (o && !o.sent && this.withCredentials && this.readyState === 1) {
+      try {
+        const u = new URL(String(o.args[1]), document.baseURI);
+        if (u.protocol === 'http:' || u.protocol === 'https:') {
+          u.hash = '${CREDENTIALS}';
+          open.apply(this, [o.args[0], u.href, ...o.args.slice(2)]);
+          for (const [name, value] of o.headers) setRequestHeader.call(this, name, value);
+        }
+      } catch {}
+    }
+    if (o) o.sent = true;
+    return send.apply(this, body);
+  };
+})();`;
 
 // Why Chromium refuses a cookie a server sets, where Qt's jar took it:
 // SameSite, which Qt did not know, and the blocking of other sites' cookies.
@@ -360,7 +383,8 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   const everywhere = (spec.site ?? spec.url).startsWith('file:') ? load.cookies : [];
   const qtCookie = async (e: FetchPaused): Promise<string | undefined> => {
     const url = e.request.url;
-    if (!spec.qtCookies || !/^https?:/.test(url) || OWN_COOKIES.has(e.resourceType)) return undefined;
+    if (!spec.qtCookies || !/^https?:/.test(url)) return undefined;
+    if (OWN_COOKIES.has(e.resourceType) && !(e.resourceType === 'XHR' && e.request.urlFragment === CREDENTIALS)) return undefined;
     const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
     return spec.qtCookies.line(cookies, url, everywhere);
   };
@@ -531,6 +555,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       })
       : undefined,
     cdp.send('Runtime.addBinding', { name: '__pdfkilnPrint' }),
+    spec.qtCookies ? cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: MARK_CREDENTIALS }) : undefined,
     cdp.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `(() => {
         window.print = () => { try { window.__pdfkilnPrint(''); } catch {} };
@@ -688,7 +713,7 @@ export async function emulate(lp: LoadedPage): Promise<void> {
 
 interface FetchPaused {
   requestId: string;
-  request: { url: string; method: string; headers: Record<string, string>; postDataEntries?: { bytes?: string }[] };
+  request: { url: string; urlFragment?: string; method: string; headers: Record<string, string>; postDataEntries?: { bytes?: string }[] };
   resourceType: string;
   frameId: string;
   networkId?: string;
