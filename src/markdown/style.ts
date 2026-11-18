@@ -86,3 +86,11 @@ td > :last-child, th > :last-child { margin-bottom: 0; }
 
 details > summary { font-weight: 600; }
 `;
+
+// An image of the document has no page and no @page margins: the text in a
+// column at most as wide as GitHub shows a README, with its margins, and
+// GitHub's narrow ones in a narrow window.
+export const IMAGE_STYLE = `
+body { box-sizing: border-box; max-width: 980px; margin: 0 auto; padding: 45px; }
+@media (max-width: 767px) { body { padding: 15px; } }
+`;

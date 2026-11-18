@@ -11,7 +11,7 @@ import footnote from 'markdown-it-footnote';
 import { markdownAssets } from './assets.js';
 import { splitFrontMatter, type FrontMatter } from './frontmatter.js';
 import { alerts, anchors, localLinks, math, taskLists, type DocEnv } from './plugins.js';
-import { STYLE } from './style.js';
+import { IMAGE_STYLE, STYLE } from './style.js';
 
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -73,6 +73,8 @@ export interface PageOptions {
   // The title when the front matter gives none and no heading of level 1
   // comes: the file's name without its extension.
   name?: string;
+  // Captured as an image, not printed: the margins of a page around it.
+  image?: boolean;
 }
 
 export function markdownPage(src: string, opts: PageOptions): MarkdownPage {
@@ -94,6 +96,7 @@ export function markdownPage(src: string, opts: PageOptions): MarkdownPage {
     `<style>${assets.highlight}</style>`,
     env.math ? `<style>${assets.katex}</style>` : '',
     `<style>${STYLE}</style>`,
+    opts.image ? `<style>${IMAGE_STYLE}</style>` : '',
     '</head>',
     '<body>',
     '<article class="markdown-body">',

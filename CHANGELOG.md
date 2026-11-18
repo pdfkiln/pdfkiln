@@ -8,6 +8,15 @@ GitHub release.
 
 ## 1.4.0
 
+Called as `pdfkiln`, a new output:
+
+- **Images**: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG, for the preview of a shared link, a thumbnail or a picture in an email: the whole page, in screen media, in a window 1280 pixels wide, its images that wait to be scrolled to (`loading="lazy"`) loaded. `--width` and `--height` set the window, and with `--height` the image is the window alone; `--element` captures one element; `--scale 2` doubles the pixels; `--quality` sets the quality of JPEG and WebP, which is lossless without it; `--transparent` leaves out the white behind a page without a background. Markdown, URLs, the standard input (`--to png` writes to the standard output) and the other options work as for a PDF. An output named `.png`, `.webp`, `.jpg` or `.jpeg`, which got a PDF, now gets an image.
+
+```sh
+pdfkiln https://example.com page.png
+pdfkiln --width 1200 --height 630 card.html card.webp
+```
+
 Bugs fixed:
 
 - A page with an iframe that waits to be scrolled to (`loading="lazy"`), too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.

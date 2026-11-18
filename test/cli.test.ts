@@ -1734,7 +1734,8 @@ describe('native interface', () => {
   test('--help and --version: the name PDFKiln, the command pdfkiln', async () => {
     let r = await native(['--help']);
     assert.equal(r.code, 0);
-    assert.match(r.stdout.toString(), /^PDFKiln: HTML and Markdown to PDF with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
+    assert.match(r.stdout.toString(), /^PDFKiln: HTML and Markdown to PDF and images with Chromium\n\nUsage:\n {2}pdfkiln \[options\] <input>\.\.\. <output>\n/);
+    assert.match(r.stdout.toString(), /\nImages:\n {2}--to <png\|webp\|jpeg\|pdf> {4}Format of the output/);
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
     assert.match(r.stdout.toString(), /\nDocument properties \(default: from the front matter of Markdown\):\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
     assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input as Markdown, whatever its name\n/);
@@ -1901,6 +1902,189 @@ describe('native interface', () => {
       const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
       assert.equal(doc.getPageCount(), 3);
       assert.equal(doc.getAuthor(), 'First');
+    });
+  });
+
+  describe('images', () => {
+    // A PNG, WebP or JPEG image's format and size, from its header; whether
+    // it has alpha, and for WebP whether it is lossless.
+    interface Shot { format: string; width: number; height: number; alpha?: boolean; lossless?: boolean }
+    const shot = (b: Buffer): Shot => {
+      if (b.toString('latin1', 1, 4) === 'PNG') return { format: 'png', width: b.readUInt32BE(16), height: b.readUInt32BE(20), alpha: b[25] === 6 };
+      if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') {
+        // Chromium writes the extended header, its sRGB profile, then the
+        // image: VP8L when lossless, VP8 (after ALPH, with alpha) when lossy.
+        assert.equal(b.toString('latin1', 12, 16), 'VP8X');
+        const chunks: string[] = [];
+        for (let i = 12; i + 8 <= b.length; i += 8 + b.readUInt32LE(i + 4) + (b.readUInt32LE(i + 4) & 1)) chunks.push(b.toString('latin1', i, i + 4));
+        return { format: 'webp', width: 1 + b.readUIntLE(24, 3), height: 1 + b.readUIntLE(27, 3), alpha: Boolean(b[20]! & 0x10), lossless: chunks.includes('VP8L') };
+      }
+      if (b[0] === 0xff && b[1] === 0xd8) {
+        for (let i = 2; i + 9 < b.length; i += 2 + b.readUInt16BE(i + 2)) {
+          if (b[i + 1]! >= 0xc0 && b[i + 1]! <= 0xc2) return { format: 'jpeg', width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+        }
+      }
+      return { format: 'unknown', width: 0, height: 0 };
+    };
+    // The colour of each pixel of a PNG, as #rrggbb, or transparent.
+    const pixels = async (png: Buffer): Promise<(x: number, y: number) => string> => {
+      const { decodePng } = await import('../src/engine/raster.js');
+      const r = decodePng(png);
+      return (x, y) => {
+        const o = (y * r.width + x) * 4;
+        return r.rgba[o + 3] === 0 ? 'transparent' : `#${[...r.rgba.subarray(o, o + 3)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+      };
+    };
+
+    test('an output named .png: the whole page, in a window 1280 px wide, in screen media; - with --to', async () => {
+      // A block as high as the window, then the rest of the page.
+      const page = file('native/image/page.html', '<style>body { margin: 0 } .hero { height: 100vh; background: #c00 } .rest { height: 1500px } @media print { .hero { background: #00c } }</style><div class="hero"></div><div class="rest"></div>');
+      const out = join(dir, 'page.png');
+      let r = await native([page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      let png = readFileSync(out);
+      assert.deepEqual(shot(png), { format: 'png', width: 1280, height: 2220, alpha: false });
+      // The block keeps the window's height, 720 px: the page is not laid
+      // out in a window as high as itself.
+      const at = await pixels(png);
+      assert.deepEqual([at(10, 0), at(10, 719), at(10, 720)], ['#cc0000', '#cc0000', '#ffffff']);
+      r = await native(['--media', 'print', page, out]);
+      png = readFileSync(out);
+      assert.equal((await pixels(png))(10, 0), '#0000cc');
+      // The standard output, in WebP: lossless.
+      r = await native(['--to', 'webp', page, '-']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(shot(r.stdout), { format: 'webp', width: 1280, height: 2220, alpha: false, lossless: true });
+      // --to wins over the name; - is a PDF without it.
+      r = await native(['--to', 'pdf', page, join(dir, 'page-pdf.png')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(readFileSync(join(dir, 'page-pdf.png')).toString('latin1', 0, 5), '%PDF-');
+      r = await native([page, '-']);
+      assert.equal(r.stdout.toString('latin1', 0, 5), '%PDF-');
+    });
+
+    test('--width and --height: the window alone; --scale; --element', async () => {
+      const page = file('native/image/box.html', '<style>body { margin: 0 } #box { width: 100px; height: 50px; margin: 20px; background: #08f } @media (max-width: 500px) { #box { background: #f80 } }</style><div id="box"></div><div style="height: 3000px"></div>');
+      const out = join(dir, 'box.png');
+      let r = await native(['--width', '400', '--height', '300', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      let png = readFileSync(out);
+      assert.deepEqual(shot(png), { format: 'png', width: 400, height: 300, alpha: false });
+      // The page's media queries see the window.
+      assert.equal((await pixels(png))(30, 30), '#ff8800');
+      r = await native(['--width', '400', '--height', '300', '--scale', '2', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(shot(readFileSync(out)), { format: 'png', width: 800, height: 600, alpha: false });
+      r = await native(['--element', '#box', '--scale', '2', page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      png = readFileSync(out);
+      assert.deepEqual(shot(png), { format: 'png', width: 200, height: 100, alpha: false });
+      assert.equal((await pixels(png))(100, 50), '#0088ff');
+      rmSync(out);
+      r = await native(['--element', '#missing', page, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: error: no element matches #missing (--element)\n');
+      assert.equal(existsSync(out), false);
+      r = await native(['--element', '[', page, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: error: --element takes a CSS selector, not [\n');
+    });
+
+    test('WebP lossless unless --quality; JPEG; --transparent', async () => {
+      const page = file('native/image/clear.html', '<style>body { margin: 0 } div { width: 50px; height: 50px; background: #08f }</style><div></div>');
+      const size = ['--width', '200', '--height', '100'];
+      const webp = join(dir, 'clear.webp');
+      let r = await native([...size, page, webp]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(shot(readFileSync(webp)), { format: 'webp', width: 200, height: 100, alpha: false, lossless: true });
+      r = await native([...size, '--quality', '80', page, webp]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(shot(readFileSync(webp)), { format: 'webp', width: 200, height: 100, alpha: false, lossless: false });
+      r = await native([...size, '--transparent', page, webp]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(shot(readFileSync(webp)), { format: 'webp', width: 200, height: 100, alpha: true, lossless: true });
+      for (const name of ['clear.jpg', 'clear.JPEG']) {
+        r = await native([...size, page, join(dir, name)]);
+        assert.equal(r.code, 0, r.stderr);
+        assert.deepEqual(shot(readFileSync(join(dir, name))), { format: 'jpeg', width: 200, height: 100 });
+      }
+      const png = join(dir, 'clear.png');
+      r = await native([...size, '--transparent', page, png]);
+      assert.equal(r.code, 0, r.stderr);
+      const at = await pixels(readFileSync(png));
+      assert.deepEqual([at(10, 10), at(100, 50)], ['#0088ff', 'transparent']);
+    });
+
+    test('refused before the render: the options of a PDF for an image, those of an image for a PDF, two inputs', async () => {
+      const page = file('native/image/refused.html', '<p>x</p>');
+      const png = join(dir, 'refused.png');
+      const jpg = join(dir, 'refused.jpg');
+      const forImages = 'is for an image: an output named .png, .webp, .jpg or .jpeg, or --to';
+      const cases: [string[], string][] = [
+        [['--outline', page, png], 'pdfkiln: --outline is for a PDF, not an image\n'],
+        [['--pdfa', page, png], 'pdfkiln: --pdfa is for a PDF, not an image\n'],
+        [['--title', 'T', page, png], 'pdfkiln: --title is for a PDF, not an image\n'],
+        [['--width', '300', page, join(dir, 'refused.pdf')], `pdfkiln: --width ${forImages}\n`],
+        [['--transparent', page, '-'], `pdfkiln: --transparent ${forImages}\n`],
+        [[page, page, png], 'pdfkiln: an image takes one input\n'],
+        [['--to', 'gif', page, png], 'pdfkiln: --to takes png, webp, jpeg or pdf\n'],
+        [['--quality', '80', page, png], 'pdfkiln: --quality is for JPEG and WebP: PNG is lossless\n'],
+        [['--transparent', page, jpg], 'pdfkiln: --transparent is for PNG and WebP: JPEG has no transparency\n'],
+        [['--quality', '0', page, jpg], 'pdfkiln: --quality takes a number from 1 to 100\n'],
+        [['--width', '12.5', page, png], 'pdfkiln: --width takes a number of pixels\n'],
+        [['--scale', '0', page, png], 'pdfkiln: --scale takes a number greater than 0\n'],
+      ];
+      for (const [args, message] of cases) {
+        const r = await native(args);
+        assert.equal(r.code, 1, args.join(' '));
+        assert.equal(r.stderr, message);
+      }
+      assert.equal(existsSync(png), false);
+    });
+
+    test('the whole page: the images and frames that wait to be scrolled to are loaded', async () => {
+      const out = join(dir, 'deferred.png');
+      const r = await native(['--allow-private-network', `${base}/deferred`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
+      const png = readFileSync(out);
+      assert.deepEqual(shot(png), { format: 'png', width: 1280, height: 8400, alpha: false });
+      // The image, then the frame.
+      const at = await pixels(png);
+      assert.deepEqual([at(100, 8100), at(100, 8300)], ['#00ff00', '#00ff00']);
+    });
+
+    test('no image of an input that does not load, nor with --fail-on-resource-error of one that misses an image', async () => {
+      const out = join(dir, 'failed.png');
+      let r = await native(['missing.html', out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, 'pdfkiln: error: could not load missing.html: no such file\n');
+      const page = file('native/image/broken.html', `<img src="${base}/404">`);
+      r = await native(['--allow-private-network', '--fail-on-resource-error', page, out]);
+      assert.equal(r.code, 1);
+      assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/404: HTTP 404\n`);
+      assert.equal(existsSync(out), false);
+    });
+
+    test('Markdown: in a column, as GitHub shows a README', async () => {
+      const md = file('native/image/notes.md', '# Notes\n\nSome text.\n');
+      const out = join(dir, 'notes.png');
+      const r = await native([md, out]);
+      assert.equal(r.code, 0, r.stderr);
+      const { decodePng } = await import('../src/engine/raster.js');
+      const img = decodePng(readFileSync(out));
+      // The leftmost dark pixel: the column's margin, (1280 - 980) / 2 + 45.
+      let left = img.width;
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < left; x++) {
+          if (img.rgba[(y * img.width + x) * 4]! < 128) {
+            left = x;
+            break;
+          }
+        }
+      }
+      assert.ok(left >= 193 && left <= 200, `text from x = ${left}`);
     });
   });
 });

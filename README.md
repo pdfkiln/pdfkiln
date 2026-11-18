@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG (below). This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -140,6 +140,21 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 - PDFKiln does not write the XML, which comes from the invoicing software, nor check it against the EN 16931 business rules.
 - Not offered: PDF/A-1, which forbids the transparency Chromium draws with, and level A, which needs a fully tagged document.
 
+## Images
+
+`pdfkiln` writes an image instead of a PDF when the output is named `.png`, `.webp`, `.jpg` or `.jpeg`, or with `--to` (for the standard output): the preview of a shared link, a thumbnail, a picture in an email. The page is rendered in screen media, in a window 1280 pixels wide and 720 high, and the image holds the whole page, with the images that wait to be scrolled to (`loading="lazy"`) loaded.
+
+```sh
+pdfkiln https://example.com page.png
+pdfkiln --width 1200 --height 630 card.html card.webp     # the window alone: 1200 x 630
+pdfkiln --element "#chart" --scale 2 report.html chart.png
+```
+
+- `--width` and `--height` set the window; with `--height`, the image is the window alone. `--element` captures the first element that matches a CSS selector, wherever it is on the page. `--scale 2` doubles the pixels, for high-density screens.
+- WebP is lossless, which keeps text sharp, unless `--quality` asks for less. JPEG takes a quality of 90 unless `--quality` says otherwise. `--transparent` leaves out the white behind a page that paints no background, in PNG and WebP.
+- An image takes one input, HTML or Markdown, from a file, a URL or the standard input, under the rules of a PDF: the same access rules and options (`--css`, `--wait-for`, `--header`, `--cookie`, `--fail-on-resource-error`), and no image when the input does not load. Markdown is laid out in a column, as GitHub shows a README.
+- WebP stops at 16383 pixels a side, JPEG at 65535: a longer page is refused, with its size; PNG, `--height` or `--element` capture it.
+
 ## Differences from wkhtmltopdf
 
 - The page is rendered by Chromium, text is sharper. In the compatible mode, what templates tuned for wkhtmltopdf rely on is emulated, so that they keep their page count and page breaks (corpus below): the 0.8 shrinking, media queries seen through a 0 x 0 window, `@page` ignored, font sizes rounded to the pixel, the top margin dropped, table headers repeated, table rows moved whole to the next page rather than split, the margins computed from `--header-html`, no widow or orphan control by default, and the CSS that wkhtmltopdf's WebKit does not parse ignored (`display: flex` and `grid`, `calc()`, `var()`), so that the fallbacks written for it apply. Called as `pdfkiln`, the page gets current CSS without these emulations.
@@ -152,9 +167,10 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 - With `--proxy`, the proxy resolves the names of https addresses too, as Chromium has it, so `--proxy-hostname-lookup` has no effect: wkhtmltopdf resolves them itself unless it is given.
 - Not provided: the C library `libwkhtmltox`.
 
-## Known issues in 1.0
+## Known issues
 
 - In a page opened from a file (a path, or standard input, which goes through a file as in wkhtmltopdf: what most libraries pass), an iframe of another origin is not printed: its space stays blank, without an error; wkhtmltopdf printed it. Chromium gives such an iframe a process of its own, and chrome-headless-shell does not print those. A page loaded from a URL prints its iframes, whatever their origin.
+- In an image of the whole page (`pdfkiln page.html page.png`), an iframe of another origin below the window stays blank: Chromium paints such a frame only within the window. A window as high as the page (`--height`) paints it, but lays the page out in that window.
 
 ## Security
 

@@ -31,7 +31,10 @@
 //   GitHub's dialect and math, printed with pdfkiln's style sheet
 //   (src/markdown/), without JavaScript; its images may come from the
 //   document's folder (from the web for a URL), and its front matter gives
-//   the properties that no option does.
+//   the properties that no option does;
+// - an image instead of a PDF, for an output named .png, .webp, .jpg or
+//   .jpeg, or with --to: one input captured in screen media
+//   (src/native/image.ts).
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -51,8 +54,9 @@ import type { FinalItem, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
+import { capture, DEFAULT_HEIGHT, DEFAULT_WIDTH, formatOfTo, imageFormatOf, type ImageFormat } from './image.js';
 
-const HELP = `PDFKiln: HTML and Markdown to PDF with Chromium
+const HELP = `PDFKiln: HTML and Markdown to PDF and images with Chromium
 
 Usage:
   pdfkiln [options] <input>... <output>
@@ -65,11 +69,15 @@ Examples:
   pdfkiln - - < page.html > page.pdf        # standard input and output
   pdfkiln notes.md notes.pdf                # Markdown
   pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
+  pdfkiln https://example.com page.png      # an image: PNG, WebP or JPEG
 
 Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
 input; the output is a file, or - for the standard output. Paper size,
 margins, headers and footers come from the page's CSS (@page and its margin
 boxes): A4 with 1 cm margins otherwise.
+
+An output named .png, .webp, .jpg or .jpeg is an image of one input, in
+screen media: the whole page, in a window 1280 pixels wide.
 
 Files and http(s) URLs named .md or .markdown are Markdown: GitHub's
 dialect, with math ($...$, $$...$$) and a front matter, printed with
@@ -80,9 +88,24 @@ Rendering:
   --from markdown             Read every input as Markdown, whatever its name
                               (README, notes.txt, a URL, the standard input)
   --css <file>                Add a style sheet after the page's own
-  --media <print|screen>      CSS media type (default: print)
+  --media <print|screen>      CSS media type (default: print; screen for an
+                              image)
   --outline                   Bookmarks from the headings
   --tagged                    Tagged PDF, for screen readers (one input)
+
+Images:
+  --to <png|webp|jpeg|pdf>    Format of the output, whatever its name (- is a
+                              PDF otherwise)
+  --width <px>                Window width (default: 1280)
+  --height <px>               Window height, and the window alone in the
+                              image (default: 720, and the whole page)
+  --element <selector>        The first element matching this selector alone
+  --scale <factor>            Pixels per CSS pixel (default: 1; 2 for sharp
+                              images on high-density screens)
+  --quality <1-100>           JPEG and WebP quality (default: 90 for JPEG,
+                              lossless WebP)
+  --transparent               No white behind a page without a background
+                              (PNG and WebP)
 
 Document properties (default: from the front matter of Markdown):
   --title <text>              Title (default: the page's <title>)
@@ -129,7 +152,8 @@ Commands:
   wkhtmltoimage               The command line of wkhtmltoimage 0.12.6
   "pdfkiln <command> --help" shows the options of each.
 
-Exit code: 0 once the PDF is written, 1 otherwise, with the reason.
+Exit code: 0 once the PDF or the image is written, 1 otherwise, with the
+reason.
 Docs: https://pdfkiln.org
 `;
 
@@ -210,6 +234,12 @@ function writeAll(fd: number, data: Uint8Array): void {
   for (let off = 0; off < data.length;) off += writeSync(fd, data, off);
 }
 
+// The PDF or the image, to its file or to the standard output.
+function writeOutput(output: string, data: Uint8Array): void {
+  if (output === '-') writeAll(1, data);
+  else writeFileSync(output, data);
+}
+
 // The text of the page's headings, as rendered and as written; none if the
 // page does not answer, which leaves Chromium's titles as they are.
 function headingTexts(page: Page): Promise<string[]> {
@@ -259,6 +289,13 @@ export async function nativeMain(args: string[]): Promise<number> {
         keywords: { type: 'string' },
         pdfa: { type: 'string' },
         'factur-x': { type: 'string' },
+        to: { type: 'string' },
+        width: { type: 'string' },
+        height: { type: 'string' },
+        element: { type: 'string' },
+        scale: { type: 'string' },
+        quality: { type: 'string' },
+        transparent: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         version: { type: 'boolean', short: 'V' },
@@ -294,6 +331,61 @@ export async function nativeMain(args: string[]): Promise<number> {
   }
   const inputs = positionals.slice(0, -1);
   const output = positionals[positionals.length - 1]!;
+  // An image, by --to or by the output's name; a PDF otherwise. Each kind
+  // refuses the other's options: a mistake costs no render.
+  let image: ImageFormat | null;
+  if (v.to !== undefined) {
+    const to = formatOfTo(v.to);
+    if (to === undefined) {
+      stderr('pdfkiln: --to takes png, webp, jpeg or pdf\n');
+      return 1;
+    }
+    image = to;
+  } else image = imageFormatOf(output);
+  const pdfOnly = ['outline', 'tagged', 'title', 'author', 'subject', 'keywords', 'pdfa', 'factur-x'] as const;
+  const imageOnly = ['width', 'height', 'element', 'scale', 'quality', 'transparent'] as const;
+  for (const name of image ? pdfOnly : imageOnly) {
+    if (v[name] !== undefined) {
+      stderr(image
+        ? `pdfkiln: --${name} is for a PDF, not an image\n`
+        : `pdfkiln: --${name} is for an image: an output named .png, .webp, .jpg or .jpeg, or --to\n`);
+      return 1;
+    }
+  }
+  const pixels = (name: string, value: string | undefined): number | null | undefined => {
+    if (value === undefined) return undefined;
+    const n = Number(value);
+    if (Number.isInteger(n) && n >= 1) return n;
+    stderr(`pdfkiln: --${name} takes a number of pixels\n`);
+    return null;
+  };
+  const width = pixels('width', v.width);
+  const height = pixels('height', v.height);
+  if (width === null || height === null) return 1;
+  const scale = v.scale === undefined ? 1 : Number(v.scale);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    stderr('pdfkiln: --scale takes a number greater than 0\n');
+    return 1;
+  }
+  const quality = v.quality === undefined ? undefined : Number(v.quality);
+  if (quality !== undefined && !(Number.isInteger(quality) && quality >= 1 && quality <= 100)) {
+    stderr('pdfkiln: --quality takes a number from 1 to 100\n');
+    return 1;
+  }
+  if (image) {
+    if (inputs.length > 1) {
+      stderr('pdfkiln: an image takes one input\n');
+      return 1;
+    }
+    if (quality !== undefined && image === 'png') {
+      stderr('pdfkiln: --quality is for JPEG and WebP: PNG is lossless\n');
+      return 1;
+    }
+    if (v.transparent && image === 'jpeg') {
+      stderr('pdfkiln: --transparent is for PNG and WebP: JPEG has no transparency\n');
+      return 1;
+    }
+  }
   if (v.from !== undefined && v.from !== 'markdown') {
     stderr('pdfkiln: --from takes markdown\n');
     return 1;
@@ -321,7 +413,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     stderr('pdfkiln: --tagged takes one input: the structure trees of several documents are not merged yet\n');
     return 1;
   }
-  const media = v.media ?? 'print';
+  const media = v.media ?? (image ? 'screen' : 'print');
   if (media !== 'print' && media !== 'screen') {
     stderr('pdfkiln: --media takes print or screen\n');
     return 1;
@@ -422,12 +514,13 @@ export async function nativeMain(args: string[]): Promise<number> {
       proxyBypassList: relay ? '<-loopback>' : undefined,
       ignoreCertificateErrors: insecure,
       meanwhile: () => {
-        void pdfModules().catch(() => {});
+        if (!image) void pdfModules().catch(() => {});
         if (anyMarkdown) void markdownModule().then((m) => m.prepare()).catch(() => {});
       },
     });
     step('launch');
-    const [{ PDFDocument, PDFName, PDFString }, { fixDests, merge, moveDest, prune, readOutline, undoubleTitles, writeOutline }] = await pdfModules();
+    // pdf-lib, which an image does not need.
+    const pdfLib = image ? undefined : await pdfModules();
     step('modules');
     stop = deadline(session, timeout, () => {
       removeQuietly(work);
@@ -518,11 +611,13 @@ export async function nativeMain(args: string[]): Promise<number> {
             base: new URL('.', at).href,
             document: at.href.replace(/#.*$/, ''),
             name: decoded(posix.basename(at.pathname, posix.extname(at.pathname))) || undefined,
+            image: Boolean(image),
           }
           : {
             base: pathToFileURL(folder.endsWith(sep) ? folder : folder + sep).href,
             document: mdPath ? pathToFileURL(mdPath).href : undefined,
             name: mdPath ? basename(mdPath, extname(mdPath)) : undefined,
+            image: Boolean(image),
           });
         writeFileSync(file, md.html);
         step('markdown');
@@ -540,7 +635,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         allowFiles,
         isMain: true,
         media,
-        viewport: { width: 794, height: 1123 },
+        viewport: image ? { width: width ?? DEFAULT_WIDTH, height: height ?? DEFAULT_HEIGHT, scale } : { width: 794, height: 1123 },
         blockPrivateNetwork: blockPrivate,
         ignoreCertificateErrors: insecure,
         // From a page printed from a file, Chromium holds the cookies of
@@ -558,6 +653,17 @@ export async function nativeMain(args: string[]): Promise<number> {
         out.error(`could not load ${input}: ${failure || `HTTP ${lp.status}`}`);
         return 1;
       }
+      if (image) {
+        const bytes = await capture(lp, { format: image, quality, transparent: Boolean(v.transparent), scale, window: height !== undefined, element: v.element });
+        step('capture');
+        // --fail-on-resource-error: once captured, the deferred images
+        // loaded, so that all are told.
+        if (incomplete()) return 1;
+        writeOutput(output, bytes);
+        step('write');
+        return 0;
+      }
+      const [{ PDFDocument }, { fixDests, readOutline, undoubleTitles }] = pdfLib!;
       // --outline: the headings' text, which puts right a bookmark Chromium
       // titles twice (undoubleTitles).
       const headings = v.outline ? await headingTexts(lp.page) : [];
@@ -582,6 +688,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       parts.push({ doc, outline: v.outline ? undoubleTitles(readOutline(doc), headings) : [] });
       step('print');
     }
+    const [{ PDFName, PDFString }, { merge, moveDest, prune, writeOutline }] = pdfLib!;
     const merged = await merge(parts, Boolean(v.tagged));
     prune(merged.doc);
     if (v.outline) {
@@ -612,8 +719,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       bytes = await archive(bytes, archived);
       step('archive');
     }
-    if (output === '-') writeAll(1, bytes);
-    else writeFileSync(output, bytes);
+    writeOutput(output, bytes);
     step('write');
     return 0;
   } catch (e) {

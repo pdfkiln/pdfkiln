@@ -41,7 +41,9 @@ export interface LoadSpec {
   // Files the page may read besides the page itself and --allow.
   allowFiles?: string[];
   media: 'screen' | 'print';
-  viewport: { width: number; height: number };
+  // The window, in CSS pixels; scale: device pixels per CSS pixel (1 by
+  // default), for the native interface's images.
+  viewport: { width: number; height: number; scale?: number };
   emulation?: Emulation;
   // Family for every generic family (wkhtmltopdf's default font).
   fontFamily?: string;
@@ -608,7 +610,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     cdp.send('Runtime.enable'),
     cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }], handleAuthRequests: true }),
     cdp.send('Emulation.setEmulatedMedia', { media: spec.media }),
-    cdp.send('Emulation.setDeviceMetricsOverride', { width: Math.max(1, Math.round(spec.viewport.width)), height: Math.max(1, Math.round(spec.viewport.height)), deviceScaleFactor: 1, mobile: false }),
+    cdp.send('Emulation.setDeviceMetricsOverride', { width: Math.max(1, Math.round(spec.viewport.width)), height: Math.max(1, Math.round(spec.viewport.height)), deviceScaleFactor: spec.viewport.scale ?? 1, mobile: false }),
     web.enableJavascript ? undefined : cdp.send('Emulation.setScriptExecutionDisabled', { value: true }),
     load.repeatCustomHeaders && load.customHeaders.length
       ? cdp.send('Network.setExtraHTTPHeaders', { headers: Object.fromEntries(load.customHeaders) })
