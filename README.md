@@ -190,6 +190,6 @@ The packages, the benches and the libraries' own test suites: [docs/development.
 
 ## Licenses
 
-PDFKiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0), and prints Markdown with markdown-it (MIT), KaTeX and its fonts (MIT) and highlight.js (BSD-3-Clause); the packages ship each bundled package's license in `licenses/`.
+PDFKiln's code is under the [MIT license](LICENSE). It runs Chromium (BSD and third-party licenses), Node.js (MIT) and puppeteer-core (Apache-2.0), assembles PDFs with pdf-lib (MIT), and prints Markdown with markdown-it (MIT), KaTeX and its fonts (MIT) and highlight.js (BSD-3-Clause); the packages ship each bundled package's license in `licenses/`.
 
 The templates of the test corpus (`corpus/`) are not covered by the MIT license: each keeps its own (LGPL-3.0 for Odoo, GPL-3.0 for parts of ERPNext, MIT for Sylius...), noted in its `SOURCE.md` and `manifest.json`. So do the READMEs of the Markdown corpus (`bench/markdown/`). They are test data and are never part of the packages.

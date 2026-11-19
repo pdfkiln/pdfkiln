@@ -10,7 +10,7 @@ GitHub release.
 
 Called as `pdfkiln`, three new features:
 
-- **Images**: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG, for the preview of a shared link, a thumbnail or a picture in an email: the whole page, in screen media, in a window 1280 pixels wide, its images that wait to be scrolled to (`loading="lazy"`) loaded, and its frames of another site painted below the window too. `--width` and `--height` set the window, and with `--height` the image is the window alone; `--element` captures one element; `--scale 2` doubles the pixels; `--quality` sets the quality of JPEG and WebP, which is lossless without it; `--transparent` leaves out the white behind a page without a background. Markdown, URLs, the standard input (`--to png` writes to the standard output) and the other options work as for a PDF. An output named `.png`, `.webp`, `.jpg` or `.jpeg`, which got a PDF, now gets an image.
+- **Images**: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG, for the preview of a shared link, a thumbnail or a picture in an email: the whole page, in screen media, in a window 1280 pixels wide; with `--height`, the window alone; with `--element`, one element. `--scale`, `--quality` and `--transparent` set the rest, and the other options work as for a PDF. An output named `.png`, `.webp`, `.jpg` or `.jpeg`, which got a PDF, now gets an image.
 - **PDF inputs**: a PDF made elsewhere, a file or an http or https URL named `.pdf`, goes among the inputs, its pages as they are: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice. Its links to its own pages keep working, and `--outline` keeps its bookmarks; PDFs alone are merged without Chromium. With `--pdfa` or `--factur-x`, a PDF input must be PDF/A itself, so that an invoice and its terms of sale make one Factur-X file. An encrypted PDF is refused, and so is a PDF input with `--tagged` or for an image.
 - **Passwords**: `--user-password` encrypts the PDF with AES-256, to be opened with that password; `--owner-password` with `--no-print`, `--no-copy` or `--no-modify` restricts what the others may do with it, screen readers still reading it. PDF/A forbids encryption: `--pdfa` and `--factur-x` take none.
 
@@ -21,7 +21,9 @@ pdfkiln --factur-x invoice.xml invoice.html terms.pdf invoice.pdf
 pdfkiln --user-password "$PASSWORD" payslip.html payslip.pdf
 ```
 
-Odoo 15 and later print their reports with their style and header on a server with several databases, as with wkhtmltopdf. Called as `wkhtmltopdf`, cookies, fonts and the requests of a client certificate now follow the rules of wkhtmltopdf 0.12.6. Called as `pdfkiln`, `--header` and `--cookie` no longer go with a request that another site redirects to the input's host.
+Called as `wkhtmltopdf`, `--debug-javascript`, accepted without effect up to 1.3.0, prints what the page's scripts write to the console, and their errors, as warnings with their address and line, as wkhtmltopdf 0.12.6 does.
+
+Among the fixes, two that libraries meet: Odoo 15 and later print their reports with their style and header on a server with several databases, and a page given as a file prints its frames of another site, both as with wkhtmltopdf.
 
 Security, called as `pdfkiln`:
 
@@ -34,8 +36,8 @@ Security, called as `wkhtmltopdf`:
 Bugs fixed:
 
 - **Frames of another site in a page given as a file** (a path, or the standard input, what most libraries pass) are printed where they stand, their links with them, as wkhtmltopdf printed them. Up to 1.3.0, their place stayed blank, without an error: Chromium prints such a frame blank. PDFKiln loads each again on its own, under the rules of the page, and draws it in; a frame whose content depends on the page that holds it may come out otherwise.
-- A page with an iframe that waits to be scrolled to (`loading="lazy"`), too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
-- **Windows installer**: an update removes the files of the version before that the new one no longer has, Chromium's and the bundled packages' licenses; up to 1.3.0, they stayed in `C:\Program Files\wkhtmltopdf`. The uninstall removes Chromium's folder whole, with the `debug.log` Chromium wrote beside itself up to 1.3.0.
+- **Frames that wait to be scrolled to**: a page with an iframe `loading="lazy"`, too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
+- **Windows installer**: an update removes what the version before installed and the new one no longer has, among Chromium's files and the licenses of the bundled packages; up to 1.3.0, it stayed in `C:\Program Files\wkhtmltopdf`. The uninstall removes Chromium's folder whole, with the `debug.log` Chromium wrote there up to 1.3.0.
 - **Chromium's log on Windows**: Chromium no longer writes a `debug.log` beside itself, in the folder of the package or of the user's cache, where each conversion added its warnings, such as a certificate that does not verify. Its network service, which wrote them, runs in its main process, whose log goes with the conversion's temporary folder.
 
 Called as `pdfkiln`, bug fixed:
@@ -55,10 +57,6 @@ Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.
 
 - **Web fonts**, which PDFKiln fetches itself, follow `--proxy`, `--custom-header-propagation`, `--username` and `--password`, as the page's other requests do. Up to 1.3.0, they went around the proxy, without the propagated headers and without logging in: a font that only the proxy reaches, or behind a login, stopped the conversion. A font redirected to another host gets there the jar's cookies for that host, and `--cookie` from a page given as a file; up to 1.3.0, it got none there.
 - **Client certificate** (`--ssl-crt-path`): the page's https requests, which PDFKiln also makes itself, go through `--proxy` and answer `--username` and `--password`. Up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
-
-Called as `wkhtmltopdf`, an option that had no effect:
-
-- **`--debug-javascript`** prints what the page's scripts write to the console, and their errors, as warnings with their address and line, as wkhtmltopdf 0.12.6 does. Up to 1.3.0, it was accepted without effect.
 
 ## 1.3.0
 
