@@ -1742,7 +1742,7 @@ describe('native interface', () => {
     assert.match(r.stdout.toString(), /\nImages:\n {2}--to <png\|webp\|jpeg\|pdf> {4}Format of the output/);
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
     assert.match(r.stdout.toString(), /\nDocument properties \(default: from the front matter of Markdown\):\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
-    assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input but PDFs as Markdown, whatever\n/);
+    assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input but PDFs as Markdown,\n/);
     assert.match(r.stdout.toString(), /\n {2}--fail-on-resource-error {4}Fail, without a PDF, /);
     // pdfkiln serve is gone (1.2.0).
     assert.doesNotMatch(r.stdout.toString(), /\bserve\b/);

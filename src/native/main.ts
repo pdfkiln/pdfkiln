@@ -74,8 +74,8 @@ Examples:
   pdfkiln cover.html body.html book.pdf     # merged in order
   pdfkiln - - < page.html > page.pdf        # standard input and output
   pdfkiln notes.md notes.pdf                # Markdown
-  pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
   pdfkiln invoice.html terms.pdf out.pdf    # a PDF after the page
+  pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
   pdfkiln https://example.com page.png      # an image: PNG, WebP or JPEG
 
 Inputs are files, URLs (http:, https:, file:, data:) or - for the standard
@@ -88,36 +88,25 @@ dialect, with math ($...$, $$...$$) and a front matter, printed with
 PDFKiln's style sheet, without JavaScript. Its images may come from the
 document's folder, or for a URL from the web.
 
-Files and http(s) URLs named .pdf are PDFs: their pages go in as they are,
-with their links, and their bookmarks with --outline. Not for an image, nor
-with --tagged; with --pdfa or --factur-x, a PDF that is PDF/A itself.
+Files and http(s) URLs named .pdf are PDFs made elsewhere: their pages go
+in as they are, with their links. They make a PDF, not an image; with
+--pdfa or --factur-x, they must be PDF/A themselves.
 
 An output named .png, .webp, .jpg or .jpeg is an image of one input, in
 screen media: the whole page, in a window 1280 pixels wide.
 
 Rendering:
-  --from markdown             Read every input but PDFs as Markdown, whatever
-                              its name (README, notes.txt, a URL, the
-                              standard input)
+  --from markdown             Read every input but PDFs as Markdown,
+                              whatever its name (README, notes.txt, a URL,
+                              the standard input)
   --css <file>                Add a style sheet after the page's own
   --media <print|screen>      CSS media type (default: print; screen for an
                               image)
-  --outline                   Bookmarks from the headings
-  --tagged                    Tagged PDF, for screen readers (one input)
 
-Images:
-  --to <png|webp|jpeg|pdf>    Format of the output, whatever its name (- is a
-                              PDF otherwise)
-  --width <px>                Window width (default: 1280)
-  --height <px>               Window height, and the window alone in the
-                              image (default: 720, and the whole page)
-  --element <selector>        The first element matching this selector alone
-  --scale <factor>            Pixels per CSS pixel (default: 1; 2 for sharp
-                              images on high-density screens)
-  --quality <1-100>           JPEG and WebP quality (default: 90 for JPEG,
-                              lossless WebP)
-  --transparent               No white behind a page without a background
-                              (PNG and WebP)
+PDF:
+  --outline                   Bookmarks from the headings (and a PDF input's)
+  --tagged                    Tagged PDF, for screen readers (one HTML or
+                              Markdown input)
 
 Document properties (default: from the front matter of Markdown):
   --title <text>              Title (default: the page's <title>)
@@ -126,18 +115,32 @@ Document properties (default: from the front matter of Markdown):
   --keywords <text>           Keywords
 
 PDF/A and electronic invoices:
-  --pdfa[=<level>]            PDF/A for archiving: 2b, 2u, 3b, 3u (default 3b)
+  --pdfa[=<level>]            PDF/A for archiving: 2b, 2u, 3b, 3u (default: 3b)
   --factur-x <invoice.xml>    Attach the invoice's CII XML: a Factur-X or
                               ZUGFeRD invoice, in PDF/A-3
 
-Protection (AES-256; PDF/A allows none):
+Passwords (AES-256, not with --pdfa or --factur-x):
   --user-password <text>      Password to open the PDF
-  --owner-password <text>     Password with every right: the restrictions
-                              below bind whoever opens it with another
+  --owner-password <text>     Password with every right; the restrictions
+                              below bind anyone who opens the PDF without it
   --no-print                  No printing
   --no-copy                   No copying of text and images (screen readers
                               still read them)
-  --no-modify                 No change: content, notes, forms, pages
+  --no-modify                 No changes to content, notes, forms or pages
+
+Images:
+  --to <png|webp|jpeg|pdf>    Format of the output, whatever its name (the
+                              standard output is a PDF without it)
+  --width <px>                Window width (default: 1280)
+  --height <px>               Window height, and an image of the window only
+                              (default: 720, and an image of the whole page)
+  --element <selector>        Only the first element matching this selector
+  --scale <factor>            Pixels per CSS pixel (default: 1; 2 for sharp
+                              images on high-density screens)
+  --quality <1-100>           JPEG and WebP quality (default: 90 for JPEG,
+                              lossless WebP)
+  --transparent               No white behind a page without a background
+                              (PNG and WebP)
 
 Waiting for the page:
   --javascript-delay <ms>     Wait up to this long after loading, less once
@@ -173,8 +176,7 @@ Commands:
   wkhtmltoimage               The command line of wkhtmltoimage 0.12.6
   "pdfkiln <command> --help" shows the options of each.
 
-Exit code: 0 once the PDF or the image is written, 1 otherwise, with the
-reason.
+Exit code: 0 once the output is written, 1 otherwise, with the reason.
 Docs: https://pdfkiln.org
 `;
 
