@@ -370,7 +370,8 @@ jobs:
         shell: bash
 
       # The installer (packaging/windows/pdfkiln.iss), installed silently
-      # where the old wkhtmltopdf installer went, run, and uninstalled.
+      # where the old wkhtmltopdf installer went, run, installed again over
+      # itself as an update is, and uninstalled.
       - name: Windows installer, built, installed and tested (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -390,9 +391,23 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           '<h1>installed</h1>' | & $exe -q - installed.pdf
           if ($LASTEXITCODE -or -not (Get-Content installed.pdf -TotalCount 1).StartsWith('%PDF-')) { exit 1 }
+          # An update over the version before: what that version had and
+          # this one has not goes (a file of Chromium, a license), and the
+          # program still works.
+          $chromium = "$env:ProgramFiles\wkhtmltopdf\bin\chromium"
+          $licenses = "$env:ProgramFiles\wkhtmltopdf\licenses"
+          Set-Content "$chromium\stale.dll" 'stale'
+          Set-Content "$licenses\stale.txt" 'stale'
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          if ((Test-Path "$chromium\stale.dll") -or (Test-Path "$licenses\stale.txt")) { Write-Error 'files of the version before left'; exit 1 }
+          '<h1>updated</h1>' | & $exe -q - updated.pdf
+          if ($LASTEXITCODE -or -not (Get-Content updated.pdf -TotalCount 1).StartsWith('%PDF-')) { exit 1 }
+          # What Chromium writes beside itself goes with the uninstall.
+          Set-Content "$chromium\debug.log" 'log'
           Start-Process "$env:ProgramFiles\wkhtmltopdf\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
           Start-Sleep 5
           if (Test-Path $exe) { Write-Error 'still installed'; exit 1 }
+          if (Test-Path $chromium) { Write-Error 'Chromium left after the uninstall'; exit 1 }
 
       # Installed from the packed tarball; the first conversion downloads
       # Chromium into PDFKILN_CACHE_DIR. On Linux, the AppArmor profile is

@@ -43,8 +43,20 @@ UninstallDisplayName=PDFKiln {#Version} (wkhtmltopdf)
 [Tasks]
 Name: addtopath; Description: "Add {app}\bin to the PATH"; Flags: unchecked
 
+; An update installs over the version before: Chromium's files and the
+; licenses of the bundled packages change from one version to the next, and
+; the copy would leave those the new one no longer has. Both go first.
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\bin\chromium"
+Type: filesandordirs; Name: "{app}\licenses"
+
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; What Chromium writes beside itself (debug.log, on Windows), which would keep
+; its folder after the uninstall.
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\bin\chromium"
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\bin"; Tasks: addtopath; Check: NotInPath(ExpandConstant('{app}\bin'))
