@@ -308,6 +308,12 @@ before(async () => {
       frameRequests.push(`${req.method} ${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`);
       return html('<style>body { margin: 0; background: #c00 } p { margin: 0; font: 30px sans-serif; color: #fff }</style><p>FRAME TEXT</p><a href="https://example.com/in-frame" style="color: #fff">in frame</a>');
     }
+    if (path === '/frame/empty') return html('<html><body></body></html>');
+    // Another site sends this frame to the input's host.
+    if (path === '/frame/redirect') return res.writeHead(302, { location: `${base}/frame/red` }).end();
+    if (path === '/frame-below-redirect') {
+      return html(`<style>body { margin: 0 }</style><div style="height: 2000px"></div><iframe src="${other}/frame/redirect" width="400" height="200" style="display: block; border: 0"></iframe><div style="height: 300px"></div>`);
+    }
     if (path === '/frame-below') {
       return html(`<style>body { margin: 0 }</style><div style="height: 2000px"></div><iframe src="${other}/frame/red" width="400" height="200" style="display: block; border: 0"></iframe><div style="height: 300px"></div>`);
     }
@@ -1883,6 +1889,20 @@ describe('native interface', () => {
     assert.equal(size(), before, log);
   });
 
+  test('frames left as Chromium leaves them: one that prints nothing, without failing; a sandboxed one, not loaded again', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    let out = join(dir, 'empty-frame.pdf');
+    let r = await native(['--allow-private-network', file('native/frames/empty.html', `<p>Before</p><iframe src="${other}/frame/empty" width="400" height="200"></iframe><p>After</p>`), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(firstPage(out).blocks.some((b) => b[4].includes('After')));
+    frameRequests.length = 0;
+    out = join(dir, 'sandboxed-frame.pdf');
+    r = await native(['--allow-private-network', file('native/frames/sandboxed.html', `<p>Before</p><iframe sandbox src="${other}/frame/red" width="400" height="200"></iframe><p>After</p>`), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(frameRequests.length, 1, frameRequests.join(' | '));
+    assert.ok(!firstPage(out).blocks.some((b) => b[4].includes('FRAME TEXT')));
+  });
+
   describe('Markdown', () => {
     const properties = async (out: string) => {
       const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
@@ -2491,6 +2511,16 @@ describe('native interface', () => {
       // The image, then the frame.
       const at = await pixels(png);
       assert.deepEqual([at(100, 8100), at(100, 8300)], ['#00ff00', '#00ff00']);
+    });
+
+    test('a frame that another site sends to the input\u2019s host takes neither --header nor --cookie there, loaded apart too', async () => {
+      frameRequests.length = 0;
+      const out = join(dir, 'frame-redirect.png');
+      const r = await native(['--allow-private-network', '--header', 'X-Test: secret', '--cookie', 'c=v', `${base}/frame-below-redirect`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal((await pixels(readFileSync(out)))(300, 2150), '#cc0000');
+      // An empty Cookie keeps Chromium from adding the input's.
+      assert.ok(frameRequests.length > 0 && frameRequests.every((h) => /^GET no header, (no cookie)?$/.test(h)), frameRequests.join(' | '));
     });
 
     test('a frame of another origin below the window is painted, in a page from a file or from its address', async () => {

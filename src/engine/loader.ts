@@ -77,6 +77,9 @@ export interface LoadSpec {
   proxy?: RelayProxy;
   css?: string;
   waitFor?: string;
+  // The Referer of the page's own request: a frame loaded apart takes the
+  // one the page that holds it would send it.
+  referer?: string;
 }
 
 // Media files: their load errors follow --load-media-error-handling.
@@ -375,9 +378,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     // Called as pdfkiln, a request that another site sends to the input's
     // host by a redirect takes neither --header nor --cookie there, that
     // site having chosen it; the input itself keeps them through its own
-    // redirects. The hops of a redirect share their network id.
+    // redirects, and a frame loaded apart does not, its address being the
+    // frame's (src/engine/frames.ts). The hops of a redirect share their
+    // network id.
     const here = onInputHost(url);
-    const sentHere = !spec.qtCookies && here && Boolean(e.networkId && elsewhere.has(e.networkId)) && !(e.resourceType === 'Document' && e.frameId === mainFrame);
+    const sentHere = !spec.qtCookies && here && Boolean(e.networkId && elsewhere.has(e.networkId)) && !(spec.isMain && e.resourceType === 'Document' && e.frameId === mainFrame);
     if (e.networkId && !here && /^https?:/.test(url)) elsewhere.add(e.networkId);
     // The native --header: with every request to the page's host, in place
     // of the browser's own of the same name, and to no other host.
@@ -680,7 +685,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
 
   // Load, then run-script, then window-status, then the delay.
   try {
-    lp.status = (await page.goto(spec.url, { waitUntil: 'load', timeout: 0 }))?.status() ?? 0;
+    lp.status = (await page.goto(spec.url, { waitUntil: 'load', timeout: 0, referer: spec.referer }))?.status() ?? 0;
   } catch (e) {
     lp.ok = false;
     // After the request's own failure, when it had one.

@@ -51,7 +51,7 @@ import type { PDFDocument } from '@cantoo/pdf-lib';
 import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
-import { markFrames, printApart } from '../engine/frames.js';
+import { markFrames, printApart, printer } from '../engine/frames.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, CertificateError, relayRequest, startRelay, type Relay } from '../engine/relay.js';
 import type { FrontMatter } from '../markdown/frontmatter.js';
@@ -885,7 +885,8 @@ export async function nativeMain(args: string[]): Promise<number> {
       });
       const doc = await PDFDocument.load(pdf, READ);
       if (frames.length) {
-        await placeFrames(doc, frames, PT_PER_PX, (m, w, h) => printApart(lp, m.url, w, h, true, frameOut));
+        const print = printer();
+        await placeFrames(doc, frames, PT_PER_PX, (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(lp, m, w, h, true, frameOut)));
         step('frames');
       }
       // --fail-on-resource-error: once printed, which asks for what the

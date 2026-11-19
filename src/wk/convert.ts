@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
 import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
-import { markFrames, printApart } from '../engine/frames.js';
+import { markFrames, printApart, printer } from '../engine/frames.js';
 import { emulate, openPage, type LoadedPage, type LoadSpec, type Reporter } from '../engine/loader.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
@@ -28,9 +28,10 @@ import { guessUrlFromString, looksLikeHtmlAndNotAUrl } from './urls.js';
 const PX_PER_MM = 96 / 25.4;
 const PT_PER_MM = 72 / 25.4;
 const PT_PER_PX = 72 / 96;
-// A frame printed apart says nothing: in the page, Chromium did not tell
-// its requests either.
-const QUIET: Reporter = { warning() {}, error() {} };
+// A frame printed apart tells its warnings, its console's with
+// --debug-javascript, as the page's own frames do; not its errors, which do
+// not fail the conversion.
+const framesOf = (fb: Reporter): Reporter => ({ warning: (m) => fb.warning(m), error() {} });
 
 export interface Result {
   success: boolean;
@@ -362,7 +363,10 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         timeout: 0,
       });
       const doc = await PDFDocument.load(pdf, READ);
-      if (frames.length) await placeFrames(doc, frames, PT_PER_PX * scaleOf(o), (m, w, h) => printApart(l, m.url, w, h, o.web.background, QUIET));
+      if (frames.length) {
+        const print = printer();
+        await placeFrames(doc, frames, PT_PER_PX * scaleOf(o), (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(l, m, w, h, o.web.background, framesOf(fb))));
+      }
       fixDests(doc, left * PT_PER_MM, top * PT_PER_MM, scaleOf(o));
       return { doc, outline: withOutline ? readOutline(doc) : [], pages: doc.getPageCount() };
     };
