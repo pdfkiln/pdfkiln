@@ -307,6 +307,10 @@ before(async () => {
     }
     if (path === '/deferred/green.svg') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#0f0"/></svg>');
     if (path === '/deferred/green.html') return html('<style>body { margin: 0; background: #0f0 }</style>');
+    // Deferred frames that load no document: a 204, a download.
+    if (path === '/deferred-empty') return html('<div style="height: 8000px"></div><iframe loading="lazy" src="/no-content"></iframe><iframe loading="lazy" src="/attachment"></iframe>');
+    if (path === '/no-content') return res.writeHead(204).end();
+    if (path === '/attachment') return res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="x.bin"' }).end('x');
     // A frame for a page of another origin: red, with a link; and a page
     // whose frame of another site lies below the window.
     if (path === '/frame/red') {
@@ -373,7 +377,9 @@ after(() => {
   for (const h of hangs) h();
   hangs = [];
   server.close();
-  rmSync(dir, { recursive: true, force: true });
+  // Windows may hold a file of the last conversion a moment longer: EPERM
+  // once on 19/11/2026, the folder removed a few minutes later.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 // A server whose certificate is self-signed: a page, its image and its web
@@ -1954,6 +1960,19 @@ describe('native interface', () => {
     assert.equal(landingHeader, 'no header');
   });
 
+  test('a frame of another origin that waits to be scrolled to, far below, in a page given as a file, is printed in both modes', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    // Up to 1.4.0's review, blank: without a document, it was not marked,
+    // and printing loads it in a process of its own.
+    const page = file('lazy-frame/page.html', `<div style="height: 20000px"></div><iframe loading="lazy" src="${other}/frame/red" width="400" height="200"></iframe>`);
+    const outs = [join(dir, 'lazy-frame-native.pdf'), join(dir, 'lazy-frame-wk.pdf')];
+    let r = await native(['--allow-private-network', page, outs[0]!]);
+    assert.equal(r.code, 0, r.stderr);
+    r = await run(['-q', page, outs[1]!]);
+    assert.equal(r.code, 0, r.stderr);
+    for (const out of outs) assert.ok(pagesText(out).some((text) => text.includes('FRAME TEXT')), out);
+  });
+
   test('frames left as Chromium leaves them: one that prints nothing, without failing; a sandboxed one, not loaded again', async (t) => {
     if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
     let out = join(dir, 'empty-frame.pdf');
@@ -2576,6 +2595,20 @@ describe('native interface', () => {
       // The image, then the frame.
       const at = await pixels(png);
       assert.deepEqual([at(100, 8100), at(100, 8300)], ['#00ff00', '#00ff00']);
+    });
+
+    test('a deferred frame that loads no document, a 204 or a download, holds neither an image nor a PDF', async () => {
+      // Up to 1.4.0's review, the image waited for its load event until --timeout.
+      let r = await native(['--allow-private-network', '--timeout', '20', `${base}/deferred-empty`, join(dir, 'deferred-empty.png')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
+      const page = file('deferred-empty/page.html', `<div style="height: 20000px"></div><iframe loading="lazy" src="${other}/no-content"></iframe><iframe loading="lazy" src="${other}/attachment"></iframe>`);
+      r = await native(['--allow-private-network', '--timeout', '20', page, join(dir, 'deferred-empty.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
+      r = await run(['-q', '--kiln-timeout', '20', page, join(dir, 'deferred-empty-wk.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
     });
 
     test('a frame that another site sends to the input\u2019s host takes neither --header nor --cookie there, loaded apart too', async () => {

@@ -12,7 +12,7 @@
 //   at quality 80 for a page of 1280 x 3982 px, measured with Chromium 158);
 // - --transparent: no white behind a page that paints no background.
 import { extname } from 'node:path';
-import type { Page } from 'puppeteer-core';
+import type { CDPSession, ElementHandle, Page } from 'puppeteer-core';
 import { paintFrames } from '../engine/frames.js';
 import { documentFrames, type LoadedPage, type Reporter } from '../engine/loader.js';
 
@@ -115,24 +115,59 @@ export async function capture(lp: LoadedPage, c: Capture, out: Reporter): Promis
 
 // The images and frames that wait to be scrolled to (loading=lazy), in every
 // frame: the capture shows what the window does not, so they load now, as
-// printing loads them, and are waited for as the page's own images are
-// (--timeout bounds it). A frame starts on its address set again, not on
-// the change of loading alone (Chromium 158); one with srcdoc is left.
+// printing loads them, and are waited for as the page's own are (--timeout
+// bounds it): an image until it loads or fails, a frame until its load
+// event or until it stops loading without one, as with a 204 or a download
+// (measured, Chromium 158).
 async function loadDeferred(page: Page): Promise<void> {
-  await Promise.all(documentFrames(page).map((f) => f.evaluate(async () => {
-    const waiting = Array.from(document.querySelectorAll<HTMLImageElement | HTMLIFrameElement>('img[loading="lazy" i], iframe[loading="lazy" i]'))
-      .filter((e) => (e instanceof HTMLImageElement
-        ? !e.complete
-        : !e.hasAttribute('srcdoc') && /^(https?|file|data):/i.test(e.src) && e.contentDocument?.URL === 'about:blank'));
-    const loaded = waiting.map((e) => new Promise<void>((ok) => {
-      e.addEventListener('load', () => ok(), { once: true });
-      e.addEventListener('error', () => ok(), { once: true });
-    }));
-    for (const e of waiting) {
-      e.loading = 'eager';
-      if (e instanceof HTMLIFrameElement) e.src = e.src;
-    }
-    await Promise.all(loaded);
-    await Promise.all(Array.from(document.images, (i) => i.decode().catch(() => {})));
-  }).catch(() => {})));
+  await Promise.all(documentFrames(page).map(async (f) => {
+    const client = (f as unknown as { client?: CDPSession }).client;
+    const frames = client ? await f.$$('iframe[loading="lazy" i]').catch(() => []) : [];
+    await Promise.all([
+      ...frames.map((el) => loadFrame(el as ElementHandle<HTMLIFrameElement>, client!)),
+      f.evaluate(async () => {
+        const waiting = Array.from(document.querySelectorAll<HTMLImageElement>('img[loading="lazy" i]')).filter((e) => !e.complete);
+        const loaded = waiting.map((e) => new Promise<void>((ok) => {
+          e.addEventListener('load', () => ok(), { once: true });
+          e.addEventListener('error', () => ok(), { once: true });
+        }));
+        for (const e of waiting) e.loading = 'eager';
+        await Promise.all(loaded);
+      }).catch(() => {}),
+    ]);
+    await f.evaluate(() => Promise.all(Array.from(document.images, (i) => i.decode().catch(() => {})))).catch(() => {});
+  }));
+}
+
+// A deferred frame of client's frame: it starts on its address set again,
+// not on the change of loading alone (Chromium 158); one with srcdoc is
+// left. Its session tells when it stops loading.
+async function loadFrame(el: ElementHandle<HTMLIFrameElement>, client: CDPSession): Promise<void> {
+  type Loading = { frameId: string };
+  let started = false;
+  let onStart = (_: Loading) => {};
+  let onStop = (_: Loading) => {};
+  try {
+    if (!await el.evaluate((e) => !e.hasAttribute('srcdoc') && /^(https?|file|data):/i.test(e.src) && e.contentDocument?.URL === 'about:blank')) return;
+    const { node } = await client.send('DOM.describeNode', { objectId: el.remoteObject().objectId });
+    const stopped = new Promise<void>((ok) => {
+      onStart = (e) => { if (e.frameId === node.frameId) started = true; };
+      onStop = (e) => { if (e.frameId === node.frameId && started) ok(); };
+      client.on('Page.frameStartedLoading', onStart);
+      client.on('Page.frameStoppedLoading', onStop);
+    });
+    await Promise.race([
+      stopped,
+      el.evaluate((e) => new Promise<void>((ok) => {
+        e.addEventListener('load', () => ok(), { once: true });
+        e.loading = 'eager';
+        e.src = e.src;
+      })),
+    ]);
+  } catch {
+    // Left as it is.
+  } finally {
+    client.off('Page.frameStartedLoading', onStart);
+    client.off('Page.frameStoppedLoading', onStop);
+  }
 }

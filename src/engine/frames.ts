@@ -202,8 +202,11 @@ function pool<T>(): (key: string, job: () => Promise<T | null>) => Promise<T | n
 }
 
 // Before printing: a link laid over each frame Chromium will print blank,
-// one in a process of its own whose parent prints, the page's own frame or
-// one of its process; and the link that measures the print's scale.
+// whose parent prints, the page's own frame or one of its process: one in a
+// process of its own, and one of the web that waits to be scrolled to
+// (loading=lazy) in a page opened from a file, which printing loads in a
+// process of its own, or not at all; and the link that measures the print's
+// scale. A deferred frame is not loaded in the page: it is loaded apart.
 export async function markFrames(lp: LoadedPage): Promise<FrameMark[]> {
   const main = clientOf(lp.page.mainFrame());
   if (main === undefined) return [];
@@ -211,11 +214,15 @@ export async function markFrames(lp: LoadedPage): Promise<FrameMark[]> {
   for (const f of lp.page.frames()) {
     const parent = f.parentFrame();
     // Not a frame that failed to load: Chromium's error page.
-    if (!parent || clientOf(f) === clientOf(parent) || clientOf(parent) !== main || f.url().startsWith('chrome-error:')) continue;
+    if (!parent || clientOf(parent) !== main || f.url().startsWith('chrome-error:')) continue;
+    // A deferred frame has no document yet, and its URL is empty.
+    const deferred = clientOf(f) === clientOf(parent);
+    if (deferred && (f.url() !== '' || !parent.url().startsWith('file:'))) continue;
     try {
       const el = await f.frameElement();
       const box = el && await el.evaluate(measure);
       if (!el || !box || !APART.test(box.url)) continue;
+      if (deferred && !(/^https?:/i.test(box.url) && await el.evaluate((e) => (e as HTMLIFrameElement).loading === 'lazy'))) continue;
       const href = `${MARK}${marks.length}`;
       const place = 'top: anchor(top) !important; left: anchor(left) !important; width: anchor-size(width) !important; height: anchor-size(height) !important;';
       if (await el.evaluate(layOver, 'a', marks.length, place, href, [0, 0, 0, 0])) marks.push({ href, url: box.url, referer: box.referer, inset: box.inset });
