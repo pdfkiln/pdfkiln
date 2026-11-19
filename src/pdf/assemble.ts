@@ -3,8 +3,8 @@
 // footer stamps drawn on each page. The native interface adds PDFs made
 // elsewhere, its PDF inputs, whose pages go in as they are.
 import {
-  PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFRawStream, PDFRef, PDFStream, PDFString,
-  type PDFObject,
+  PDFArray, PDFCatalog, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFPageLeaf, PDFPageTree, PDFRawStream,
+  PDFRef, PDFStream, PDFString, type PDFObject,
 } from '@cantoo/pdf-lib';
 
 export interface OutlineItem {
@@ -17,24 +17,40 @@ export interface OutlineItem {
 const text = (o: PDFObject | undefined): string =>
   o instanceof PDFString || o instanceof PDFHexString ? o.decodeText() : '';
 
-// A named destination, from the catalog's /Dests dictionary (PDF 1.1) or
-// its /Names /Dests tree: the array, or a dictionary that holds it as /D.
-function namedDest(doc: PDFDocument, name: string): PDFObject | undefined {
-  const old = doc.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict)?.get(PDFName.of(name));
-  if (old) return old;
-  // The tree: leaves of /Names [key value ...], nodes of /Kids.
-  const walk = (node: PDFDict | undefined, depth: number): PDFObject | undefined => {
-    if (!node || depth > 32) return undefined;
-    const names = node.lookupMaybe(PDFName.of('Names'), PDFArray);
-    for (let i = 0; names && i + 1 < names.size(); i += 2) if (text(names.lookup(i)) === name) return names.get(i + 1);
-    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
-    for (let i = 0; kids && i < kids.size(); i++) {
-      const found = walk(kids.lookupMaybe(i, PDFDict), depth + 1);
-      if (found) return found;
+// The named destinations of a document, read once: its /Names /Dests tree,
+// leaves of /Names [key value ...] and nodes of /Kids, each node once, the
+// first key found winning; then the catalog's /Dests dictionary (PDF 1.1),
+// which wins over the tree. Read for each link, the tree made merging a PDF
+// with thousands of named links quadratic, and a node listed under itself
+// kept the walk going for ever, past --timeout.
+const namedCache = new WeakMap<PDFDocument, Map<string, PDFObject>>();
+function namedDests(doc: PDFDocument): Map<string, PDFObject> {
+  let names = namedCache.get(doc);
+  if (names) return names;
+  names = new Map();
+  const seen = new Set<PDFDict>();
+  const root = doc.catalog.lookupMaybe(PDFName.of('Names'), PDFDict)?.lookupMaybe(PDFName.of('Dests'), PDFDict);
+  const stack = root ? [root] : [];
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (seen.has(node)) continue;
+    seen.add(node);
+    const leaf = node.lookupMaybe(PDFName.of('Names'), PDFArray);
+    for (let i = 0; leaf && i + 1 < leaf.size(); i += 2) {
+      const key = text(leaf.lookup(i));
+      if (!names.has(key)) names.set(key, leaf.get(i + 1));
     }
-    return undefined;
-  };
-  return walk(doc.catalog.lookupMaybe(PDFName.of('Names'), PDFDict)?.lookupMaybe(PDFName.of('Dests'), PDFDict), 0);
+    // In reverse, so that the first kid comes off the stack first.
+    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
+    for (let i = (kids?.size() ?? 0) - 1; i >= 0; i--) {
+      const kid = kids!.lookupMaybe(i, PDFDict);
+      if (kid) stack.push(kid);
+    }
+  }
+  const old = doc.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
+  for (const [key, value] of old?.entries() ?? []) names.set(key.decodeText(), value);
+  namedCache.set(doc, names);
+  return names;
 }
 
 // A destination as an explicit array [page /XYZ x y z], from what a link or
@@ -45,7 +61,7 @@ export function resolveDest(doc: PDFDocument, d: PDFObject | undefined, depth = 
   const v = d instanceof PDFRef ? doc.context.lookup(d) : d;
   if (v instanceof PDFArray) return v;
   if (v instanceof PDFDict) return resolveDest(doc, v.get(PDFName.of('D')), depth + 1);
-  if (v instanceof PDFName || v instanceof PDFString || v instanceof PDFHexString) return resolveDest(doc, namedDest(doc, v.decodeText()), depth + 1);
+  if (v instanceof PDFName || v instanceof PDFString || v instanceof PDFHexString) return resolveDest(doc, namedDests(doc).get(v.decodeText()), depth + 1);
   return undefined;
 }
 
@@ -59,25 +75,30 @@ function destOf(d: PDFDict): PDFObject | undefined {
 
 // The outline of a PDF: Chromium's, with generateDocumentOutline, gives
 // explicit destinations [page /XYZ x y z]; a PDF made elsewhere may name
-// them, or go to them by a GoTo action.
+// them, or go to them by a GoTo action. Each item is read once, and 64
+// levels at most: an item that is its own /Next, or that holds its parent,
+// would have kept the walk going until memory ran out.
 export function readOutline(doc: PDFDocument): OutlineItem[] {
-  const pages = doc.getPages().map((p) => p.ref.toString());
+  const pages = new Map(doc.getPages().map((p, i) => [p.ref.toString(), i]));
   const outlines = doc.catalog.lookupMaybe(PDFName.of('Outlines'), PDFDict);
-  const walk = (first: PDFDict | undefined): OutlineItem[] => {
+  const seen = new Set<PDFDict>();
+  const walk = (first: PDFDict | undefined, depth: number): OutlineItem[] => {
     const items: OutlineItem[] = [];
-    for (let d = first, guard = 0; d && guard < 100000; d = d.lookupMaybe(PDFName.of('Next'), PDFDict), guard++) {
+    if (depth > 64) return items;
+    for (let d = first; d && !seen.has(d); d = d.lookupMaybe(PDFName.of('Next'), PDFDict)) {
+      seen.add(d);
       const dest = resolveDest(doc, destOf(d)) ?? null;
       const ref = dest?.get(0);
       items.push({
         title: text(d.lookup(PDFName.of('Title'))),
-        page: ref instanceof PDFRef ? pages.indexOf(ref.toString()) : -1,
+        page: ref instanceof PDFRef ? pages.get(ref.toString()) ?? -1 : -1,
         dest,
-        children: walk(d.lookupMaybe(PDFName.of('First'), PDFDict)),
+        children: walk(d.lookupMaybe(PDFName.of('First'), PDFDict), depth + 1),
       });
     }
     return items;
   };
-  return outlines ? walk(outlines.lookupMaybe(PDFName.of('First'), PDFDict)) : [];
+  return outlines ? walk(outlines.lookupMaybe(PDFName.of('First'), PDFDict), 0) : [];
 }
 
 // A bookmark Chromium titles with its heading's text twice, when a page
@@ -144,6 +165,35 @@ export function prune(doc: PDFDocument): void {
   for (const [ref] of ctx.enumerateIndirectObjects()) if (!seen.has(ref.tag)) ctx.delete(ref);
 }
 
+// Before encrypting: pdf-lib encrypts the streams, and the objects it packs
+// into object streams, but never packs the catalog, the page tree or the
+// pages, and leaves their strings in clear, which readers then decrypt
+// into nonsense: the document's language, the address of a link written in
+// a page's /Annots (measured, @cantoo/pdf-lib 2.11.1). Each such string
+// becomes an object of its own, packed and so encrypted.
+export function indirectStrings(doc: PDFDocument): void {
+  const ctx = doc.context;
+  const visit = (o: PDFObject): PDFObject => {
+    if (o instanceof PDFString || o instanceof PDFHexString) return ctx.register(o);
+    if (o instanceof PDFDict) {
+      for (const [key, value] of o.entries()) {
+        const v = visit(value);
+        if (v !== value) o.set(key, v);
+      }
+    } else if (o instanceof PDFArray) {
+      for (let i = 0; i < o.size(); i++) {
+        const value = o.get(i);
+        const v = visit(value);
+        if (v !== value) o.set(i, v);
+      }
+    }
+    return o;
+  };
+  for (const [, o] of ctx.enumerateIndirectObjects()) {
+    if (o instanceof PDFCatalog || o instanceof PDFPageTree || o instanceof PDFPageLeaf) visit(o);
+  }
+}
+
 export interface Part {
   doc: PDFDocument;
   outline: OutlineItem[] | null; // null: not in the outline
@@ -163,7 +213,10 @@ function pinLinks(doc: PDFDocument): void {
     const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
     for (let i = (annots?.size() ?? 0) - 1; annots && i >= 0; i--) {
       const a = annots.lookupMaybe(i, PDFDict);
-      if (!a || a.lookup(PDFName.of('Subtype')) !== PDFName.of('Link')) continue;
+      if (!a) continue;
+      // Its page: pdf-lib would copy it a second time, outside the page tree.
+      a.delete(PDFName.of('P'));
+      if (a.lookup(PDFName.of('Subtype')) !== PDFName.of('Link')) continue;
       const action = a.lookupMaybe(PDFName.of('A'), PDFDict);
       if (action && action.lookup(PDFName.of('S')) !== PDFName.of('GoTo')) continue;
       const dest = resolveDest(doc, destOf(a));
@@ -177,6 +230,36 @@ function pinLinks(doc: PDFDocument): void {
       for (let j = 1; j < dest.size(); j++) pinned.push(dest.get(j));
       a.delete(PDFName.of('A'));
       a.set(PDFName.of('Dest'), pinned);
+    }
+  }
+}
+
+// What the pages of a PDF made elsewhere hold and the output does not take,
+// as it takes nothing of its catalog (merge): the scripts its pages and
+// their annotations run on events (/AA), an action other than going to a
+// page, a file or an address (a script, a program started, a form sent, a
+// sound), and the files attached to its pages.
+const KEPT_ACTIONS = new Set(['GoTo', 'GoToR', 'URI', 'Named', 'SetOCGState', 'Hide', 'Thread']);
+function keepPagesOnly(doc: PDFDocument): void {
+  for (const page of doc.getPages()) {
+    page.node.delete(PDFName.of('AA'));
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    for (let i = (annots?.size() ?? 0) - 1; annots && i >= 0; i--) {
+      const a = annots.lookupMaybe(i, PDFDict);
+      if (!a) continue;
+      if (a.lookup(PDFName.of('Subtype')) === PDFName.of('FileAttachment')) {
+        annots.remove(i);
+        continue;
+      }
+      a.delete(PDFName.of('AA'));
+      const action = a.lookupMaybe(PDFName.of('A'), PDFDict);
+      if (!action) continue;
+      // A chain of actions keeps its first, when that one is kept.
+      action.delete(PDFName.of('Next'));
+      const kind = action.lookup(PDFName.of('S'));
+      if (kind instanceof PDFName && KEPT_ACTIONS.has(kind.decodeText())) continue;
+      if (a.lookup(PDFName.of('Subtype')) === PDFName.of('Link')) annots.remove(i);
+      else a.delete(PDFName.of('A'));
     }
   }
 }
@@ -211,6 +294,9 @@ export async function merge(parts: Part[], keepStructure: boolean): Promise<Asse
   if (fresh) {
     base.setCreationDate(new Date());
     base.setModificationDate(new Date());
+    // Viewers show the title rather than the file's name, as in the
+    // documents Chromium prints.
+    base.catalog.getOrCreateViewerPreferences().setDisplayDocTitle(true);
   }
   const ctx = base.context;
   if (!keepStructure) {
@@ -224,7 +310,10 @@ export async function merge(parts: Part[], keepStructure: boolean): Promise<Asse
     const src = parts[k]!.doc;
     const pdf = Boolean(parts[k]!.pdf);
     offsets.push(base.getPageCount());
-    if (pdf) pinLinks(src);
+    if (pdf) {
+      keepPagesOnly(src);
+      pinLinks(src);
+    }
     const srcPages = src.getPages();
     const copied = await base.copyPages(src, srcPages.map((_, i) => i));
     const map = new Map<string, PDFRef>();

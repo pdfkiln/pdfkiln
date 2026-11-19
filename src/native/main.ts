@@ -899,13 +899,18 @@ export async function nativeMain(args: string[]): Promise<number> {
       parts.push({ doc, outline: v.outline ? undoubleTitles(readOutline(doc), headings) : [] });
       step('print');
     }
-    const [{ PDFName, PDFString }, { merge, moveDest, prune, writeOutline }] = pdfLib!;
+    const [{ PDFName, PDFString }, { indirectStrings, merge, moveDest, prune, writeOutline }] = pdfLib!;
     const merged = await merge(parts, Boolean(v.tagged));
     prune(merged.doc);
     if (v.outline) {
-      const toFinal = (items: OutlineItem[], k: number): FinalItem[] => items
-        .filter((it) => it.dest && it.page >= 0)
-        .map((it) => ({ title: it.title, dest: moveDest(merged.doc, it.dest!, merged.pages[merged.offsets[k]! + it.page]!), children: toFinal(it.children, k) }));
+      // A bookmark that goes to no page of the document, a folder of a PDF
+      // made elsewhere for instance, goes to its first child's; with no
+      // child that does, it goes.
+      const toFinal = (items: OutlineItem[], k: number): FinalItem[] => items.flatMap((it) => {
+        const children = toFinal(it.children, k);
+        if (it.dest && it.page >= 0) return [{ title: it.title, dest: moveDest(merged.doc, it.dest, merged.pages[merged.offsets[k]! + it.page]!), children }];
+        return children.length ? [{ title: it.title, dest: children[0]!.dest, children }] : [];
+      });
       writeOutline(merged.doc, parts.flatMap((p, k) => toFinal(p.outline, k)));
     }
     merged.doc.setCreator(`PDFKiln ${version}`);
@@ -929,7 +934,10 @@ export async function nativeMain(args: string[]): Promise<number> {
     // The language, for readers and screen readers: Chromium writes it in a
     // tagged PDF only.
     if (front?.lang && !merged.doc.catalog.has(PDFName.of('Lang'))) merged.doc.catalog.set(PDFName.of('Lang'), PDFString.of(front.lang));
-    if (protection) merged.doc.encrypt(protection);
+    if (protection) {
+      indirectStrings(merged.doc);
+      merged.doc.encrypt(protection);
+    }
     let bytes: Uint8Array = await merged.doc.save(WRITE);
     step('assemble');
     if (archived) {

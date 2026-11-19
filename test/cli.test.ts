@@ -2220,6 +2220,49 @@ describe('native interface', () => {
       assert.equal(r.code, 0, r.stderr);
       assert.deepEqual((await contents(out)).sizes, [A4, CARD, CARD]);
     });
+
+    test('a PDF input that loops or carries scripts: read once, its pages without their scripts and attachments', async () => {
+      // A /Names /Dests node listed twice under itself, an outline item that
+      // is its own /Next, a folder without a destination; on its page, a
+      // script run on opening, a link to a script, a file attached, and a
+      // link whose /P names its page.
+      const src = await PDFDocument.create();
+      const p1 = src.addPage([400, 500]);
+      const p2 = src.addPage([400, 500]);
+      const ctx = src.context;
+      const tree = ctx.nextRef();
+      ctx.assign(tree, ctx.obj({ Kids: [ctx.register(ctx.obj({ Names: [PDFString.of('second'), ctx.obj([p2.ref, PDFName.of('Fit')])] })), tree, tree] }));
+      src.catalog.set(PDFName.of('Names'), ctx.obj({ Dests: tree }));
+      const link = (o: Record<string, unknown>) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 50, 50], ...o } as never));
+      p1.node.set(PDFName.of('AA'), ctx.obj({ O: { S: 'JavaScript', JS: PDFString.of('app.alert(1)') } }));
+      p1.node.set(PDFName.of('Annots'), ctx.obj([
+        link({ A: { S: 'GoTo', D: PDFString.of('second') }, P: p1.ref }),
+        link({ A: { S: 'JavaScript', JS: PDFString.of('app.alert(2)') } }),
+        ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FileAttachment', Rect: [60, 0, 80, 20], FS: { Type: 'Filespec', F: PDFString.of('a.txt') } } as never)),
+      ]));
+      const [folder, a, b, loop, root] = [ctx.nextRef(), ctx.nextRef(), ctx.nextRef(), ctx.nextRef(), ctx.nextRef()];
+      ctx.assign(folder, ctx.obj({ Title: PDFHexString.fromText('Folder'), Parent: root, Next: loop, First: a, Last: b }));
+      ctx.assign(a, ctx.obj({ Title: PDFHexString.fromText('A'), Parent: folder, Next: b, Dest: [p1.ref, PDFName.of('Fit')] }));
+      ctx.assign(b, ctx.obj({ Title: PDFHexString.fromText('B'), Parent: folder, Prev: a, Dest: PDFString.of('second') }));
+      ctx.assign(loop, ctx.obj({ Title: PDFHexString.fromText('Loop'), Parent: root, Prev: folder, Next: loop, Dest: [p2.ref, PDFName.of('Fit')] }));
+      ctx.assign(root, ctx.obj({ Type: 'Outlines', First: folder, Last: loop }));
+      src.catalog.set(PDFName.of('Outlines'), root);
+      const pdf = join(dir, 'native/pdf/hostile.pdf');
+      mkdirSync(join(dir, 'native/pdf'), { recursive: true });
+      writeFileSync(pdf, await src.save());
+      const out = join(dir, 'hostile-out.pdf');
+      const r = await native(['--outline', '--timeout', '20', pdf, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
+      const c = await contents(out);
+      assert.deepEqual(c.outline, ['Folder p1', 'A p1', 'B p2', 'Loop p2']);
+      assert.deepEqual(c.links, ['p1 p2']);
+      assert.equal(c.astray, 0);
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      assert.equal(doc.getPage(0).node.has(PDFName.of('AA')), false);
+      // Viewers show the title, the document starting with a PDF.
+      assert.equal(String(doc.catalog.lookup(PDFName.of('ViewerPreferences'), PDFDict).get(PDFName.of('DisplayDocTitle'))), 'true');
+    });
   });
 
   describe('passwords', () => {
@@ -2247,6 +2290,26 @@ describe('native interface', () => {
         const script = 'import sys, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(d.needs_pass, d.authenticate("wrong"), d.authenticate("secret") > 0, d.metadata["title"], "/", d[0].get_text().split(chr(10))[0])';
         assert.equal(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }).trim(), '1 0 True Bulletin de paie / Bulletin de paie novembre 2026');
       }
+    });
+
+    test('the strings of the catalog and of the pages are encrypted too, and read back', async () => {
+      // A tagged page in French, whose language Chromium writes in the
+      // catalog, and a PDF input whose link is written in its page.
+      const src = await PDFDocument.create({ updateMetadata: false });
+      const p = src.addPage([300, 300]);
+      p.node.set(PDFName.of('Annots'), src.context.obj([src.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [0, 0, 50, 50], A: { S: 'URI', URI: PDFString.of('https://example.com/terms') } } as never)]));
+      const terms = join(dir, 'native/pdf/inline-link.pdf');
+      mkdirSync(join(dir, 'native/pdf'), { recursive: true });
+      writeFileSync(terms, await src.save());
+      const out = join(dir, 'strings.pdf');
+      const r = await native(['--outline', '--user-password', 'u', '--owner-password', 'o', file('native/pw/fr.html', '<html lang="fr"><h1>Bonjour</h1></html>'), terms, out]);
+      assert.equal(r.code, 0, r.stderr);
+      const text = readFileSync(out).toString('latin1');
+      assert.ok(!/\/Lang\s*\(fr\)/.test(text) && !text.includes('https://example.com/terms'), 'a string in clear');
+      const doc = await PDFDocument.load(readFileSync(out), { password: 'u', updateMetadata: false });
+      assert.equal((doc.catalog.lookup(PDFName.of('Lang')) as PDFString).decodeText(), 'fr');
+      const annots = doc.getPage(1).node.lookup(PDFName.of('Annots'), PDFArray);
+      assert.equal((annots.lookup(0, PDFDict).lookup(PDFName.of('A'), PDFDict).lookup(PDFName.of('URI')) as PDFString).decodeText(), 'https://example.com/terms');
     });
 
     test('--owner-password with --no-print, --no-copy, --no-modify: the rights of the others', async () => {
@@ -2454,6 +2517,13 @@ describe('native interface', () => {
       assert.equal(r.code, 1);
       assert.equal(r.stderr, `pdfkiln: error: could not load ${base}/404: HTTP 404\n`);
       assert.equal(existsSync(out), false);
+    });
+
+    test('Markdown with --transparent: no white of its own behind the text', async () => {
+      const out = join(dir, 'notes-clear.png');
+      const r = await native(['--transparent', file('native/image/clear.md', '# Clear\n'), out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal((await pixels(readFileSync(out)))(5, 5), 'transparent');
     });
 
     test('Markdown: in a column, as GitHub shows a README', async () => {

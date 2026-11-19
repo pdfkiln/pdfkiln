@@ -1,10 +1,13 @@
 # The pdfkiln command
 
-Called as `pdfkiln`, PDFKiln offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. `--outline` adds bookmarks from the headings, and `--tagged` writes a tagged PDF, for screen readers, from one input.
+Called as `pdfkiln`, PDFKiln offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). Its options give what the page cannot say itself, and `pdfkiln --help` lists them all:
+
+- for the page: a style sheet of your own (`--css`), its screen rules (`--media screen`), an element to wait for (`--wait-for`);
+- for its requests: headers and cookies for the input's host (`--header`, `--cookie`), and no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`);
+- for the PDF: its title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), bookmarks from the headings (`--outline`), a tagged PDF for screen readers, from one input (`--tagged`), PDF/A and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`), and a password (`--user-password`, `--owner-password`), each below;
+- images instead of a PDF, and PDFs made elsewhere among the inputs, below too.
 
 It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style.
-
-It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG; it takes PDFs made elsewhere among its inputs: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice; and it protects a PDF with a password (below).
 
 This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
@@ -45,7 +48,7 @@ pdfkiln invoice.html terms.pdf invoice.pdf
 pdfkiln cover.pdf report.md annex.pdf report.pdf
 ```
 
-- A PDF's links to its own pages keep working, and with `--outline` its bookmarks join those of the printed pages. What its catalog holds stays out: a script run on opening, attached files. With a PDF first, the document takes its title.
+- A PDF's links to its own pages keep working, and with `--outline` its bookmarks join those of the printed pages. Scripts and attached files stay out: those of its catalog (a script run on opening, attached files, a form) and of its pages (a script run on an event, a link that runs a script or starts a program, a file attached to a page). A bookmark that leads nowhere, a folder for instance, goes to its first child's page. With a PDF first, the document takes its title.
 - PDFs alone are merged without starting Chromium.
 - A PDF from a URL is fetched under the rules of a page: no private address without `--allow-private-network`, its certificate checked unless `--allow-invalid-certificates`, `--header` and `--cookie` for its host.
 - With `--pdfa` or `--factur-x`, a PDF input must be PDF/A itself, as its metadata declares: an invoice in Factur-X with its terms of sale in one file, `pdfkiln --factur-x invoice.xml invoice.html terms.pdf invoice.pdf`. PDFKiln checks the fonts of every page and takes the rest on the PDF's word. Refused: a PDF that is not PDF/A (export it as PDF/A-2b or 3b where it is made), a PDF/A for print, in CMYK (PDFKiln's PDF/A is in sRGB), PDF/A-4, and for a level of part 2, a PDF/A-3 with a file attached to its pages.
