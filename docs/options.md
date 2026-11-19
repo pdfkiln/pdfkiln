@@ -2,7 +2,7 @@
 
 Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, with the same sections: global options before the first page (page options there are defaults for every page), page options after a page or `cover`. Generated from `src/wk/options.ts` by `node dist/scripts/options-doc.js`.
 
-## Implemented (99)
+## Implemented (101)
 
 | Option | Short | Section | Description |
 | --- | --- | --- | --- |
@@ -78,6 +78,8 @@ Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, 
 | `--disable-local-file-access` |  | page | Local pages may not read other local files, except --allow (default) |
 | `--enable-local-file-access` |  | page | Local pages may read other local files |
 | `--allow <path>` |  | page | Allow the files of this folder (repeatable) |
+| `--debug-javascript` |  | page | Show javascript debugging output |
+| `--no-debug-javascript` |  | page | Do not show javascript debugging output (default) |
 | `--run-script <js>` |  | page | Run this JavaScript after loading (repeatable) |
 | `--page-offset <offset>` |  | page | Number added to page numbers (default 0) |
 | `--footer-center <text>` |  | page | Centered footer text |
@@ -106,7 +108,7 @@ Called as `wkhtmltopdf`, PDFKiln accepts the 122 options of wkhtmltopdf 0.12.6, 
 | `--toc-text-size-shrink <real>` |  | toc | Font scale per TOC level |
 | `--toc-level-indentation <width>` |  | toc | Indentation per TOC level |
 
-## Accepted without effect (23)
+## Accepted without effect (21)
 
 A warning unless `--quiet`, never an effect on the exit code; none for `--lowquality`, which knp-snappy passes on every call, nor for the options that restate the default.
 
@@ -127,8 +129,6 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 | `--disable-toc-back-links` |  | page | Kept for compatibility: PDFKiln does this by default |
 | `--proxy-hostname-lookup` |  | page | Kept for compatibility: the proxy resolves the names |
 | `--cache-dir <path>` |  | page | Kept for compatibility: each conversion starts afresh |
-| `--debug-javascript` |  | page | Accepted, no effect |
-| `--no-debug-javascript` |  | page | Kept for compatibility: PDFKiln does this by default |
 | `--stop-slow-scripts` |  | page | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--no-stop-slow-scripts` |  | page | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--checkbox-svg <path>` |  | page | Accepted, no effect |
@@ -151,7 +151,7 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 
 ## wkhtmltoimage
 
-Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 50 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too.
+Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.6, all global, followed by the input and the output; 52 have an effect, the others are accepted without effect, as in wkhtmltopdf. The `--kiln-` options above apply too.
 
 | Option | Short | Description |
 | --- | --- | --- |
@@ -168,7 +168,7 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | `--crop-y <int>` |  | Top of the cropped area |
 | `--custom-header <name> <value>` |  | Add an HTTP header (repeatable) |
 | `--custom-header-propagation` |  | Send --custom-header with every request |
-| `--debug-javascript` |  | Accepted, no effect |
+| `--debug-javascript` |  | Show javascript debugging output |
 | `--disable-javascript` | `-n` | Do not run JavaScript |
 | `--disable-local-file-access` |  | Local pages may not read other local files, except --allow (default) |
 | `--disable-plugins` |  | Kept for compatibility: PDFKiln does this by default |
@@ -192,7 +192,7 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | `--manpage` |  | Output the help as a man page |
 | `--minimum-font-size <int>` |  | Minimum font size |
 | `--no-custom-header-propagation` |  | Same as --custom-header-propagation, as in wkhtmltopdf 0.12.6 |
-| `--no-debug-javascript` |  | Kept for compatibility: PDFKiln does this by default |
+| `--no-debug-javascript` |  | Do not show javascript debugging output (default) |
 | `--no-images` |  | Do not load or print images |
 | `--no-stop-slow-scripts` |  | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--password <password>` |  | HTTP authentication password |

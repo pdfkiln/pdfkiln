@@ -485,6 +485,28 @@ describe('interface', () => {
     assert.match(r.stderr, /^Error: Chromium cannot start under a cap on its address space \(ulimit -v, RLIMIT_AS\) of 2560 MiB: /);
   });
 
+  test('--debug-javascript: the console of the page and its errors, as warnings with their address and line', async () => {
+    const page = file('debug-js/page.html', '<p>page</p><script>\nconsole.log("hello", 2);\nconsole.error("an error");\nmissingFunction();\n</script>');
+    const url = pathToFileURL(page).href;
+    const out = join(dir, 'debug-js.pdf');
+    const warnings = (stderr: string) => stderr.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l.startsWith('Warning: '));
+    let r = await run(['--debug-javascript', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(warnings(r.stderr), [`Warning: ${url}:2 hello 2`, `Warning: ${url}:3 an error`, `Warning: ${url}:4 ReferenceError: missingFunction is not defined`]);
+    // A header page's too, as wkhtmltopdf 0.12.6 prints them: once when it
+    // is measured, once for each page.
+    const header = file('debug-js/header.html', '<!DOCTYPE html><p>head</p><script>console.log("from the header");</script>');
+    r = await run(['--debug-javascript', '--header-html', header, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(warnings(r.stderr).filter((w) => w.endsWith(':1 from the header')).length, 2, r.stderr);
+    // Without it, under -q, or turned off after.
+    for (const args of [[], ['-q', '--debug-javascript'], ['--debug-javascript', '--no-debug-javascript']]) {
+      r = await run([...args, page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(warnings(r.stderr), [], args.join(' '));
+    }
+  });
+
   test('--custom-header goes to the page only, unless propagated', async () => {
     const out = join(dir, 'h.pdf');
     let r = await run(['-q', '--custom-header', 'X-Test', 'yes', `${base}/headers`, out]);

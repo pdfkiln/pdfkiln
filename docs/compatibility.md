@@ -4,7 +4,7 @@ Called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), PDFKiln accepts the comm
 
 ## What is implemented
 
-The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([options.md](options.md): 99 implemented, 23 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates, certificate errors ignored) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-block-invalid-certificates`, `--kiln-no-sandbox`.
+The compatible mode is implemented: the 122 options of wkhtmltopdf 0.12.6 are accepted ([options.md](options.md): 101 implemented, 21 accepted without effect), pages, covers, the table of contents, text and HTML headers and footers with their variables, outlines, links between objects, copies, the network rules of wkhtmltopdf (local file access, `--allow`, cookies, custom headers, authentication, `--post`, client certificates, certificate errors ignored) and its layout quirks, emulated. Our own options start with `--kiln-`: `--kiln-timeout`, `--kiln-block-private-network`, `--kiln-block-invalid-certificates`, `--kiln-no-sandbox`.
 
 ## Tested by the libraries
 
@@ -19,6 +19,7 @@ The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, php
 - On Windows, wkhtmltopdf's Qt takes font metrics from GDI, rounded to whole pixels: lines of `line-height: normal` are mostly 1 to 2 px taller between 10 and 16 px, and the glyphs are drawn larger (Arial at 12 px drawn at 13.4 px; `node dist/bench/gdi.js`). PDFKiln renders the same page on every system, the one wkhtmltopdf gives on Linux.
 - `--user-style-sheet` also takes an http or https URL, which wkhtmltopdf 0.12.6 ignores: its Qt WebKit only reads a local file or a `data:` URL.
 - `--cookie` goes with the requests to the page's host only when the page is loaded from an http or https address, where wkhtmltopdf sends it to every site the page calls. A page given as a file or on the standard input has no host: there, as in wkhtmltopdf, it goes with every request.
+- `--debug-javascript` gives each message the line it comes from, where wkhtmltopdf 0.12.6 gave 1, and tells an error in Chromium's words (`ReferenceError: f is not defined`, where wkhtmltopdf wrote `Can't find variable: f`).
 - With `--proxy`, the proxy resolves the names of https addresses too, as Chromium has it, so `--proxy-hostname-lookup` has no effect: wkhtmltopdf resolves them itself unless it is given.
 - In a page opened from a file (a path, or standard input, which goes through a file as in wkhtmltopdf: what most libraries pass), an iframe of another origin runs in a process of its own, which chrome-headless-shell prints blank. PDFKiln loads it again on its own, at its size and under the page's rules, prints it, and draws it where it stands, its links with it; wkhtmltopdf printed it in the page. A frame whose content depends on the page that holds it (messages between the two) may come out otherwise. A page loaded from a URL prints its iframes itself, whatever their origin.
 - Not provided: the C library `libwkhtmltox`.

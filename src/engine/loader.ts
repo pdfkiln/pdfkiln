@@ -595,6 +595,27 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     cdp.send('Page.handleJavaScriptDialog', { accept: true, promptText: e.defaultPrompt ?? '' }).catch(() => {});
   });
 
+  // --debug-javascript: what the page's scripts write to the console, and
+  // their errors, as warnings, as wkhtmltopdf printed them: the address and
+  // the line, then the message, for the page and for its header and footer
+  // pages (measured on 0.12.6), and for a frame printed apart, whose
+  // console the page's session does not hear. The line is the message's
+  // own, where wkhtmltopdf's WebKit gave 1, and an error is told in
+  // Chromium's words.
+  if (load.debugJavascript) {
+    const where = (url?: string, line?: number) => (url ? `${url}:${(line ?? 0) + 1}` : 'undefined:0');
+    cdp.on('Runtime.consoleAPICalled', (e: { args: { value?: unknown; unserializableValue?: string; description?: string }[]; stackTrace?: { callFrames: { url: string; lineNumber: number }[] } }) => {
+      const at = e.stackTrace?.callFrames[0];
+      const text = e.args.map((a) => (a.value !== undefined ? String(a.value) : a.unserializableValue ?? a.description ?? '')).join(' ');
+      out.warning(`${where(at?.url, at?.lineNumber)} ${text}`);
+    });
+    cdp.on('Runtime.exceptionThrown', (e: { exceptionDetails: { text: string; url?: string; lineNumber?: number; exception?: { value?: unknown; description?: string } } }) => {
+      const d = e.exceptionDetails;
+      const what = d.exception?.description ?? (d.exception?.value !== undefined ? `${d.text} ${String(d.exception.value)}` : d.text);
+      out.warning(`${where(d.url, d.lineNumber)} ${what.split('\n')[0]}`);
+    });
+  }
+
   // window.print() ends the wait, as in wkhtmltopdf.
   let printed: () => void = () => {};
   const printCalled = new Promise<void>((r) => (printed = r));

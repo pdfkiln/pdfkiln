@@ -56,6 +56,10 @@ Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.
 - **Web fonts**, which PDFKiln fetches itself, follow `--proxy`, `--custom-header-propagation`, `--username` and `--password`, as the page's other requests do. Up to 1.3.0, they went around the proxy, without the propagated headers and without logging in: a font that only the proxy reaches, or behind a login, stopped the conversion. A font redirected to another host gets there the jar's cookies for that host, and `--cookie` from a page given as a file; up to 1.3.0, it got none there.
 - **Client certificate** (`--ssl-crt-path`): the page's https requests, which PDFKiln also makes itself, go through `--proxy` and answer `--username` and `--password`. Up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion.
 
+Called as `wkhtmltopdf`, an option that had no effect:
+
+- **`--debug-javascript`** prints what the page's scripts write to the console, and their errors, as warnings with their address and line, as wkhtmltopdf 0.12.6 does. Up to 1.3.0, it was accepted without effect.
+
 ## 1.3.0
 
 Three new features, called as `pdfkiln`.
