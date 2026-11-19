@@ -321,8 +321,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
 
   // Fetch: every request, and style sheet responses to rewrite.
   const rewrite = spec.emulation && (spec.emulation.mediaViewport || spec.emulation.dropPageRules || spec.emulation.screenTypes || spec.emulation.webkit534Css) ? spec.emulation : undefined;
-  let mainHeadersSent = false;
-  let posted = false;
+  let pageRequested = false;
   const post = postBody(load.post);
   const clientCert = clientCertOf(load);
   // The network ids of the requests a redirect took to another host than
@@ -348,21 +347,23 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
         body: Buffer.from(rewriteCss(css, rewrite)).toString('base64'),
       });
     }
+    // The page's own request, the first of its frame: --custom-header
+    // without propagation and --post go with it alone, as in wkhtmltopdf. A
+    // page given as a file takes neither, and they never go with a request
+    // of one of its frames, which up to 1.3.0 took them after such a page.
+    const pageRequest = !pageRequested && e.resourceType === 'Document' && e.frameId === mainFrame;
+    if (pageRequest) pageRequested = true;
     if (url.startsWith('file:')) return serveFile(e);
     if (!web.loadImages && e.resourceType === 'Image') {
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
     }
     if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e);
-    // --custom-header without propagation, and --post: the page request
-    // only.
-    const headersHere = !mainHeadersSent && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
-    const postHere = !posted && post !== null && /^https?:/.test(url);
-    const main = e.resourceType === 'Document' && (headersHere || postHere);
+    const headersHere = pageRequest && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
+    const postHere = pageRequest && post !== null && /^https?:/.test(url);
+    const main = headersHere || postHere;
     let headers: { name: string; value: string }[] | undefined;
     let postData: Buffer | undefined;
     if (main) {
-      mainHeadersSent = true;
-      posted = true;
       headers = Object.entries(request.headers).map(([name, value]) => ({ name, value }));
       if (headersHere) for (const [name, value] of load.customHeaders) headers.push({ name, value });
       if (postHere) {

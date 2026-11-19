@@ -66,6 +66,9 @@ function pagesText(file: string): string[] {
   return JSON.parse(execFileSync(python, ['-I', '-c', script, file], { encoding: 'utf8' }));
 }
 
+// A page given as a file, which holds a frame of another origin.
+const framePage = (name: string) => file(name, `<p>Before</p><iframe src="${other}/frame/red" width="400" height="200" style="border: 3px solid #000"></iframe><p>After</p>`);
+
 const lastLine = (s: string) => s.trim().split(/[\r\n]+/).pop();
 const file = (name: string, content: string) => {
   const p = join(dir, name);
@@ -112,6 +115,8 @@ const xhrRequests = new Map<string, string>();
 const loginRequests = new Map<string, string>();
 // X-Test and Cookie of the last /page-home request.
 let pageRequest = '';
+// The method, X-Test and Cookie of each /frame/red request.
+const frameRequests: string[] = [];
 // The challenge of /login/digest.woff, and the check of its answer for
 // user:pass (RFC 2617, qop auth).
 const REALM = 'pdfkiln';
@@ -280,6 +285,11 @@ before(async () => {
     }
     if (path === '/deferred/green.svg') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#0f0"/></svg>');
     if (path === '/deferred/green.html') return html('<style>body { margin: 0; background: #0f0 }</style>');
+    // A frame for a page of another origin: red, with a link.
+    if (path === '/frame/red') {
+      frameRequests.push(`${req.method} ${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`);
+      return html('<style>body { margin: 0; background: #c00 } p { margin: 0; font: 30px sans-serif; color: #fff }</style><p>FRAME TEXT</p><a href="https://example.com/in-frame" style="color: #fff">in frame</a>');
+    }
     if (path === '/hang') {
       hangs.push(() => res.end());
       return;
@@ -1152,6 +1162,13 @@ print(json.dumps(out))`;
 });
 
 describe('security', () => {
+  test('a page given as a file: --custom-header and --post go with its own request, so nowhere, not with the request of its frame', async () => {
+    frameRequests.length = 0;
+    const r = await run(['--custom-header', 'X-Test', 'page-only', '--post', 'k', 'v', framePage('frames/post.html'), join(dir, 'frame-post.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(frameRequests.length > 0 && frameRequests.every((h) => h === 'GET no header, no cookie'), frameRequests.join(' | '));
+  });
+
   test('a local page may not read its neighbours, unless allowed', async () => {
     file('local/s.css', 'p { color: red }');
     const page = file('local/page.html', '<link rel="stylesheet" href="s.css"><p>x</p>');

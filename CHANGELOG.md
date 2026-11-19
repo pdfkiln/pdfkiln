@@ -27,6 +27,10 @@ Security, called as `pdfkiln`:
 
 - **Redirects from another site**: a request that another site sends to the input's host by a redirect, for an image, a style sheet, a script, a frame or a font, no longer takes `--header` and `--cookie` there, since that site chose it. Up to 1.3.0, all but the fonts took them. The input itself keeps them through its own redirects, such as a login on another site.
 
+Security, called as `wkhtmltopdf`:
+
+- **`--custom-header` and `--post` with a page given as a file**: without `--custom-header-propagation`, the header, and the form of `--post`, went with the request of the page's first frame, to that frame's host, as if it were the page's own. They go with the page's own request only, as in wkhtmltopdf 0.12.6, and so nowhere from a file.
+
 Bugs fixed:
 
 - A page with an iframe that waits to be scrolled to (`loading="lazy"`), too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
