@@ -7,13 +7,13 @@
 import assert from 'node:assert/strict';
 import childProcess, { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { connect as connectTcp, createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString, StandardFonts } from '@cantoo/pdf-lib';
@@ -1840,6 +1840,25 @@ describe('native interface', () => {
     assert.equal(r.stderr, '');
     assertFramePrinted(out);
     assert.ok(frameRequests.length > 0 && frameRequests.every((h) => h === 'GET no header, no cookie'), frameRequests.join(' | '));
+  });
+
+  test('on Windows, Chromium writes no log beside itself', async (t) => {
+    if (process.platform !== 'win32') return t.skip('Windows only');
+    const s = await selfSignedServer();
+    if (!s) return t.skip('openssl missing');
+    const { executablePath } = await import('../src/chromium.js');
+    const log = join(dirname(executablePath()), 'debug.log');
+    const size = () => (existsSync(log) ? statSync(log).size : -1);
+    const before = size();
+    try {
+      // An image from a server whose certificate does not verify: Chromium
+      // logs the failed handshake.
+      const r = await native(['--allow-private-network', file('native/log/page.html', `<p>log</p><img src="${s.url}/image">`), join(dir, 'log.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+    } finally {
+      s.close();
+    }
+    assert.equal(size(), before, log);
   });
 
   describe('Markdown', () => {

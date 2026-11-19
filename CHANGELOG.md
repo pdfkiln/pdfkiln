@@ -35,7 +35,8 @@ Bugs fixed:
 
 - **Frames of another site in a page given as a file** (a path, or the standard input, what most libraries pass) are printed where they stand, their links with them, as wkhtmltopdf printed them. Up to 1.3.0, their place stayed blank, without an error: Chromium prints such a frame blank. PDFKiln loads each again on its own, under the rules of the page, and draws it in; a frame whose content depends on the page that holds it may come out otherwise.
 - A page with an iframe that waits to be scrolled to (`loading="lazy"`), too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
-- **Windows installer**: an update removes the files of the version before that the new one no longer has, Chromium's and the bundled packages' licenses; up to 1.3.0, they stayed in `C:\Program Files\wkhtmltopdf`. The uninstall removes Chromium's folder whole, the `debug.log` Chromium writes beside itself included.
+- **Windows installer**: an update removes the files of the version before that the new one no longer has, Chromium's and the bundled packages' licenses; up to 1.3.0, they stayed in `C:\Program Files\wkhtmltopdf`. The uninstall removes Chromium's folder whole, with the `debug.log` Chromium wrote beside itself up to 1.3.0.
+- **Chromium's log on Windows**: Chromium no longer writes a `debug.log` beside itself, in the folder of the package or of the user's cache, where each conversion added its warnings, such as a certificate that does not verify. Its network service, which wrote them, runs in its main process, whose log goes with the conversion's temporary folder.
 
 Called as `pdfkiln`, bug fixed:
 

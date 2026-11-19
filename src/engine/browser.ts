@@ -242,7 +242,17 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   if (opts.proxyServer) args.push(`--proxy-server=${opts.proxyServer}`);
   if (opts.proxyBypassList) args.push(`--proxy-bypass-list=${opts.proxyBypassList}`);
   if (opts.ignoreCertificateErrors) args.push('--ignore-certificate-errors');
-  if (opts.xslt) args.push('--enable-features=XSLT');
+  const features: string[] = [];
+  if (opts.xslt) features.push('XSLT');
+  // On Windows, a process of Chromium's own that does not set its log
+  // writes it beside the program (debug.log, base's default): in the
+  // folder of the package or of the user's cache, to which every
+  // conversion would add its lines. Its network service is the one that
+  // did, all it logged (measured, Chromium 158), unsandboxed since it could
+  // write there. Run in the browser's process, which logs into the profile,
+  // its lines go with the conversion's folder.
+  if (process.platform === 'win32') features.push('NetworkServiceInProcess2');
+  if (features.length) args.push(`--enable-features=${features.join(',')}`);
   let browser: Browser;
   try {
     // Puppeteer gets every argument, its defaults included: under a cap on
