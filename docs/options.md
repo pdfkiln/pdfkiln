@@ -112,25 +112,25 @@ A warning unless `--quiet`, never an effect on the exit code; none for `--lowqua
 
 | Option | Short | Section | Description |
 | --- | --- | --- | --- |
-| `--lowquality` | `-l` | global | Accepted, no effect |
+| `--lowquality` | `-l` | global | Kept for compatibility, of no use with PDFKiln |
 | `--image-quality <integer>` |  | global | Accepted, no effect |
 | `--image-dpi <integer>` |  | global | Accepted, no effect |
-| `--no-pdf-compression` |  | global | Accepted, no effect |
-| `--use-xserver` |  | global | Accepted, no effect |
-| `--enable-plugins` |  | page | Accepted, no effect |
-| `--disable-plugins` |  | page | Accepted, no effect (default) |
+| `--no-pdf-compression` |  | global | Kept for compatibility, of no use with PDFKiln |
+| `--use-xserver` |  | global | Kept for compatibility, of no use with PDFKiln |
+| `--enable-plugins` |  | page | Kept for compatibility, of no use with PDFKiln |
+| `--disable-plugins` |  | page | Kept for compatibility: PDFKiln does this by default |
 | `--enable-forms` |  | page | Accepted, no effect |
-| `--disable-forms` |  | page | Accepted, no effect (default) |
-| `--enable-internal-links` |  | page | Make internal links (default) |
-| `--enable-external-links` |  | page | Make links to web pages (default) |
-| `--resolve-relative-links` |  | page | Make relative links absolute (default) |
-| `--disable-toc-back-links` |  | page | No links back to the TOC (default) |
-| `--proxy-hostname-lookup` |  | page | Accepted, no effect |
-| `--cache-dir <path>` |  | page | Accepted, no effect |
+| `--disable-forms` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--enable-internal-links` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--enable-external-links` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--resolve-relative-links` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--disable-toc-back-links` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--proxy-hostname-lookup` |  | page | Kept for compatibility: the proxy resolves the names |
+| `--cache-dir <path>` |  | page | Kept for compatibility: each conversion starts afresh |
 | `--debug-javascript` |  | page | Accepted, no effect |
-| `--no-debug-javascript` |  | page | Accepted, no effect (default) |
-| `--stop-slow-scripts` |  | page | Accepted; --kiln-timeout bounds the conversion |
-| `--no-stop-slow-scripts` |  | page | Accepted; --kiln-timeout bounds the conversion |
+| `--no-debug-javascript` |  | page | Kept for compatibility: PDFKiln does this by default |
+| `--stop-slow-scripts` |  | page | Kept for compatibility: --kiln-timeout bounds the conversion |
+| `--no-stop-slow-scripts` |  | page | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--checkbox-svg <path>` |  | page | Accepted, no effect |
 | `--checkbox-checked-svg <path>` |  | page | Accepted, no effect |
 | `--radiobutton-svg <path>` |  | page | Accepted, no effect |
@@ -157,7 +157,7 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | --- | --- | --- |
 | `--allow <path>` |  | Allow the files of this folder (repeatable) |
 | `--bypass-proxy-for <value>` |  | Do not use the proxy for this host (repeatable) |
-| `--cache-dir <path>` |  | Accepted, no effect |
+| `--cache-dir <path>` |  | Kept for compatibility: each conversion starts afresh |
 | `--checkbox-checked-svg <path>` |  | Accepted, no effect |
 | `--checkbox-svg <path>` |  | Accepted, no effect |
 | `--cookie <name> <value>` |  | Add a cookie, URL-encoded (repeatable) |
@@ -171,11 +171,11 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | `--debug-javascript` |  | Accepted, no effect |
 | `--disable-javascript` | `-n` | Do not run JavaScript |
 | `--disable-local-file-access` |  | Local pages may not read other local files, except --allow (default) |
-| `--disable-plugins` |  | Accepted, no effect (default) |
+| `--disable-plugins` |  | Kept for compatibility: PDFKiln does this by default |
 | `--disable-smart-width` |  | Keep --width even if the content is wider |
 | `--enable-javascript` |  | Run JavaScript (default) |
 | `--enable-local-file-access` |  | Local pages may read other local files |
-| `--enable-plugins` |  | Accepted, no effect |
+| `--enable-plugins` |  | Kept for compatibility, of no use with PDFKiln |
 | `--enable-smart-width` |  | Widen --width to fit the content (default) |
 | `--encoding <encoding>` |  | Default text encoding of the input |
 | `--extended-help` | `-H` | Display help, including less common options |
@@ -192,14 +192,14 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | `--manpage` |  | Output the help as a man page |
 | `--minimum-font-size <int>` |  | Minimum font size |
 | `--no-custom-header-propagation` |  | Same as --custom-header-propagation, as in wkhtmltopdf 0.12.6 |
-| `--no-debug-javascript` |  | Accepted, no effect (default) |
+| `--no-debug-javascript` |  | Kept for compatibility: PDFKiln does this by default |
 | `--no-images` |  | Do not load or print images |
-| `--no-stop-slow-scripts` |  | Accepted; --kiln-timeout bounds the conversion |
+| `--no-stop-slow-scripts` |  | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--password <password>` |  | HTTP authentication password |
 | `--post <name> <value>` |  | Add a POST field (repeatable) |
 | `--post-file <name> <path>` |  | POST a file (repeatable) |
 | `--proxy <proxy>` | `-p` | Use a proxy: [http://\|socks5://][user[:password]@]host[:port], or none |
-| `--proxy-hostname-lookup` |  | Accepted, no effect |
+| `--proxy-hostname-lookup` |  | Kept for compatibility: the proxy resolves the names |
 | `--quality <int>` |  | JPEG quality, 0 to 100 (default 94) |
 | `--quiet` | `-q` | Same as --log-level none |
 | `--radiobutton-checked-svg <path>` |  | Accepted, no effect |
@@ -209,9 +209,9 @@ Called as `wkhtmltoimage`, PDFKiln accepts the 63 options of wkhtmltoimage 0.12.
 | `--ssl-crt-path <path>` |  | Client certificate, PEM |
 | `--ssl-key-password <password>` |  | Password of the client certificate key |
 | `--ssl-key-path <path>` |  | Client certificate private key, PEM |
-| `--stop-slow-scripts` |  | Accepted; --kiln-timeout bounds the conversion |
+| `--stop-slow-scripts` |  | Kept for compatibility: --kiln-timeout bounds the conversion |
 | `--transparent` |  | Transparent background, in PNG and SVG |
-| `--use-xserver` |  | Accepted, no effect |
+| `--use-xserver` |  | Kept for compatibility, of no use with PDFKiln |
 | `--user-style-sheet <path>` |  | Style sheet loaded with every page |
 | `--username <username>` |  | HTTP authentication user name |
 | `--version` | `-V` | Output version information and exit |
