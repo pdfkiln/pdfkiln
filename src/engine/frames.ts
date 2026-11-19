@@ -210,7 +210,8 @@ export async function markFrames(lp: LoadedPage): Promise<FrameMark[]> {
   const marks: FrameMark[] = [];
   for (const f of lp.page.frames()) {
     const parent = f.parentFrame();
-    if (!parent || clientOf(f) === clientOf(parent) || clientOf(parent) !== main) continue;
+    // Not a frame that failed to load: Chromium's error page.
+    if (!parent || clientOf(f) === clientOf(parent) || clientOf(parent) !== main || f.url().startsWith('chrome-error:')) continue;
     try {
       const el = await f.frameElement();
       const box = el && await el.evaluate(measure);

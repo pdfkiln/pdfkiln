@@ -132,6 +132,11 @@ const xhrRequests = new Map<string, string>();
 const loginRequests = new Map<string, string>();
 // X-Test and Cookie of the last /page-home request.
 let pageRequest = '';
+// The Referer of the last /ref-seen request, the X-Test of the last
+// /refresh-landing and the X-Custom of the last /hop-landing.
+let refSeen = '';
+let landingHeader = '';
+let hopHeader = '';
 // The method, X-Test and Cookie of each /frame/red request.
 const frameRequests: string[] = [];
 // The challenge of /login/digest.woff, and the check of its answer for
@@ -309,6 +314,27 @@ before(async () => {
       return html('<style>body { margin: 0; background: #c00 } p { margin: 0; font: 30px sans-serif; color: #fff }</style><p>FRAME TEXT</p><a href="https://example.com/in-frame" style="color: #fff">in frame</a>');
     }
     if (path === '/frame/empty') return html('<html><body></body></html>');
+    // A header page of the web.
+    if (path === '/web-header') return html('<!DOCTYPE html><p style="font: 12px sans-serif; margin: 0">WEB HEADER</p>');
+    // An image of the input's host that goes to another site; a page that
+    // goes to another site, which sends it back; a page that redirects.
+    if (path === '/ref-page') return html('<p>ref</p><img src="/ref-hop">');
+    if (path === '/ref-hop') return res.writeHead(302, { location: `${other}/ref-seen` }).end();
+    if (path === '/ref-seen') {
+      refSeen = String(req.headers.referer ?? 'none');
+      return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    }
+    if (path === '/refresh') return html(`<meta http-equiv="refresh" content="0;url=${other}/refresh-back"><p>wait</p>`);
+    if (path === '/refresh-back') return res.writeHead(302, { location: `${base}/refresh-landing` }).end();
+    if (path === '/refresh-landing') {
+      landingHeader = String(req.headers['x-test'] ?? 'no header');
+      return html('<p>landed</p>');
+    }
+    if (path === '/hop-start') return res.writeHead(302, { location: '/hop-landing' }).end();
+    if (path === '/hop-landing') {
+      hopHeader = String(req.headers['x-custom'] ?? 'none');
+      return html('<p>hop</p>');
+    }
     // Another site sends this frame to the input's host.
     if (path === '/frame/redirect') return res.writeHead(302, { location: `${base}/frame/red` }).end();
     if (path === '/frame-below-redirect') {
@@ -492,13 +518,14 @@ describe('interface', () => {
   });
 
   test('--debug-javascript: the console of the page and its errors, as warnings with their address and line', async () => {
-    const page = file('debug-js/page.html', '<p>page</p><script>\nconsole.log("hello", 2);\nconsole.error("an error");\nmissingFunction();\n</script>');
+    const page = file('debug-js/page.html', '<p>page</p><script>\nconsole.log("hello", 2);\nconsole.error("an error");\nmissingFunction();\n</script><script>console.group("group");</script>');
     const url = pathToFileURL(page).href;
     const out = join(dir, 'debug-js.pdf');
     const warnings = (stderr: string) => stderr.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l.startsWith('Warning: '));
     let r = await run(['--debug-javascript', page, out]);
     assert.equal(r.code, 0, r.stderr);
-    assert.deepEqual(warnings(r.stderr), [`Warning: ${url}:2 hello 2`, `Warning: ${url}:3 an error`, `Warning: ${url}:4 ReferenceError: missingFunction is not defined`]);
+    // Its first argument only, and nothing for console.group, as wkhtmltopdf 0.12.6.
+    assert.deepEqual(warnings(r.stderr), [`Warning: ${url}:2 hello`, `Warning: ${url}:3 an error`, `Warning: ${url}:4 ReferenceError: missingFunction is not defined`]);
     // A header page's too, as wkhtmltopdf 0.12.6 prints them: once when it
     // is measured, once for each page.
     const header = file('debug-js/header.html', '<!DOCTYPE html><p>head</p><script>console.log("from the header");</script>');
@@ -675,6 +702,22 @@ describe('interface', () => {
     r = await run(['-q', '--cookie', 'k', 'v', '--cookie-jar', jar, `${base}/show-cookie`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(shownCookie, 'secret=1; k=v');
+  });
+
+  test('--cookie-jar with --cookie of the same name: both go, the jar\'s first, and the jar keeps its own, as in wkhtmltopdf', async () => {
+    const jar = join(dir, 'jar-shadowed.txt');
+    writeFileSync(jar, 'k=old; domain=127.0.0.1; path=/;\nother=1; domain=127.0.0.1; path=/;\n');
+    const r = await run(['-q', '--cookie', 'k', 'new', '--cookie-jar', jar, `${base}/show-cookie`, join(dir, 'jar-shadowed.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(shownCookie, 'k=old; other=1; k=new');
+    assert.equal(readFileSync(jar, 'utf8'), 'k=old; domain=127.0.0.1; path=/;\nother=1; domain=127.0.0.1; path=/;\n');
+  });
+
+  test('--custom-header goes with each hop of the page\'s redirects, as in wkhtmltopdf', async () => {
+    hopHeader = '';
+    const r = await run(['-q', '--custom-header', 'X-Custom', 'yes', `${base}/hop-start`, join(dir, 'hop.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(hopHeader, 'yes');
   });
 
   test('--cookie-jar: a secure cookie never goes over http, to localhost neither, as in wkhtmltopdf', async () => {
@@ -909,6 +952,14 @@ describe('objects and numbering', () => {
     assert.match(text[1]!, /12\/14 Part one 1\/2/);
     assert.match(text[2]!, /13\/14 Part one 2\/2/);
     assert.match(text[3]!, /14\/14 Part two 1\/1/);
+  });
+
+  test('--header-html from an http address prints, as in wkhtmltopdf', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const out = join(dir, 'web-header.pdf');
+    const r = await run(['-q', '-T', '20', '--header-html', `${base}/web-header`, file('web-header/page.html', '<p>body</p>'), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(pagesText(out)[0]!.includes('WEB HEADER'), pagesText(out)[0] ?? '');
   });
 
   test('--header-html receives the page parameters', async (t) => {
@@ -1887,6 +1938,20 @@ describe('native interface', () => {
       s.close();
     }
     assert.equal(size(), before, log);
+  });
+
+  test('the Referer stays to Chromium\'s policy: the input\'s origin to another site, not its whole address', async () => {
+    refSeen = '';
+    const r = await native(['--allow-private-network', '--header', 'X-Test: k', `${base}/ref-page?token=T`, join(dir, 'ref.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(refSeen, `${base}/`);
+  });
+
+  test('a page the input goes to, that another site sends back to its host, takes neither --header nor --cookie', async () => {
+    landingHeader = '';
+    const r = await native(['--allow-private-network', '--header', 'X-Test: secret', `${base}/refresh`, join(dir, 'refresh.pdf')]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(landingHeader, 'no header');
   });
 
   test('frames left as Chromium leaves them: one that prints nothing, without failing; a sandboxed one, not loaded again', async (t) => {

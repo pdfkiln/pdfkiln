@@ -66,6 +66,9 @@ export class QtJar {
   private read: JarCookie[] = [];
   private taken = new Set<string>();
   private given = new Map<string, number>();
+  // The file's cookies that --cookie replaced in Chromium, of the same
+  // name, host and path: wkhtmltopdf sends both, and keeps the file's.
+  private shadowed: JarCookie[] = [];
 
   // The cookies of the file, and those Chromium took.
   loaded(read: JarCookie[], taken: Named[]): void {
@@ -81,7 +84,21 @@ export class QtJar {
     for (const [name, value] of cookies) {
       const key = givenKey(name, value, host);
       if (!this.given.has(key)) this.given.set(key, this.given.size);
+      const replaced = this.read.find((c) => c.name === name && c.value !== value && (c.domain ?? '').toLowerCase() === host.toLowerCase() && (c.path || '/') === '/' && this.taken.has(keyOf(c)));
+      if (replaced && !this.shadowed.includes(replaced)) this.shadowed.push(replaced);
     }
+  }
+
+  // The shadowed cookies that go with a request to url, as Qt matches them.
+  private shadowedFor(url: string): JarCookie[] {
+    const u = URL.parse(url);
+    if (!u) return [];
+    return this.shadowed.filter((c) => {
+      const domain = (c.domain ?? '').toLowerCase();
+      const host = u.hostname.toLowerCase();
+      const onHost = host === domain.replace(/^\./, '') || (domain.startsWith('.') && host.endsWith(domain));
+      return onHost && u.pathname.startsWith(c.path || '/') && (u.protocol === 'https:' || !c.secure);
+    });
   }
 
   private givenRank(c: Named): number | undefined {
@@ -107,9 +124,10 @@ export class QtJar {
   // (MyCookieJar::useCookie). Undefined without a cookie; empty when none
   // is sent but Chromium holds one for the URL, so that it adds none.
   line(cookies: (Named & { path: string; secure: boolean })[], url: string, extra: [string, string][] = []): string | undefined {
-    if (!cookies.length && !extra.length) return undefined;
+    const shadowed = this.shadowedFor(url);
+    if (!cookies.length && !extra.length && !shadowed.length) return undefined;
     const https = url.startsWith('https:');
-    const sent = cookies.filter((c) => https || !c.secure);
+    const sent = [...cookies.filter((c) => https || !c.secure), ...shadowed.map((c) => ({ ...c, path: c.path || '/', secure: Boolean(c.secure) }))];
     const given = sent.filter((c) => this.givenRank(c) !== undefined).sort((a, b) => this.givenRank(a)! - this.givenRank(b)!);
     return [
       ...this.ordered(sent.filter((c) => this.givenRank(c) === undefined)).sort((a, b) => b.path.length - a.path.length),
@@ -131,7 +149,9 @@ export class QtJar {
       return this.givenRank(c) === undefined ? [c] : [];
     });
     const heldKeys = new Set(held.map(keyOf));
-    return this.ordered([...kept, ...this.read.filter((c) => !this.taken.has(keyOf(c)) && !heldKeys.has(keyOf(c)))]);
+    // A shadowed cookie, unless a server set it again since.
+    const back = this.shadowed.filter((c) => held.some((h) => keyOf(h) === keyOf(c) && this.givenRank(h) !== undefined));
+    return this.ordered([...kept, ...back, ...this.read.filter((c) => !this.taken.has(keyOf(c)) && !heldKeys.has(keyOf(c)))]);
   }
 }
 

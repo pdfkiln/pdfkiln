@@ -90,6 +90,12 @@ const MEDIA = new Set(['css', 'js', 'png', 'jpg', 'jpeg', 'gif']);
 // does not wait for them.
 const isReport = (type?: string) => type === 'Ping' || type === 'CSPViolationReport';
 
+// A request's headers, to send in place of Chromium's, without its Referer:
+// Chromium then keeps it to its referrer policy. Given back, it was pinned,
+// and a redirect to another site took the input's whole address, its query
+// included (measured, Chromium 158).
+const ownHeaders = (h: Record<string, string>) => Object.entries(h).filter(([name]) => !/^referer$/i.test(name)).map(([name, value]) => ({ name, value }));
+
 // Requests whose cookies stay Chromium's (LoadSpec.qtCookies): their
 // credentials decide, which the Fetch domain does not tell. Qt's WebKit
 // sent none either with an XMLHttpRequest to another origin without
@@ -302,7 +308,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       const kept = (e.blockedCookies ?? []).flatMap((b) => (b.cookie && b.blockedReasons.every((r) => SITE_REFUSALS.has(r)) ? [b.cookie] : []));
       if (!url || !kept.length) return;
       cdp.send('Network.setCookies', {
-        cookies: kept.map((c) => ({ name: c.name, value: c.value, url, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, expires: c.session ? undefined : c.expires })),
+        cookies: kept.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly, expires: c.session ? undefined : c.expires })),
       }).catch(() => {});
     });
   }
@@ -325,6 +331,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Fetch: every request, and style sheet responses to rewrite.
   const rewrite = spec.emulation && (spec.emulation.mediaViewport || spec.emulation.dropPageRules || spec.emulation.screenTypes || spec.emulation.webkit534Css) ? spec.emulation : undefined;
   let pageRequested = false;
+  let pageNetwork = '';
   const post = postBody(load.post);
   const clientCert = clientCertOf(load);
   // The network ids of the requests a redirect took to another host than
@@ -355,19 +362,27 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     // page given as a file takes neither, and they never go with a request
     // of one of its frames, which up to 1.3.0 took them after such a page.
     const pageRequest = !pageRequested && e.resourceType === 'Document' && e.frameId === mainFrame;
-    if (pageRequest) pageRequested = true;
+    if (pageRequest) {
+      pageRequested = true;
+      pageNetwork = e.networkId ?? '';
+    }
+    // A hop of the page's own request: the request itself, or a redirect it
+    // followed, which shares its network id.
+    const pageHop = pageRequest || (Boolean(pageNetwork) && e.networkId === pageNetwork);
     if (url.startsWith('file:')) return serveFile(e);
     if (!web.loadImages && e.resourceType === 'Image') {
       return cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
     }
     if (e.resourceType === 'Font' && /^https?:/.test(url)) return relayFont(e);
-    const headersHere = pageRequest && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
+    // --custom-header at each hop, as wkhtmltopdf sends it: Chromium drops
+    // a header given here at a redirect.
+    const headersHere = pageHop && load.customHeaders.length > 0 && !load.repeatCustomHeaders;
     const postHere = pageRequest && post !== null && /^https?:/.test(url);
     const main = headersHere || postHere;
     let headers: { name: string; value: string }[] | undefined;
     let postData: Buffer | undefined;
     if (main) {
-      headers = Object.entries(request.headers).map(([name, value]) => ({ name, value }));
+      headers = ownHeaders(request.headers);
       if (headersHere) for (const [name, value] of load.customHeaders) headers.push({ name, value });
       if (postHere) {
         headers = headers.filter((h) => !/^content-(type|length)$/i.test(h.name));
@@ -377,19 +392,19 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }
     // Called as pdfkiln, a request that another site sends to the input's
     // host by a redirect takes neither --header nor --cookie there, that
-    // site having chosen it; the input itself keeps them through its own
-    // redirects, and a frame loaded apart does not, its address being the
-    // frame's (src/engine/frames.ts). The hops of a redirect share their
-    // network id.
+    // site having chosen it; the input's own request keeps them through its
+    // redirects, a login on another site for instance, and that request
+    // only: not a page the input then goes to (a meta refresh), nor a frame
+    // loaded apart, whose address is the frame's (src/engine/frames.ts).
     const here = onInputHost(url);
-    const sentHere = !spec.qtCookies && here && Boolean(e.networkId && elsewhere.has(e.networkId)) && !(spec.isMain && e.resourceType === 'Document' && e.frameId === mainFrame);
+    const sentHere = !spec.qtCookies && here && Boolean(e.networkId && elsewhere.has(e.networkId)) && !(spec.isMain && pageHop);
     if (e.networkId && !here && /^https?:/.test(url)) elsewhere.add(e.networkId);
     // The native --header: with every request to the page's host, in place
     // of the browser's own of the same name, and to no other host.
     const site = Boolean(spec.siteHeaders?.length) && here && !sentHere;
     if (site) {
       const names = new Set(spec.siteHeaders!.map(([name]) => name.toLowerCase()));
-      headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !names.has(h.name.toLowerCase()));
+      headers = (headers ?? ownHeaders(request.headers)).filter((h) => !names.has(h.name.toLowerCase()));
       for (const [name, value] of spec.siteHeaders!) headers.push({ name, value });
     }
     // Chromium holds --cookie for the input's host and would add it: the
@@ -398,13 +413,13 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       const { cookies } = await cdp.send('Network.getCookies', { urls: [url] });
       const given = new Set(load.cookies.map(([name, value]) => `${name}=${value}`));
       const kept = cookies.filter((c) => !given.has(`${c.name}=${c.value}`) && c.sameSite !== 'Strict').sort((a, b) => b.path.length - a.path.length);
-      headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !/^cookie$/i.test(h.name));
+      headers = (headers ?? ownHeaders(request.headers)).filter((h) => !/^cookie$/i.test(h.name));
       headers.push({ name: 'Cookie', value: kept.map((c) => `${c.name}=${c.value}`).join('; ') });
     }
     // wkhtmltopdf's cookies, in place of those Chromium would send.
     const cookie = await qtCookie(e);
     if (cookie !== undefined) {
-      headers = (headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))).filter((h) => !/^cookie$/i.test(h.name));
+      headers = (headers ?? ownHeaders(request.headers)).filter((h) => !/^cookie$/i.test(h.name));
       headers.push({ name: 'Cookie', value: cookie });
     }
     // Chromium cannot be given a client certificate: the command makes
@@ -489,15 +504,13 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const { requestId, request } = e;
     if (e.networkId) answered.add(e.networkId);
     const h: Record<string, string> = {};
-    for (const { name, value } of headers ?? Object.entries(request.headers).map(([name, value]) => ({ name, value }))) {
+    for (const { name, value } of headers ?? ownHeaders(request.headers)) {
       if (!/^accept-encoding$/i.test(name)) h[name] = value;
     }
+    // The Cookie line is Chromium's, already there at this stage; none
+    // where it sends none (an XMLHttpRequest without credentials, a fetch
+    // that omits them), measured with Chromium 158.
     h['Accept-Encoding'] = 'identity';
-    // Chromium adds the cookies after this stage.
-    if (!Object.keys(h).some((k) => /^cookie$/i.test(k))) {
-      const { cookies } = await cdp.send('Network.getCookies', { urls: [request.url] });
-      if (cookies.length) h.Cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-    }
     const sent = body ?? (request.postDataEntries?.length ? Buffer.concat(request.postDataEntries.map((p) => Buffer.from(p.bytes ?? '', 'base64'))) : undefined);
     try {
       // As Chromium would: through its proxy, and with --username and
@@ -609,10 +622,17 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Chromium's words.
   if (load.debugJavascript) {
     const where = (url?: string, line?: number) => (url ? `${url}:${(line ?? 0) + 1}` : 'undefined:0');
-    cdp.on('Runtime.consoleAPICalled', (e: { args: { value?: unknown; unserializableValue?: string; description?: string }[]; stackTrace?: { callFrames: { url: string; lineNumber: number }[] } }) => {
+    // Its first argument, as JavaScript writes it, of console.log, info,
+    // warn, error and debug: wkhtmltopdf 0.12.6 printed no other.
+    const SHOWN = new Set(['log', 'info', 'warning', 'error', 'debug']);
+    cdp.on('Runtime.consoleAPICalled', (e: { type: string; args: { type: string; subtype?: string; value?: unknown; unserializableValue?: string; description?: string }[]; stackTrace?: { callFrames: { url: string; lineNumber: number }[] } }) => {
+      if (!SHOWN.has(e.type)) return;
       const at = e.stackTrace?.callFrames[0];
-      const text = e.args.map((a) => (a.value !== undefined ? String(a.value) : a.unserializableValue ?? a.description ?? '')).join(' ');
-      out.warning(`${where(at?.url, at?.lineNumber)} ${text}`);
+      const a = e.args[0];
+      const text = !a || a.type === 'undefined' ? 'undefined'
+        : a.value !== undefined ? String(a.value)
+        : a.unserializableValue ?? (a.type === 'object' && a.subtype !== 'array' ? '[object Object]' : a.description ?? '');
+      out.warning(`${at?.url ?? ''}:${(at?.lineNumber ?? 0) + 1} ${text}`);
     });
     cdp.on('Runtime.exceptionThrown', (e: { exceptionDetails: { text: string; url?: string; lineNumber?: number; exception?: { value?: unknown; description?: string } } }) => {
       const d = e.exceptionDetails;
@@ -748,7 +768,10 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   }
   if (spec.isMain) {
     for (const js of load.runScript) {
-      await cdp.send('Runtime.evaluate', { expression: js, userGesture: true }).catch(() => {});
+      const r = await cdp.send('Runtime.evaluate', { expression: js, userGesture: true }).catch(() => undefined);
+      // Its error, with --debug-javascript, as the page's are told.
+      const d = r?.exceptionDetails;
+      if (d && load.debugJavascript) out.warning(`undefined:0 ${(d.exception?.description ?? d.text).split('\n')[0]}`);
     }
   }
   if (load.jsdelay > 0 && !lp.printRequested) {

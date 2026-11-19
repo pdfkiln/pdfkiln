@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PDFDocument, PDFPage } from '@cantoo/pdf-lib';
 import type { BrowserContext } from 'puppeteer-core';
+import { markFrames, printApart, printer } from '../engine/frames.js';
 import { emulate, openPage, type LoadSpec, type Reporter } from '../engine/loader.js';
-import { pdfModules, READ } from '../pdf/modules.js';
+import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import type { HeaderFooter } from './settings.js';
 
 const PT_PER_MM = 72 / 25.4;
@@ -185,7 +186,10 @@ export async function measure(context: BrowserContext, url: string, b: Box, out:
 }
 
 // All the pages of one header-html: one <iframe> per page, printed once;
-// page i of the result is the header of body page i.
+// page i of the result is the header of body page i. A header page of the
+// web runs in a process of its own in this page, opened from a file, and
+// Chromium printed it blank up to 1.3.0: each is printed apart and drawn
+// in (src/engine/frames.ts).
 export async function renderHtml(context: BrowserContext, urls: string[], b: Box, height: number, dir: string, out: Reporter): Promise<{ pdf: Uint8Array; errorCode: number }> {
   const w = (b.width * PX_PER_MM) / b.scale;
   const h = (Math.max(height, 0.1) * PX_PER_MM) / b.scale;
@@ -219,10 +223,20 @@ export async function renderHtml(context: BrowserContext, urls: string[], b: Box
     }
   }
   await emulate(lp);
-  const pdf = await lp.page.pdf({
+  const marks = await markFrames(lp);
+  let pdf = await lp.page.pdf({
     width: `${b.width}mm`, height: `${Math.max(height, 0.1)}mm`, margin: { top: 0, right: 0, bottom: 0, left: 0 },
     printBackground: true, scale: b.scale, preferCSSPageSize: false, tagged: false, outline: false, timeout: 0,
   });
+  if (marks.length) {
+    const [{ PDFDocument }, { placeFrames }] = await pdfModules();
+    const doc = await PDFDocument.load(pdf, READ);
+    const print = printer();
+    // This page told already what did not load in its frames.
+    const quiet: Reporter = { warning() {}, error() {} };
+    await placeFrames(doc, marks, (b.scale * 72) / 96, (m, fw, fh) => print(`${m.url} ${Math.round(fw)} ${Math.round(fh)}`, () => printApart(lp, m, fw, fh, true, quiet)));
+    pdf = await doc.save(WRITE);
+  }
   await lp.page.close();
   return { pdf, errorCode: lp.errorCode };
 }
