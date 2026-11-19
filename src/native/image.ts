@@ -13,7 +13,8 @@
 // - --transparent: no white behind a page that paints no background.
 import { extname } from 'node:path';
 import type { Page } from 'puppeteer-core';
-import { documentFrames, type LoadedPage } from '../engine/loader.js';
+import { paintFrames } from '../engine/frames.js';
+import { documentFrames, type LoadedPage, type Reporter } from '../engine/loader.js';
 
 export type ImageFormat = 'png' | 'webp' | 'jpeg';
 
@@ -57,10 +58,16 @@ export interface Capture {
 // What keeps the image from being written, in the user's words.
 export class CaptureError extends Error {}
 
-export async function capture(lp: LoadedPage, c: Capture): Promise<Buffer> {
+// out: what the frames loaded apart report (src/engine/frames.ts).
+export async function capture(lp: LoadedPage, c: Capture, out: Reporter): Promise<Buffer> {
   const { page, cdp } = lp;
   const beyond = !c.window || c.element !== undefined;
-  if (beyond) await loadDeferred(page);
+  if (beyond) {
+    await loadDeferred(page);
+    // The frames of another origin, which Chromium paints within the
+    // window only: captured apart and laid over.
+    await paintFrames(lp, c.scale, out);
+  }
   let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined;
   if (c.element !== undefined) {
     const box = await page.evaluate((selector: string) => {

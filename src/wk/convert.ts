@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
 import { removeQuietly } from '../engine/browser.js';
 import type { Emulation } from '../engine/emulation.js';
-import { emulate, openPage, type LoadedPage, type LoadSpec } from '../engine/loader.js';
+import { markFrames, printApart } from '../engine/frames.js';
+import { emulate, openPage, type LoadedPage, type LoadSpec, type Reporter } from '../engine/loader.js';
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
@@ -26,6 +27,10 @@ import { guessUrlFromString, looksLikeHtmlAndNotAUrl } from './urls.js';
 
 const PX_PER_MM = 96 / 25.4;
 const PT_PER_MM = 72 / 25.4;
+const PT_PER_PX = 72 / 96;
+// A frame printed apart says nothing: in the page, Chromium did not tell
+// its requests either.
+const QUIET: Reporter = { warning() {}, error() {} };
 
 export interface Result {
   success: boolean;
@@ -165,7 +170,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       xslt: objects.some((o) => isToc(o) && Boolean(o.tocXsl)),
     });
     // Loaded while Chromium started.
-    const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
+    const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, placeFrames, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
     const fontFamily = chromium.fontFamily;
     step('launch');
     const jar = new QtJar();
@@ -337,6 +342,9 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       if (wanted[k]!.size) destNames[k] = await markTargets(l.page, [...wanted[k]!]);
       if (isToc(o) && backLinks) destNames[k] = await markTargets(l.page, await tocAnchorNames(l.page));
       if (o.toc.backLinks) headingCount[k] = await linkHeadings(l.page);
+      // The frames Chromium prints blank, as wkhtmltopdf did not: printed
+      // apart, then drawn in (src/engine/frames.ts).
+      const frames = isToc(o) ? [] : await markFrames(l);
       // The style sheets no longer depend on the media type: print media
       // makes Chromium repeat table headers.
       if (!o.web.printMediaType) await l.cdp.send('Emulation.setEmulatedMedia', { media: 'print' });
@@ -354,6 +362,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         timeout: 0,
       });
       const doc = await PDFDocument.load(pdf, READ);
+      if (frames.length) await placeFrames(doc, frames, PT_PER_PX * scaleOf(o), (m, w, h) => printApart(l, m.url, w, h, o.web.background, QUIET));
       fixDests(doc, left * PT_PER_MM, top * PT_PER_MM, scaleOf(o));
       return { doc, outline: withOutline ? readOutline(doc) : [], pages: doc.getPageCount() };
     };

@@ -51,6 +51,7 @@ import type { PDFDocument } from '@cantoo/pdf-lib';
 import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
+import { markFrames, printApart } from '../engine/frames.js';
 import { openPage, type Failure, type Reporter } from '../engine/loader.js';
 import { BlockedAddress, CertificateError, relayRequest, startRelay, type Relay } from '../engine/relay.js';
 import type { FrontMatter } from '../markdown/frontmatter.js';
@@ -184,6 +185,7 @@ const stderr = (s: string) => writeSync(2, s);
 // The 1 cm margins in points; an @page margin of the page moves its
 // internal links' targets by the difference.
 const CM_PT = 72 / 2.54;
+const PT_PER_PX = 72 / 96;
 
 // An input is a URL when it says so, a file otherwise: a missing file is
 // not looked for on the web, as wkhtmltopdf's guess did (report.html as
@@ -617,6 +619,9 @@ export async function nativeMain(args: string[]): Promise<number> {
       else warning(`could not load ${url}: ${why(url, f)}`);
     },
   };
+  // A frame loaded apart (src/engine/frames.ts) is a resource of the input,
+  // the frame's own address included.
+  const frameOut: Reporter = { ...out, failed: (url, f) => out.failed!(url, f, false) };
   // Whether the input lacks a resource: then all of them, as errors, which
   // -q does not hide.
   const incomplete = (): boolean => {
@@ -852,7 +857,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         return 1;
       }
       if (image) {
-        const bytes = await capture(lp, { format: image, quality, transparent: Boolean(v.transparent), scale, window: height !== undefined, element: v.element });
+        const bytes = await capture(lp, { format: image, quality, transparent: Boolean(v.transparent), scale, window: height !== undefined, element: v.element }, frameOut);
         step('capture');
         // --fail-on-resource-error: once captured, the deferred images
         // loaded, so that all are told.
@@ -861,10 +866,13 @@ export async function nativeMain(args: string[]): Promise<number> {
         step('write');
         return 0;
       }
-      const [{ PDFDocument }, { fixDests, readOutline, undoubleTitles }] = pdfLib!;
+      const [{ PDFDocument }, { fixDests, placeFrames, readOutline, undoubleTitles }] = pdfLib!;
       // --outline: the headings' text, which puts right a bookmark Chromium
       // titles twice (undoubleTitles).
       const headings = v.outline ? await headingTexts(lp.page) : [];
+      // The frames Chromium prints blank: printed apart, then drawn in
+      // (src/engine/frames.ts).
+      const frames = await markFrames(lp);
       const pdf = await lp.page.pdf({
         format: 'A4',
         margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
@@ -875,11 +883,16 @@ export async function nativeMain(args: string[]): Promise<number> {
         // Puppeteer's own 30 s would cut a long document: --timeout decides.
         timeout: 0,
       });
+      const doc = await PDFDocument.load(pdf, READ);
+      if (frames.length) {
+        await placeFrames(doc, frames, PT_PER_PX, (m, w, h) => printApart(lp, m.url, w, h, true, frameOut));
+        step('frames');
+      }
       // --fail-on-resource-error: once printed, which asks for what the
-      // load left (lazy images), so that all are told.
+      // load left (lazy images), and the frames printed apart, so that all
+      // are told.
       if (incomplete()) return 1;
       await lp.page.close();
-      const doc = await PDFDocument.load(pdf, READ);
       // Markdown's targets move by its style sheet's margins.
       if (markdown) fixDests(doc, MARGIN_LEFT_CM * CM_PT, MARGIN_TOP_CM * CM_PT, 1);
       else fixDests(doc, CM_PT, CM_PT, 1);

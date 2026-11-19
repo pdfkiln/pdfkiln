@@ -66,8 +66,25 @@ function pagesText(file: string): string[] {
   return JSON.parse(execFileSync(python, ['-I', '-c', script, file], { encoding: 'utf8' }));
 }
 
+// The text blocks of the first page ([x0, y0, x1, y1, text], from the top)
+// and the addresses its links go to, with PyMuPDF.
+function firstPage(file: string): { blocks: [number, number, number, number, string][]; links: string[] } {
+  const script = 'import sys, json, pymupdf\np = pymupdf.open(sys.argv[1])[0]\nprint(json.dumps({"blocks": [b[:5] for b in p.get_text("blocks")], "links": [l.get("uri", "") for l in p.get_links()]}))';
+  return JSON.parse(execFileSync(python, ['-I', '-c', script, file], { encoding: 'utf8' }));
+}
 // A page given as a file, which holds a frame of another origin.
 const framePage = (name: string) => file(name, `<p>Before</p><iframe src="${other}/frame/red" width="400" height="200" style="border: 3px solid #000"></iframe><p>After</p>`);
+// The frame's text on the first page, between the page's own, inside the
+// frame's border; and the frame's link.
+function assertFramePrinted(pdf: string): void {
+  const { blocks, links } = firstPage(pdf);
+  const at = (s: string) => blocks.find((b) => b[4].includes(s));
+  const [before, frame, after] = [at('Before'), at('FRAME TEXT'), at('After')];
+  assert.ok(before && frame && after, JSON.stringify(blocks));
+  assert.ok(before[3] <= frame[1] && frame[3] <= after[1], JSON.stringify(blocks));
+  assert.ok(frame[0] > before[0], JSON.stringify(blocks));
+  assert.ok(links.includes('https://example.com/in-frame'), JSON.stringify(links));
+}
 
 const lastLine = (s: string) => s.trim().split(/[\r\n]+/).pop();
 const file = (name: string, content: string) => {
@@ -285,10 +302,14 @@ before(async () => {
     }
     if (path === '/deferred/green.svg') return res.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#0f0"/></svg>');
     if (path === '/deferred/green.html') return html('<style>body { margin: 0; background: #0f0 }</style>');
-    // A frame for a page of another origin: red, with a link.
+    // A frame for a page of another origin: red, with a link; and a page
+    // whose frame of another site lies below the window.
     if (path === '/frame/red') {
       frameRequests.push(`${req.method} ${req.headers['x-test'] ?? 'no header'}, ${req.headers.cookie ?? 'no cookie'}`);
       return html('<style>body { margin: 0; background: #c00 } p { margin: 0; font: 30px sans-serif; color: #fff }</style><p>FRAME TEXT</p><a href="https://example.com/in-frame" style="color: #fff">in frame</a>');
+    }
+    if (path === '/frame-below') {
+      return html(`<style>body { margin: 0 }</style><div style="height: 2000px"></div><iframe src="${other}/frame/red" width="400" height="200" style="display: block; border: 0"></iframe><div style="height: 300px"></div>`);
     }
     if (path === '/hang') {
       hangs.push(() => res.end());
@@ -1159,6 +1180,14 @@ print(json.dumps(out))`;
     assert.ok(Math.abs(pitch(b) - 21) < 0.3, `pitch ${pitch(b)}`);
     assert.ok(a[0]! - b[0]! > 14, `margin kept: ${a[0]} -> ${b[0]}`);
   });
+
+  test('a frame of another origin in a page given as a file is printed where it stands, with its links, as in wkhtmltopdf', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const out = join(dir, 'frame.pdf');
+    const r = await run([framePage('frames/page.html'), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assertFramePrinted(out);
+  });
 });
 
 describe('security', () => {
@@ -1800,6 +1829,19 @@ describe('native interface', () => {
     assert.ok(r.ms < 15000, `${Math.round(r.ms)} ms`);
   });
 
+  test('a frame of another origin in a page given as a file is printed, and nothing more goes to its host', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const out = join(dir, 'native-frame.pdf');
+    frameRequests.length = 0;
+    // A page from a file has no host: --header and --cookie go nowhere, the
+    // frame printed apart included.
+    const r = await native(['--allow-private-network', '--header', 'X-Test: secret', '--cookie', 'c=v', framePage('native/frames/page.html'), out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stderr, '');
+    assertFramePrinted(out);
+    assert.ok(frameRequests.length > 0 && frameRequests.every((h) => h === 'GET no header, no cookie'), frameRequests.join(' | '));
+  });
+
   describe('Markdown', () => {
     const properties = async (out: string) => {
       const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
@@ -2345,6 +2387,20 @@ describe('native interface', () => {
       // The image, then the frame.
       const at = await pixels(png);
       assert.deepEqual([at(100, 8100), at(100, 8300)], ['#00ff00', '#00ff00']);
+    });
+
+    test('a frame of another origin below the window is painted, in a page from a file or from its address', async () => {
+      const page = file('native/image/frame-below.html', `<style>body { margin: 0 }</style><div style="height: 2000px"></div><iframe src="${other}/frame/red" width="400" height="200" style="display: block; border: 0"></iframe><div style="height: 300px"></div>`);
+      const out = join(dir, 'frame-below.png');
+      for (const input of [page, `${base}/frame-below`]) {
+        const r = await native(['--allow-private-network', input, out]);
+        assert.equal(r.code, 0, r.stderr);
+        const png = readFileSync(out);
+        assert.deepEqual(shot(png), { format: 'png', width: 1280, height: 2500, alpha: false }, input);
+        // Below the frame's text, its background; beside it, the page's.
+        const at = await pixels(png);
+        assert.deepEqual([at(300, 2150), at(500, 2150)], ['#cc0000', '#ffffff'], input);
+      }
     });
 
     test('no image of an input that does not load, nor with --fail-on-resource-error of one that misses an image', async () => {

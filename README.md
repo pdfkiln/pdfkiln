@@ -155,11 +155,6 @@ Chromium renders the page, and text is sharper. The compatible mode emulates wha
 
 Each in detail: [docs/compatibility.md](docs/compatibility.md#differences-from-wkhtmltopdf).
 
-## Known issues
-
-- In a page opened from a file (a path, or the standard input, what most libraries pass), an iframe of another origin is not printed, where wkhtmltopdf printed it; a page loaded from a URL prints it ([why](docs/compatibility.md#known-issues)).
-- In an image of the whole page, an iframe of another origin below the window stays blank; a window as high as the page (`--height`) paints it ([why](docs/native.md#known-issues)).
-
 ## Security
 
 Called as `wkhtmltopdf`, PDFKiln keeps the defaults of wkhtmltopdf, the compatibility contract: a page reads no local file but itself unless allowed, and loads anything from the network, certificate errors ignored. On top of them:

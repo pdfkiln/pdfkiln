@@ -20,11 +20,8 @@ The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, php
 - `--user-style-sheet` also takes an http or https URL, which wkhtmltopdf 0.12.6 ignores: its Qt WebKit only reads a local file or a `data:` URL.
 - `--cookie` goes with the requests to the page's host only when the page is loaded from an http or https address, where wkhtmltopdf sends it to every site the page calls. A page given as a file or on the standard input has no host: there, as in wkhtmltopdf, it goes with every request.
 - With `--proxy`, the proxy resolves the names of https addresses too, as Chromium has it, so `--proxy-hostname-lookup` has no effect: wkhtmltopdf resolves them itself unless it is given.
+- In a page opened from a file (a path, or standard input, which goes through a file as in wkhtmltopdf: what most libraries pass), an iframe of another origin runs in a process of its own, which chrome-headless-shell prints blank. PDFKiln loads it again on its own, at its size and under the page's rules, prints it, and draws it where it stands, its links with it; wkhtmltopdf printed it in the page. A frame whose content depends on the page that holds it (messages between the two) may come out otherwise. A page loaded from a URL prints its iframes itself, whatever their origin.
 - Not provided: the C library `libwkhtmltox`.
-
-## Known issues
-
-- In a page opened from a file (a path, or standard input, which goes through a file as in wkhtmltopdf: what most libraries pass), an iframe of another origin is not printed: its space stays blank, without an error; wkhtmltopdf printed it. Chromium gives such an iframe a process of its own, and chrome-headless-shell does not print those. A page loaded from a URL prints its iframes, whatever their origin.
 
 ## Security
 

@@ -378,3 +378,6 @@ export function repeatPages(doc: PDFDocument, copies: number, collate: boolean):
     });
   }
 }
+
+// The frames Chromium printed blank, drawn in (src/pdf/frames.ts).
+export { placeFrames } from './frames.js';
