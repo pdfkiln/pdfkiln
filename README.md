@@ -14,7 +14,7 @@ wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt
 PDFKiln is one program that answers to two names:
 
 - called as `wkhtmltopdf` (or `pdfkiln wkhtmltopdf ...`), it accepts the command line of wkhtmltopdf 0.12.6, so existing integrations keep working unchanged;
-- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG; and it takes PDFs made elsewhere among its inputs: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice (below). This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
+- called as `pdfkiln`, it offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). A few options give what the page cannot say itself: a style sheet of your own (`--css`), its screen rules (`--media screen`), the request's headers and cookies (`--header`, `--cookie`), an element to wait for (`--wait-for`), the PDF's title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`), PDF/A for archiving and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`, below); `pdfkiln --help` lists them all. It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style. It writes images too: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG; it takes PDFs made elsewhere among its inputs: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice; and it protects a PDF with a password (below). This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
 
 PDFKiln is not affiliated with the original wkhtmltopdf project.
 
@@ -169,6 +169,19 @@ pdfkiln cover.pdf report.md annex.pdf report.pdf
 - A PDF from a URL is fetched under the rules of a page: no private address without `--allow-private-network`, its certificate checked unless `--allow-invalid-certificates`, `--header` and `--cookie` for its host.
 - With `--pdfa` or `--factur-x`, a PDF input must be PDF/A itself, as its metadata declares: an invoice in Factur-X with its terms of sale in one file, `pdfkiln --factur-x invoice.xml invoice.html terms.pdf invoice.pdf`. PDFKiln checks the fonts of every page and takes the rest on the PDF's word. Refused: a PDF that is not PDF/A (export it as PDF/A-2b or 3b where it is made), a PDF/A for print, in CMYK (PDFKiln's PDF/A is in sRGB), PDF/A-4, and for a level of part 2, a PDF/A-3 with a file attached to its pages.
 - Refused too: an encrypted PDF (PDFKiln does not remove a password or restrictions), a file that is not a PDF, a PDF on the standard input, and a PDF input for an image or with `--tagged`.
+
+## Passwords
+
+`pdfkiln` encrypts the PDF with AES-256 when asked: with a password to open it (`--user-password`), and for restrictions, the owner's password (`--owner-password`), which gives every right.
+
+```sh
+pdfkiln --user-password "$PASSWORD" payslip.html payslip.pdf
+pdfkiln --owner-password "$OWNER" --no-copy --no-modify quote.html quote.pdf
+```
+
+- `--no-print`, `--no-copy` and `--no-modify` bind whoever opens the PDF without the owner's password, and need `--owner-password`, without which anyone may lift them. Screen readers still read a PDF that refuses copying.
+- A restriction is a request to the reader's software, which most honour; what keeps a PDF secret is the password to open it.
+- PDF/A forbids encryption: `--pdfa` and `--factur-x` take no password.
 
 ## Differences from wkhtmltopdf
 

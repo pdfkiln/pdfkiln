@@ -37,7 +37,10 @@
 //   (src/native/image.ts);
 // - PDFs made elsewhere among the inputs, a file or an http(s) URL named
 //   .pdf: their pages go in as they are, their links and bookmarks kept;
-//   Chromium does not start when every input is a PDF file.
+//   Chromium does not start when every input is a PDF file;
+// - --user-password, --owner-password, --no-print, --no-copy and
+//   --no-modify: the PDF encrypted with AES-256, what it asks of whoever
+//   opens it.
 import { mkdtempSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -126,6 +129,15 @@ PDF/A and electronic invoices:
   --pdfa[=<level>]            PDF/A for archiving: 2b, 2u, 3b, 3u (default 3b)
   --factur-x <invoice.xml>    Attach the invoice's CII XML: a Factur-X or
                               ZUGFeRD invoice, in PDF/A-3
+
+Protection (AES-256; PDF/A allows none):
+  --user-password <text>      Password to open the PDF
+  --owner-password <text>     Password with every right: the restrictions
+                              below bind whoever opens it with another
+  --no-print                  No printing
+  --no-copy                   No copying of text and images (screen readers
+                              still read them)
+  --no-modify                 No change: content, notes, forms, pages
 
 Waiting for the page:
   --javascript-delay <ms>     Wait up to this long after loading, less once
@@ -334,6 +346,11 @@ export async function nativeMain(args: string[]): Promise<number> {
         scale: { type: 'string' },
         quality: { type: 'string' },
         transparent: { type: 'boolean' },
+        'user-password': { type: 'string' },
+        'owner-password': { type: 'string' },
+        'no-print': { type: 'boolean' },
+        'no-copy': { type: 'boolean' },
+        'no-modify': { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         version: { type: 'boolean', short: 'V' },
@@ -380,7 +397,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     }
     image = to;
   } else image = imageFormatOf(output);
-  const pdfOnly = ['outline', 'tagged', 'title', 'author', 'subject', 'keywords', 'pdfa', 'factur-x'] as const;
+  const pdfOnly = ['outline', 'tagged', 'title', 'author', 'subject', 'keywords', 'pdfa', 'factur-x', 'user-password', 'owner-password', 'no-print', 'no-copy', 'no-modify'] as const;
   const imageOnly = ['width', 'height', 'element', 'scale', 'quality', 'transparent'] as const;
   for (const name of image ? pdfOnly : imageOnly) {
     if (v[name] !== undefined) {
@@ -519,6 +536,45 @@ export async function nativeMain(args: string[]): Promise<number> {
     return 1;
   }
   const archiveOption = v['factur-x'] !== undefined ? '--factur-x' : '--pdfa';
+  // The passwords and the restrictions, for pdf-lib's AES-256. A restriction
+  // binds whoever opens the PDF without the owner's password: without one,
+  // pdf-lib makes the user's password the owner's, and anyone may lift it.
+  // Every right is given but those refused: pdf-lib gives none unless told,
+  // and never the reading of the text by screen readers.
+  const userPassword = v['user-password'];
+  const ownerPassword = v['owner-password'];
+  const restrictions = (['no-print', 'no-copy', 'no-modify'] as const).filter((name) => v[name]);
+  let protection: Parameters<PDFDocument['encrypt']>[0] | undefined;
+  if (userPassword !== undefined || ownerPassword !== undefined || restrictions.length) {
+    const asked = userPassword !== undefined ? '--user-password' : ownerPassword !== undefined ? '--owner-password' : `--${restrictions[0]}`;
+    const refusal = userPassword === '' || ownerPassword === ''
+      ? `--${userPassword === '' ? 'user' : 'owner'}-password takes a password`
+      : archived
+        ? `${archiveOption} and ${asked} do not go together: PDF/A forbids encryption`
+        : restrictions.length && ownerPassword === undefined
+          ? `--${restrictions[0]} needs --owner-password: without it, whoever opens the PDF may lift the restriction`
+          : ownerPassword !== undefined && ownerPassword === userPassword
+            ? '--owner-password must differ from --user-password, or it gives every right to whoever opens the PDF'
+            : '';
+    if (refusal) {
+      stderr(`pdfkiln: ${refusal}\n`);
+      return 1;
+    }
+    const modify = !v['no-modify'];
+    protection = {
+      userPassword: userPassword ?? '',
+      ownerPassword,
+      permissions: {
+        printing: v['no-print'] ? false : 'highResolution',
+        copying: !v['no-copy'],
+        modifying: modify,
+        annotating: modify,
+        fillingForms: modify,
+        documentAssembly: modify,
+        contentAccessibility: true,
+      },
+    };
+  }
   // Chromium, for any input but a PDF file: a PDF from a URL is fetched with
   // Chromium's user agent, as Markdown is.
   const chromium = inputs.some((input) => pdfPath(input) === null);
@@ -858,6 +914,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     // The language, for readers and screen readers: Chromium writes it in a
     // tagged PDF only.
     if (front?.lang && !merged.doc.catalog.has(PDFName.of('Lang'))) merged.doc.catalog.set(PDFName.of('Lang'), PDFString.of(front.lang));
+    if (protection) merged.doc.encrypt(protection);
     let bytes: Uint8Array = await merged.doc.save(WRITE);
     step('assemble');
     if (archived) {

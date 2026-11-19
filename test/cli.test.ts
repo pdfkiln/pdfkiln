@@ -2122,6 +2122,64 @@ describe('native interface', () => {
     });
   });
 
+  describe('passwords', () => {
+    // The encryption of a PDF: its handler's version and revision, and the
+    // rights of whoever opens it without the owner's password (ISO 32000-1,
+    // table 22: print 3, modify 4, copy 5, annotate 6, fill forms 9,
+    // accessibility 10, assemble 11, print in high quality 12).
+    const encryption = async (f: string) => {
+      const doc = await PDFDocument.load(readFileSync(f), { ignoreEncryption: true, updateMetadata: false });
+      const e = doc.context.lookup(doc.context.trailerInfo.Encrypt, PDFDict);
+      const n = (k: string) => Number(String(e.get(PDFName.of(k))));
+      const bits: Record<string, number> = { print: 3, modify: 4, copy: 5, annotate: 6, forms: 9, accessibility: 10, assemble: 11, 'print-hq': 12 };
+      return { v: n('V'), r: n('R'), denied: Object.keys(bits).filter((k) => !(n('P') & (1 << (bits[k]! - 1)))) };
+    };
+    const page = () => file('native/pw/slip.html', '<title>Bulletin de paie</title><h1>Bulletin de paie novembre 2026</h1>');
+
+    test('--user-password: AES-256, the PDF opened with it only, every right given', async () => {
+      const out = join(dir, 'pw-user.pdf');
+      const r = await native(['--user-password', 'secret', page(), out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await encryption(out), { v: 5, r: 6, denied: [] });
+      await assert.rejects(PDFDocument.load(readFileSync(out)), /encrypted/);
+      assert.equal((await PDFDocument.load(readFileSync(out), { password: 'secret', updateMetadata: false })).getPageCount(), 1);
+      if (hasPyMuPDF) {
+        const script = 'import sys, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(d.needs_pass, d.authenticate("wrong"), d.authenticate("secret") > 0, d.metadata["title"], "/", d[0].get_text().split(chr(10))[0])';
+        assert.equal(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }).trim(), '1 0 True Bulletin de paie / Bulletin de paie novembre 2026');
+      }
+    });
+
+    test('--owner-password with --no-print, --no-copy, --no-modify: the rights of the others', async () => {
+      const out = join(dir, 'pw-owner.pdf');
+      let r = await native(['--user-password', 'secret', '--owner-password', 'boss', '--no-print', '--no-copy', page(), out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await encryption(out), { v: 5, r: 6, denied: ['print', 'copy', 'print-hq'] });
+      // Opened without a password, nothing changed in it.
+      r = await native(['--owner-password', 'boss', '--no-modify', page(), out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(await encryption(out), { v: 5, r: 6, denied: ['modify', 'annotate', 'forms', 'assemble'] });
+      assert.equal((await PDFDocument.load(readFileSync(out), { password: '', updateMetadata: false })).getPageCount(), 1);
+    });
+
+    test('refused: a restriction without --owner-password, the same password twice, an empty one, with --pdfa, for an image', async () => {
+      const out = join(dir, 'pw-refused.pdf');
+      const cases: [string[], string][] = [
+        [['--user-password', 'secret', '--no-copy', page(), out], 'pdfkiln: --no-copy needs --owner-password: without it, whoever opens the PDF may lift the restriction\n'],
+        [['--user-password', 'same', '--owner-password', 'same', page(), out], 'pdfkiln: --owner-password must differ from --user-password, or it gives every right to whoever opens the PDF\n'],
+        [['--user-password=', page(), out], 'pdfkiln: --user-password takes a password\n'],
+        [['--pdfa', '--user-password', 'secret', page(), out], 'pdfkiln: --pdfa and --user-password do not go together: PDF/A forbids encryption\n'],
+        [['--factur-x', invoiceXml, '--owner-password', 'boss', page(), out], 'pdfkiln: --factur-x and --owner-password do not go together: PDF/A forbids encryption\n'],
+        [['--no-print', page(), join(dir, 'pw-refused.png')], 'pdfkiln: --no-print is for a PDF, not an image\n'],
+      ];
+      for (const [args, message] of cases) {
+        const r = await native(args);
+        assert.equal(r.code, 1, args.join(' '));
+        assert.equal(r.stderr, message);
+      }
+      assert.equal(existsSync(out), false);
+    });
+  });
+
   describe('images', () => {
     // A PNG, WebP or JPEG image's format and size, from its header; whether
     // it has alpha, and for WebP whether it is lossless.

@@ -8,15 +8,17 @@ GitHub release.
 
 ## 1.4.0
 
-Called as `pdfkiln`, two new features:
+Called as `pdfkiln`, three new features:
 
 - **Images**: `pdfkiln page.html page.png` captures the page in PNG, WebP or JPEG, for the preview of a shared link, a thumbnail or a picture in an email: the whole page, in screen media, in a window 1280 pixels wide, its images that wait to be scrolled to (`loading="lazy"`) loaded. `--width` and `--height` set the window, and with `--height` the image is the window alone; `--element` captures one element; `--scale 2` doubles the pixels; `--quality` sets the quality of JPEG and WebP, which is lossless without it; `--transparent` leaves out the white behind a page without a background. Markdown, URLs, the standard input (`--to png` writes to the standard output) and the other options work as for a PDF. An output named `.png`, `.webp`, `.jpg` or `.jpeg`, which got a PDF, now gets an image.
 - **PDF inputs**: a PDF made elsewhere, a file or an http or https URL named `.pdf`, goes among the inputs, its pages as they are: `pdfkiln invoice.html terms.pdf invoice.pdf` puts the terms of sale after the invoice. Its links to its own pages keep working, and `--outline` keeps its bookmarks; PDFs alone are merged without Chromium. With `--pdfa` or `--factur-x`, a PDF input must be PDF/A itself, so that an invoice and its terms of sale make one Factur-X file. An encrypted PDF is refused, and so is a PDF input with `--tagged` or for an image.
+- **Passwords**: `--user-password` encrypts the PDF with AES-256, to be opened with that password; `--owner-password` with `--no-print`, `--no-copy` or `--no-modify` restricts what the others may do with it, screen readers still reading it. PDF/A forbids encryption: `--pdfa` and `--factur-x` take none.
 
 ```sh
 pdfkiln https://example.com page.png
 pdfkiln --width 1200 --height 630 card.html card.webp
 pdfkiln --factur-x invoice.xml invoice.html terms.pdf invoice.pdf
+pdfkiln --user-password "$PASSWORD" payslip.html payslip.pdf
 ```
 
 Bugs fixed:
