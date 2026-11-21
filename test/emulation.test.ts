@@ -79,6 +79,18 @@ test('CSS that WebKit 534 does not parse is dropped, its fallbacks stay', () => 
   assert.equal(dropUnknownCss('h1{font-size: 2em; font-size: calc(1.375rem + 1.5vw)}'), 'h1{font-size: 2em; }');
 });
 
+test('breaks and named pages that came after WebKit 534 are dropped, page-break-* stays', () => {
+  assert.equal(dropUnknownCss('h1{ break-before: page; color: red}'), 'h1{ color: red}');
+  assert.equal(dropUnknownCss('.a{page-break-before: always; BREAK-INSIDE: avoid !important}.b{break-after:column}'), '.a{page-break-before: always; }.b{}');
+  assert.equal(dropUnknownCss('.wide{page: wide}'), '.wide{}');
+  // An attribute's declarations.
+  assert.equal(dropUnknownCss('break-after: page; color: red'), 'color: red');
+  // Elsewhere: as they are.
+  for (const css of ['@page :first{margin: 1cm}', 'p{page-break-after: always; -webkit-column-break-before: always; content: "Page: 1"}', 'a.page:hover{color: red}']) {
+    assert.equal(dropUnknownCss(css), css);
+  }
+});
+
 test('system-ui is the name of a family no font has, as in WebKit 534, quoted or not', () => {
   const name = '"WebKit 534 system-ui"';
   assert.equal(dropUnknownCss('html{font-family: system-ui, -apple-system, "Segoe UI", sans-serif}'), `html{font-family: ${name}, -apple-system, "Segoe UI", sans-serif}`);

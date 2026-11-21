@@ -70,6 +70,7 @@ Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.
 Called as `wkhtmltopdf`, page breaks now as in wkhtmltopdf 0.12.6:
 
 - **Blocks that scroll their overflow** (`overflow: auto` or `scroll`, such as pandoc's code blocks) move whole to the next page when they do not fit at the bottom of one, as images do. Up to 1.3.0, they were split, and the pages after them broke elsewhere than in wkhtmltopdf. A block taller than a page is still split, from where it stands.
+- **`break-before`, `break-after`, `break-inside` and `page`**, which came after wkhtmltopdf's WebKit, are ignored as it ignores them; `page-break-before`, `page-break-after` and `page-break-inside` still apply. Up to 1.3.0, Chromium broke pages where wkhtmltopdf did not: at each `break-before: page`, and before and after the elements of a named page.
 
 Called as `wkhtmltopdf`, `--grayscale` now as in wkhtmltopdf 0.12.6:
 

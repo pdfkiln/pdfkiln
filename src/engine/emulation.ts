@@ -114,6 +114,12 @@ const UNKNOWN_DISPLAY = /(?<=^|[;{\s])display\s*:\s*(?:-webkit-)?(?:inline-)?(?:
 // properties themselves are left, they do nothing there.
 const UNKNOWN_VALUE = /(?<=^|[;{\s])(?!--)[a-z-]+\s*:[^;{}]*\b(?:-webkit-)?(?:calc|var)\([^;{}]*(?:;\s*|(?=\}|$))/gi;
 
+// The breaks of CSS Fragmentation (break-before, -after and -inside) and
+// named pages (page) came after it too: it knows page-break-before, -after
+// and -inside, which Chromium takes as the same breaks. At the start of a
+// declaration only, not in a string.
+const UNKNOWN_BREAK = /(?<=(?:^|[;{])\s*)(?:break-(?:before|after|inside)|page)\s*:[^;{}]*(?:;\s*|(?=\}|$))/gi;
+
 // system-ui, the font of the system's interface, came after WebKit 534 too:
 // there it is the name of a family, which no font has, and the next family
 // of the list applies, quoted or not. Chromium takes even the quoted name
@@ -122,7 +128,7 @@ const SYSTEM_UI = /(?<=[\s,:])(["']?)system-ui\1(?=\s*(?:[,;}!]|$))/gi;
 const FONT_PROPERTY = /^\s*font(?:-family)?\s*:/i;
 
 export function dropUnknownCss(css: string): string {
-  return css.replace(UNKNOWN_DISPLAY, '').replace(UNKNOWN_VALUE, '').replace(SYSTEM_UI, (m: string, _q: string, at: number, all: string) => {
+  return css.replace(UNKNOWN_DISPLAY, '').replace(UNKNOWN_VALUE, '').replace(UNKNOWN_BREAK, '').replace(SYSTEM_UI, (m: string, _q: string, at: number, all: string) => {
     const start = Math.max(all.lastIndexOf(';', at), all.lastIndexOf('{', at), all.lastIndexOf('}', at)) + 1;
     return FONT_PROPERTY.test(all.slice(start, at)) ? '"WebKit 534 system-ui"' : m;
   });
@@ -168,6 +174,7 @@ export function emulateInPage(e: Emulation): void {
     const drop = (css: string) => css
       .replace(/(?<=^|[;{\s])display\s*:\s*(?:-webkit-)?(?:inline-)?(?:flex|grid)\s*(?:!\s*important\s*)?(?:;\s*|(?=\}|$))/gi, '')
       .replace(/(?<=^|[;{\s])(?!--)[a-z-]+\s*:[^;{}]*\b(?:-webkit-)?(?:calc|var)\([^;{}]*(?:;\s*|(?=\}|$))/gi, '')
+      .replace(/(?<=(?:^|[;{])\s*)(?:break-(?:before|after|inside)|page)\s*:[^;{}]*(?:;\s*|(?=\}|$))/gi, '')
       .replace(/(?<=[\s,:])(["']?)system-ui\1(?=\s*(?:[,;}!]|$))/gi, (m: string, _q: string, at: number, all: string) => {
         const start = Math.max(all.lastIndexOf(';', at), all.lastIndexOf('{', at), all.lastIndexOf('}', at)) + 1;
         return /^\s*font(?:-family)?\s*:/i.test(all.slice(start, at)) ? '"WebKit 534 system-ui"' : m;

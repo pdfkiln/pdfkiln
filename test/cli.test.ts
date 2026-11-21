@@ -1349,6 +1349,16 @@ print(json.dumps(out))`;
     assert.match(await pageOne('tall', 'overflow: auto', 80), /L1\b/);
   });
 
+  test('breaks and named pages that came after WebKit 534 are ignored, page-break-before is kept, as in wkhtmltopdf', async () => {
+    // wkhtmltopdf 0.12.6 (Windows 11): 2 pages, the last paragraph's break
+    // only; Chromium would make 5.
+    const page = file('breaks/page.html', '<!DOCTYPE html><style>.p{page: wide} .b{break-before: page}</style><p>one</p><p class="b">two</p>'
+      + '<p class="p">three</p><p style="break-after: page">four</p><p style="page-break-before: always">five</p>');
+    const out = join(dir, 'breaks.pdf');
+    assert.equal((await run(['-q', page, out])).code, 0);
+    assert.equal((await PDFDocument.load(readFileSync(out))).getPageCount(), 2);
+  });
+
   test('bench switches: whole-pixel line heights, margins at the top of the page', async (t) => {
     // Off by default; PDFKILN_EMULATION turns them on for the bench.
     const page = file('whole/page.html', '<style>body{margin:0;font:12px sans-serif}p{margin:0;line-height:1.8}</style>'
