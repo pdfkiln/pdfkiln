@@ -38,6 +38,10 @@ export interface Emulation {
   // Chromium splits it. A layered default that any rule of the page
   // overrides.
   unsplitRows?: boolean;
+  // It moves a block that scrolls its overflow (auto or scroll, on either
+  // axis) whole to the next page too, as it does an image, when it fits in
+  // one (RenderBlock::adjustForUnsplittableChild); Chromium splits it.
+  unsplitScrollBoxes?: boolean;
   // CSS that WebKit 534 does not parse is dropped from the text of the
   // style sheets, so that the page's fallbacks apply as they did there:
   // Odoo writes display: -webkit-box; display: -webkit-flex; display: flex,
@@ -334,6 +338,20 @@ export function emulateInPage(e: Emulation): void {
       for (const el of aside) if (at(el) && flush(getComputedStyle(el))) visit(el);
     };
     visit(doc.body);
+  }
+  if (e.unsplitScrollBoxes && doc.body && window === window.top) {
+    // In-flow and floating blocks that fit in a page, the height of the
+    // window: a taller one is split from where it stands, as in WebKit,
+    // where Chromium would push it to the next page first. html and body
+    // give their overflow to the window; frames are printed apart. All
+    // read before any is set.
+    const scrolls = (v: string) => v === 'auto' || v === 'scroll';
+    const boxes = Array.from(doc.body.querySelectorAll<HTMLElement>('*')).filter((el) => {
+      const cs = getComputedStyle(el);
+      return (scrolls(cs.overflowX) || scrolls(cs.overflowY)) && cs.position !== 'absolute' && cs.position !== 'fixed'
+        && !/^(inline|table|contents|none)/.test(cs.display) && el.getBoundingClientRect().height <= innerHeight;
+    });
+    for (const el of boxes) el.style.setProperty('break-inside', 'avoid');
   }
   if (e.noDefaultWidows || e.unsplitRows) {
     const style = doc.createElement('style');

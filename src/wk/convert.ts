@@ -216,6 +216,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       minimumFontSize: o.web.minimumFontSize > 0 ? o.web.minimumFontSize : 0,
       noDefaultWidows: true,
       unsplitRows: true,
+      unsplitScrollBoxes: true,
       webkit534Css: true,
       noShrinkToFit: !o.web.enableIntelligentShrinking,
       ...emulationSwitches(),

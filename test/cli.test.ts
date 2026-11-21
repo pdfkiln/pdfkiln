@@ -1331,6 +1331,24 @@ print(json.dumps(out))`;
     assert.match(second!, /R6/);
   });
 
+  test('a block that scrolls its overflow and does not fit moves to the next page, whole', async (t) => {
+    // As WebKit 534: lines of 20 px from 1150 px down, across the first page
+    // break. One that hides its overflow is split, as one taller than a page,
+    // which starts where it stands.
+    const page = (name: string, overflow: string, lines: number) => file(`scroll/${name}.html`, '<style>body{margin:0;font:16px/20px sans-serif}</style>'
+      + `<div style="height:1150px">top</div><div style="${overflow}">${Array.from({ length: lines }, (_, i) => `L${i + 1}`).join('<br>')}</div>`);
+    const pageOne = async (name: string, overflow: string, lines: number) => {
+      const out = join(dir, `scroll-${name}.pdf`);
+      assert.equal((await run(['-q', page(name, overflow, lines), out])).code, 0);
+      return pagesText(out)[0]!;
+    };
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    assert.doesNotMatch(await pageOne('auto', 'overflow: auto', 20), /L1\b/);
+    assert.doesNotMatch(await pageOne('x', 'overflow-x: scroll', 20), /L1\b/);
+    assert.match(await pageOne('hidden', 'overflow: hidden', 20), /L1\b/);
+    assert.match(await pageOne('tall', 'overflow: auto', 80), /L1\b/);
+  });
+
   test('bench switches: whole-pixel line heights, margins at the top of the page', async (t) => {
     // Off by default; PDFKILN_EMULATION turns them on for the bench.
     const page = file('whole/page.html', '<style>body{margin:0;font:12px sans-serif}p{margin:0;line-height:1.8}</style>'
