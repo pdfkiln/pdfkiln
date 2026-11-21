@@ -993,6 +993,20 @@ describe('interface', () => {
     assert.ok(gray.fonts > 0);
     for (const s of ['Red text', 'Yellow', 'HEAD']) assert.ok(gray.text.includes(s), gray.text);
   });
+
+  test('system-ui is a family no font has, as in wkhtmltopdf: the next of the list, else the standard family', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const page = file('system-ui.html', `<!DOCTYPE html><style>.s { font: 16px system-ui, monospace }</style>
+      <p>standard</p><p style="font-family: system-ui">alone</p><p style="font-family: monospace">fixed</p>
+      <p style="font-family: system-ui, monospace">list</p><p class="s">sheet</p>`);
+    const out = join(dir, 'system-ui.pdf');
+    const r = await run(['-q', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    const script = 'import sys, json, pymupdf\np = pymupdf.open(sys.argv[1])[0]\nprint(json.dumps({s["text"]: s["font"] for b in p.get_text("dict")["blocks"] for l in b.get("lines", []) for s in l["spans"]}))';
+    const font: Record<string, string> = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }));
+    assert.notEqual(font.standard, font.fixed);
+    assert.deepEqual([font.alone, font.list, font.sheet], [font.standard, font.fixed, font.fixed], JSON.stringify(font));
+  });
 });
 
 describe('objects and numbering', () => {

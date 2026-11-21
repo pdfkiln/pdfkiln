@@ -110,8 +110,18 @@ const UNKNOWN_DISPLAY = /(?<=^|[;{\s])display\s*:\s*(?:-webkit-)?(?:inline-)?(?:
 // properties themselves are left, they do nothing there.
 const UNKNOWN_VALUE = /(?<=^|[;{\s])(?!--)[a-z-]+\s*:[^;{}]*\b(?:-webkit-)?(?:calc|var)\([^;{}]*(?:;\s*|(?=\}|$))/gi;
 
+// system-ui, the font of the system's interface, came after WebKit 534 too:
+// there it is the name of a family, which no font has, and the next family
+// of the list applies, quoted or not. Chromium takes even the quoted name
+// for that font: another name, which no font has either.
+const SYSTEM_UI = /(?<=[\s,:])(["']?)system-ui\1(?=\s*(?:[,;}!]|$))/gi;
+const FONT_PROPERTY = /^\s*font(?:-family)?\s*:/i;
+
 export function dropUnknownCss(css: string): string {
-  return css.replace(UNKNOWN_DISPLAY, '').replace(UNKNOWN_VALUE, '');
+  return css.replace(UNKNOWN_DISPLAY, '').replace(UNKNOWN_VALUE, '').replace(SYSTEM_UI, (m: string, _q: string, at: number, all: string) => {
+    const start = Math.max(all.lastIndexOf(';', at), all.lastIndexOf('{', at), all.lastIndexOf('}', at)) + 1;
+    return FONT_PROPERTY.test(all.slice(start, at)) ? '"WebKit 534 system-ui"' : m;
+  });
 }
 
 export function rewriteCss(css: string, e: Emulation): string {
@@ -153,7 +163,11 @@ export function emulateInPage(e: Emulation): void {
   if (e.webkit534Css) {
     const drop = (css: string) => css
       .replace(/(?<=^|[;{\s])display\s*:\s*(?:-webkit-)?(?:inline-)?(?:flex|grid)\s*(?:!\s*important\s*)?(?:;\s*|(?=\}|$))/gi, '')
-      .replace(/(?<=^|[;{\s])(?!--)[a-z-]+\s*:[^;{}]*\b(?:-webkit-)?(?:calc|var)\([^;{}]*(?:;\s*|(?=\}|$))/gi, '');
+      .replace(/(?<=^|[;{\s])(?!--)[a-z-]+\s*:[^;{}]*\b(?:-webkit-)?(?:calc|var)\([^;{}]*(?:;\s*|(?=\}|$))/gi, '')
+      .replace(/(?<=[\s,:])(["']?)system-ui\1(?=\s*(?:[,;}!]|$))/gi, (m: string, _q: string, at: number, all: string) => {
+        const start = Math.max(all.lastIndexOf(';', at), all.lastIndexOf('{', at), all.lastIndexOf('}', at)) + 1;
+        return /^\s*font(?:-family)?\s*:/i.test(all.slice(start, at)) ? '"WebKit 534 system-ui"' : m;
+      });
     for (const el of Array.from(doc.querySelectorAll('style'))) {
       const next = drop(el.textContent ?? '');
       if (next !== el.textContent) el.textContent = next;

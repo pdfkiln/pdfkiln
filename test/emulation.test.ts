@@ -78,3 +78,16 @@ test('CSS that WebKit 534 does not parse is dropped, its fallbacks stay', () => 
   assert.equal(dropUnknownCss('.row{--bs-gutter-x: 1.5rem; margin-top: calc(-1 * var(--bs-gutter-y)); color: red; width: var(--w)}'), '.row{--bs-gutter-x: 1.5rem; color: red; }');
   assert.equal(dropUnknownCss('h1{font-size: 2em; font-size: calc(1.375rem + 1.5vw)}'), 'h1{font-size: 2em; }');
 });
+
+test('system-ui is the name of a family no font has, as in WebKit 534, quoted or not', () => {
+  const name = '"WebKit 534 system-ui"';
+  assert.equal(dropUnknownCss('html{font-family: system-ui, -apple-system, "Segoe UI", sans-serif}'), `html{font-family: ${name}, -apple-system, "Segoe UI", sans-serif}`);
+  assert.equal(dropUnknownCss('p{font:12px/1.5 SYSTEM-UI,monospace!important}'), `p{font:12px/1.5 ${name},monospace!important}`);
+  assert.equal(dropUnknownCss(`a{font-family:'system-ui'} b{font-family: "system-ui"}`), `a{font-family:${name}} b{font-family: ${name}}`);
+  // An attribute's declarations.
+  assert.equal(dropUnknownCss('color: red; font-family: Foo, system-ui'), `color: red; font-family: Foo, ${name}`);
+  // Elsewhere, and other names: as they are.
+  for (const css of ['p{--ui: system-ui; content: "system-ui"}', 'p{font-family: system-ui-light, my-system-ui}', 'p{font-size: 1em} system-ui{color: red}']) {
+    assert.equal(dropUnknownCss(css), css);
+  }
+});
