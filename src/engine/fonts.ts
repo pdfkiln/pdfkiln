@@ -93,7 +93,11 @@ function fontDirs(): string[] {
   return ['/usr/share/fonts', '/usr/local/share/fonts', join(homedir(), '.local', 'share', 'fonts'), join(homedir(), '.fonts')];
 }
 
-// Writes the setup in `dir` and returns the environment for Chromium.
+// Writes the setup in `dir` and returns the environment for Chromium. It
+// keeps one rule, fontconfig's default hinting (its 10-hinting-slight.conf),
+// under which Chromium places each character at the advance of the font, as
+// wkhtmltopdf does; without it, fontconfig falls to full hinting, where
+// Chromium rounds each advance to the pixel.
 export function noAliasEnv(dir: string): NodeJS.ProcessEnv {
   if (process.platform !== 'linux') return {};
   const file = join(dir, 'fonts.conf');
@@ -102,6 +106,9 @@ export function noAliasEnv(dir: string): NodeJS.ProcessEnv {
 <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
 <fontconfig>
 ${dirs.join('\n')}
+  <match target="pattern">
+    <edit name="hintstyle" mode="append"><const>hintslight</const></edit>
+  </match>
   <cachedir prefix="xdg">fontconfig</cachedir>
 </fontconfig>
 `);

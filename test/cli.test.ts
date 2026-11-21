@@ -1007,6 +1007,23 @@ describe('interface', () => {
     assert.notEqual(font.standard, font.fixed);
     assert.deepEqual([font.alone, font.list, font.sheet], [font.standard, font.fixed, font.fixed], JSON.stringify(font));
   });
+
+  test('each character at the advance of its font, as in wkhtmltopdf: none rounded to the pixel', async (t) => {
+    if (process.platform !== 'linux') return t.skip('fontconfig: Linux');
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const page = file('advances.html', '<!DOCTYPE html><p style="font-size: 16px">The quick brown fox jumps over the lazy dog</p>');
+    const out = join(dir, 'advances.pdf');
+    const r = await run(['-q', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    // Where each character starts, in CSS px from the first: whole numbers
+    // when the advances are rounded.
+    const script = 'import sys, json, pymupdf\np = pymupdf.open(sys.argv[1])[0]\n'
+      + 's = [s for b in p.get_text("rawdict")["blocks"] for l in b.get("lines", []) for s in l["spans"]][0]\n'
+      + 'x = [c["origin"][0] for c in s["chars"]]\nprint(json.dumps([(v - x[0]) * 16 / s["size"] for v in x]))';
+    const x: number[] = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }));
+    const whole = x.filter((v) => Math.abs(v - Math.round(v)) < 0.05);
+    assert.ok(x.length > 30 && whole.length < x.length / 2, JSON.stringify(x));
+  });
 });
 
 describe('objects and numbering', () => {
