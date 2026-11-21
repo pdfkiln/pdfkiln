@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { PDFDocument } from '@cantoo/pdf-lib';
+import { qtFamilies } from '../src/engine/fonts.js';
 import type { RenderOptions } from '../src/render.js';
 import { parseWkArgs, repoRoot, run, type WkCall } from './wk.js';
 
@@ -143,11 +144,13 @@ export function variants(): Record<string, Variant> {
     truncate: { opts: { truncateTopMargin: true } },
   };
   if (process.platform === 'linux') {
-    // wkhtmltopdf's default font: what fontconfig gives Qt for "Helvetica".
-    const family = execFileSync('fc-match', ['-f', '%{family[0]}', 'Helvetica'], { encoding: 'utf8' });
+    // wkhtmltopdf's fonts: Qt's families as installed, else its last
+    // resort, what fontconfig gives for "Helvetica".
+    const installed = execFileSync('fc-list', ['-f', '%{family[0]}\n', ':', 'family'], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
+    const lastResort = execFileSync('fc-match', ['-f', '%{family[0]}', 'Helvetica'], { encoding: 'utf8' });
     all.wkfonts = {
       env: { FONTCONFIG_FILE: join(repoRoot, 'bench', 'fonts-noalias.conf') },
-      opts: { truncateTopMargin: true, genericFontFamily: family },
+      opts: { truncateTopMargin: true, fontFamilies: qtFamilies(installed, lastResort) },
     };
   }
   const base = all.wkfonts ?? all.truncate!;

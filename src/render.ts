@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer-core';
 import { executablePath } from './chromium.js';
+import type { GenericFamilies } from './engine/fonts.js';
 import { documentFrames } from './engine/loader.js';
 import { applyMediaWidth, roundFontSizes } from './wkemulation.js';
 
@@ -40,9 +41,8 @@ export interface RenderOptions {
   // Drop the collapsed top margin at the start of the document, as
   // wkhtmltopdf's WebKit does at the top of the first page.
   truncateTopMargin?: boolean;
-  // Family used for every generic family (serif, monospace...), as
-  // wkhtmltopdf's Qt does on Linux with its own default font.
-  genericFontFamily?: string;
+  // The generic families' fonts (serif, monospace...), wkhtmltopdf's.
+  fontFamilies?: GenericFamilies;
   // Evaluate width and height media queries against this viewport, as
   // wkhtmltopdf does ([0, 0] without --viewport-size).
   mediaViewport?: [number, number];
@@ -128,12 +128,7 @@ function truncateTopMargin(): number {
 // the ones to run once the page and its frames are loaded.
 export async function emulate(page: Page, opts: RenderOptions): Promise<() => Promise<void>> {
   const cdp = await session(page);
-  if (opts.genericFontFamily) {
-    const f = opts.genericFontFamily;
-    await cdp.send('Page.setFontFamilies', {
-      fontFamilies: { standard: f, fixed: f, serif: f, sansSerif: f, cursive: f, fantasy: f, math: f },
-    });
-  }
+  if (opts.fontFamilies) await cdp.send('Page.setFontFamilies', { fontFamilies: opts.fontFamilies });
   return async () => {
     if (opts.mediaViewport) await applyMediaWidth(cdp, ...opts.mediaViewport);
     await Promise.all(documentFrames(page).map(async (frame) => {

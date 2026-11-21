@@ -1,12 +1,12 @@
 // The Chromium of one conversion, as both commands start it: a Chromium of
 // its own, through the relay with --kiln-block-private-network, else
-// through --proxy; with Qt's default font; deaf to certificate errors, as
+// through --proxy; with Qt's fonts; deaf to certificate errors, as
 // wkhtmltopdf, unless --kiln-block-invalid-certificates; with XSLT only
 // for a table of contents that has --xsl-style-sheet; stopped at
 // --kiln-timeout.
 import type { BrowserContext } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
-import { noAliasEnv, qtDefaultFamily } from '../engine/fonts.js';
+import { noAliasEnv, qtFonts, type GenericFamilies } from '../engine/fonts.js';
 import { startRelay, type Relay, type RelayProxy } from '../engine/relay.js';
 import { readJar, writeJar, type QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
@@ -19,7 +19,7 @@ export class Chromium {
   // The proxy Chromium goes through, for the requests the command makes
   // itself (fonts): none with the relay.
   upstream?: RelayProxy;
-  fontFamily?: string;
+  fontFamilies?: GenericFamilies;
   private stopDeadline = () => {};
 
   async start(g: PdfGlobal, proxy: Proxy | null, bypass: string[], work: string, fb: Feedback, onTimeout: (line: string) => void, opts: { meanwhile?: () => void; xslt?: boolean } = {}): Promise<BrowserContext> {
@@ -27,11 +27,11 @@ export class Chromium {
       this.relay = await startRelay();
       if (proxy) fb.warning('--proxy is ignored with --kiln-block-private-network');
     }
-    // fc-match runs while Chromium starts: the setup without substitutions
-    // only needs fontconfig to answer, the family itself serves the pages.
-    // If fc-match starts but finds nothing, Chromium keeps that setup and
-    // the pages their own generic families.
-    const fonts = qtDefaultFamily();
+    // fontconfig runs while Chromium starts: the setup without substitutions
+    // only needs it to answer, the families themselves serve the pages. If
+    // it starts but gives no family, Chromium keeps that setup and the pages
+    // their own generic families.
+    const fonts = qtFonts();
     const withFonts = await fonts.started;
     const relay = this.relay;
     // Even loopback addresses go through the relay.
@@ -48,7 +48,7 @@ export class Chromium {
       env: withFonts ? noAliasEnv(work) : {},
       meanwhile: opts.meanwhile,
     });
-    this.fontFamily = await fonts.family;
+    this.fontFamilies = await fonts.families;
     this.stopDeadline = deadline(this.session, g.kiln.timeout, () => {
       // Written even with --quiet, as wkhtmltopdf's last line.
       removeQuietly(work);

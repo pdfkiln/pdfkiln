@@ -195,7 +195,7 @@ export async function convertImage(p: ImageParsed, fb: Feedback, io: Io): Promis
       media: 'screen',
       viewport: { width, height: 10 },
       emulation: { roundFontSizes: true, minimumFontSize: o.web.minimumFontSize > 0 ? o.web.minimumFontSize : 0, webkit534Css: true },
-      fontFamily: chromium.fontFamily,
+      fontFamilies: chromium.fontFamilies,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,
       proxy: chromium.upstream,

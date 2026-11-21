@@ -172,7 +172,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     });
     // Loaded while Chromium started.
     const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, placeFrames, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
-    const fontFamily = chromium.fontFamily;
+    const fontFamilies = chromium.fontFamilies;
     step('launch');
     const jar = new QtJar();
     if (g.cookieJar) await loadJar(context, g.cookieJar, jar);
@@ -230,7 +230,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       isMain,
       media: o.web.printMediaType ? 'print' : 'screen',
       emulation: emulationOf(o),
-      fontFamily,
+      fontFamilies,
       blockPrivateNetwork: block,
       ignoreCertificateErrors: insecure,
       proxy: chromium.upstream,

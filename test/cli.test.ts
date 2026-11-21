@@ -18,6 +18,7 @@ import { after, before, describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString, StandardFonts } from '@cantoo/pdf-lib';
 import { launch } from '../src/engine/browser.js';
+import { qtFamilies } from '../src/engine/fonts.js';
 import { version } from '../src/version.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -938,6 +939,29 @@ describe('interface', () => {
     const r = await run(['-q', '--header-center', '[who]', '--replace', 'who', 'World', `${base}/ok`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.match(pagesText(out)[0]!, /World/);
+  });
+
+  test("text without a family and the generic families get the fonts of wkhtmltopdf's Qt", async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    if (process.platform === 'darwin') return t.skip('Linux and Windows');
+    const cases = { standard: '', serif: 'serif', sansSerif: 'sans-serif', fixed: 'monospace', cursive: 'cursive', fantasy: 'fantasy', unknown: 'NoSuchFamily' };
+    const page = file('generic-families.html', Object.entries(cases).map(([k, f]) => `<p${f ? ` style="font-family: ${f}"` : ''}>${k}</p>`).join(''));
+    const out = join(dir, 'generic-families.pdf');
+    const r = await run(['-q', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    // The font of each paragraph, by its text.
+    const script = 'import sys, json, pymupdf\np = pymupdf.open(sys.argv[1])[0]\nprint(json.dumps({s["text"]: s["font"] for b in p.get_text("dict")["blocks"] for l in b.get("lines", []) for s in l["spans"]}))';
+    const fonts: Record<string, string> = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }));
+    const got = Object.fromEntries(Object.keys(cases).map((k) => [k, fonts[k]?.replace(/^[A-Z]{6}\+/, '')]));
+    if (process.platform === 'win32') {
+      assert.deepEqual(got, { standard: 'TimesNewRomanPSMT', serif: 'TimesNewRomanPSMT', sansSerif: 'ArialMT', fixed: 'CourierNewPSMT', cursive: 'ComicSansMS', fantasy: 'Impact', unknown: 'TimesNewRomanPSMT' });
+      return;
+    }
+    // Times New Roman, Arial... where fontconfig has them.
+    const installed = execFileSync('fc-list', ['-f', '%{family[0]}\n', ':', 'family'], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
+    const qt = qtFamilies(installed, execFileSync('fc-match', ['-f', '%{family[0]}', 'Helvetica'], { encoding: 'utf8' }))!;
+    const ps = (family: string) => execFileSync('fc-match', ['-f', '%{postscriptname}', family], { encoding: 'utf8' });
+    assert.deepEqual(got, { standard: ps(qt.standard), serif: ps(qt.serif), sansSerif: ps(qt.sansSerif), fixed: ps(qt.fixed), cursive: ps(qt.cursive), fantasy: ps(qt.fantasy), unknown: ps(qt.standard) });
   });
 });
 

@@ -14,6 +14,7 @@ import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
+import type { GenericFamilies } from './fonts.js';
 import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert, type RelayProxy } from './relay.js';
 import { isBlock, Withheld } from './withheld.js';
 
@@ -45,8 +46,8 @@ export interface LoadSpec {
   // default), for the native interface's images.
   viewport: { width: number; height: number; scale?: number };
   emulation?: Emulation;
-  // Family for every generic family (wkhtmltopdf's default font).
-  fontFamily?: string;
+  // The generic families' fonts (wkhtmltopdf's).
+  fontFamilies?: GenericFamilies;
   blockPrivateNetwork: boolean;
   // Load what comes from a server whose certificate does not verify, as
   // wkhtmltopdf does, the requests made here included. Chromium must be
@@ -662,11 +663,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     load.repeatCustomHeaders && load.customHeaders.length
       ? cdp.send('Network.setExtraHTTPHeaders', { headers: Object.fromEntries(load.customHeaders) })
       : undefined,
-    spec.fontFamily
-      ? cdp.send('Page.setFontFamilies', {
-        fontFamilies: { standard: spec.fontFamily, fixed: spec.fontFamily, serif: spec.fontFamily, sansSerif: spec.fontFamily, cursive: spec.fontFamily, fantasy: spec.fontFamily, math: spec.fontFamily },
-      })
-      : undefined,
+    spec.fontFamilies ? cdp.send('Page.setFontFamilies', { fontFamilies: spec.fontFamilies }) : undefined,
     cdp.send('Runtime.addBinding', { name: '__pdfkilnPrint' }),
     spec.qtCookies ? cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: MARK_CREDENTIALS }) : undefined,
     cdp.send('Page.addScriptToEvaluateOnNewDocument', {
