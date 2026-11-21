@@ -67,7 +67,7 @@ Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.
 
 Called as `wkhtmltopdf`, `--grayscale` now as in wkhtmltopdf 0.12.6:
 
-- **The text stays text**: the PDF is turned grey once assembled, as wkhtmltopdf's Qt writes it: every colour in DeviceGray with Qt's weights, images, gradients and the pages of `--header-html` and `--footer-html` included. Up to 1.3.0, a CSS filter made Chromium print each page as one image: no text to select, search or read aloud, and a larger file.
+- **The text stays text**: the PDF is turned grey once assembled, in the greys of wkhtmltopdf's Qt: every colour in DeviceGray with Qt's weights, images, gradients and the pages of `--header-html` and `--footer-html` included. Up to 1.3.0, a CSS filter made Chromium print each page as one image: no text to select, search or read aloud, and a larger file.
 
 ## 1.3.0
 
