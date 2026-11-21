@@ -65,6 +65,10 @@ Called as `wkhtmltopdf`, fonts and client certificates, now as in wkhtmltopdf 0.
 - **Web fonts**, which PDFKiln fetches itself, follow `--proxy`, `--custom-header-propagation`, `--username` and `--password`, as the page's other requests do. Up to 1.3.0, they went around the proxy, without the propagated headers and without logging in: a font that only the proxy reaches, or behind a login, stopped the conversion. A font redirected to another host gets there the jar's cookies for that host, and `--cookie` from a page given as a file; up to 1.3.0, it got none there.
 - **Client certificate** (`--ssl-crt-path`): the page's https requests, which PDFKiln also makes itself, go through `--proxy` and answer `--username` and `--password`. Up to 1.3.0, they went around the proxy, and a page behind a login stopped the conversion. A request sent without cookies, such as a `fetch` that omits them, goes without them; up to 1.3.0, it took the cookies of its address.
 
+Called as `wkhtmltopdf`, `--grayscale` now as in wkhtmltopdf 0.12.6:
+
+- **The text stays text**: the PDF is turned grey once assembled, as wkhtmltopdf's Qt writes it: every colour in DeviceGray with Qt's weights, images, gradients and the pages of `--header-html` and `--footer-html` included. Up to 1.3.0, a CSS filter made Chromium print each page as one image: no text to select, search or read aloud, and a larger file.
+
 ## 1.3.0
 
 Three new features, called as `pdfkiln`.

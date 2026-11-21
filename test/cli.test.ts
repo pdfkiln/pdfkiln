@@ -963,6 +963,36 @@ describe('interface', () => {
     const ps = (family: string) => execFileSync('fc-match', ['-f', '%{postscriptname}', family], { encoding: 'utf8' });
     assert.deepEqual(got, { standard: ps(qt.standard), serif: ps(qt.serif), sansSerif: ps(qt.sansSerif), fixed: ps(qt.fixed), cursive: ps(qt.cursive), fantasy: ps(qt.fantasy), unknown: ps(qt.standard) });
   });
+
+  test('--grayscale: every colour in grey, a header and a JPEG image included, the text kept, as in wkhtmltopdf', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const header = file('gray/header.html', '<!DOCTYPE html><p style="color: #c00; margin: 0">HEAD</p>');
+    const page = file('gray/page.html', `<!DOCTYPE html><style>.g { height: 20px; background: linear-gradient(to right, red, blue) }</style>
+      <p style="color: #c00">Red text</p><div class="g"></div><p style="background: #fc0">Yellow</p>
+      <img id="jpeg" width="40" height="40"><canvas id="c" width="40" height="40"></canvas>
+      <script>
+        const c = document.getElementById('c'), x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 40, 0);
+        g.addColorStop(0, '#f00'); g.addColorStop(1, '#00f'); x.fillStyle = g; x.fillRect(0, 0, 40, 40);
+        document.getElementById('jpeg').src = c.toDataURL('image/jpeg', 0.9);
+      </script>`);
+    // Pixels away from grey, the colour spaces and filters of the images, the text.
+    const script = 'import sys, json, pymupdf\np = pymupdf.open(sys.argv[1])[0]\npix = p.get_pixmap(dpi=72)\ns, n = pix.samples, pix.n\n'
+      + 'print(json.dumps({"colour": sum(1 for i in range(0, len(s), n) if max(s[i:i + 3]) - min(s[i:i + 3]) > 2), "images": [[x[5], x[8]] for x in p.get_images(full=True)], "fonts": len(p.get_fonts()), "text": p.get_text()}))';
+    const look = (f: string): { colour: number; images: [string, string][]; fonts: number; text: string } => JSON.parse(execFileSync(python, ['-I', '-c', script, f], { encoding: 'utf8' }));
+    const out = join(dir, 'gray.pdf');
+    let r = await run(['-q', '--header-html', header, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    const colour = look(out);
+    assert.ok(colour.colour > 0, JSON.stringify(colour));
+    assert.ok(colour.images.some(([cs, f]) => f === 'DCTDecode' && cs !== 'DeviceGray'), JSON.stringify(colour.images));
+    r = await run(['-q', '-g', '--header-html', header, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    const gray = look(out);
+    assert.equal(gray.colour, 0);
+    assert.ok(gray.images.length > 0 && gray.images.every(([cs]) => cs === 'DeviceGray'), JSON.stringify(gray.images));
+    assert.ok(gray.fonts > 0);
+    for (const s of ['Red text', 'Yellow', 'HEAD']) assert.ok(gray.text.includes(s), gray.text);
+  });
 });
 
 describe('objects and numbering', () => {

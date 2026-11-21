@@ -38,7 +38,6 @@ export interface Emulation {
   // Chromium splits it. A layered default that any rule of the page
   // overrides.
   unsplitRows?: boolean;
-  grayscale?: boolean;
   // CSS that WebKit 534 does not parse is dropped from the text of the
   // style sheets, so that the page's fallbacks apply as they did there:
   // Odoo writes display: -webkit-box; display: -webkit-flex; display: flex,
@@ -322,7 +321,6 @@ export function emulateInPage(e: Emulation): void {
     };
     visit(doc.body);
   }
-  if (e.grayscale) doc.documentElement.style.setProperty('filter', 'grayscale(100%)', 'important');
   if (e.noDefaultWidows || e.unsplitRows) {
     const style = doc.createElement('style');
     style.textContent = `@layer pdfkiln-defaults { ${e.noDefaultWidows ? 'html { orphans: 1; widows: 1 }' : ''} ${e.unsplitRows ? 'tr { break-inside: avoid }' : ''} }`;

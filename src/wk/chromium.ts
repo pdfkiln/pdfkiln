@@ -4,13 +4,14 @@
 // wkhtmltopdf, unless --kiln-block-invalid-certificates; with XSLT only
 // for a table of contents that has --xsl-style-sheet; stopped at
 // --kiln-timeout.
-import type { BrowserContext } from 'puppeteer-core';
+import type { BrowserContext, Page } from 'puppeteer-core';
 import { deadline, launch, removeQuietly, type Session } from '../engine/browser.js';
 import { noAliasEnv, qtFonts, type GenericFamilies } from '../engine/fonts.js';
 import { startRelay, type Relay, type RelayProxy } from '../engine/relay.js';
 import { readJar, writeJar, type QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
 import type { LoadedPage } from '../engine/loader.js';
+import type { JpegToGray } from '../pdf/grayscale.js';
 import type { PdfGlobal, Proxy } from './settings.js';
 
 export class Chromium {
@@ -78,6 +79,39 @@ export async function loadJar(context: BrowserContext, path: string, jar: QtJar)
     });
   }
   jar.loaded(read, cookies.length ? await context.cookies() : []);
+}
+
+// The JPEG images Chromium embeds as they are, in grey for --grayscale:
+// decoded by Chromium, in a page of their own, without colour management or
+// orientation, as a PDF reader draws them; qGray's weights.
+export function grayJpegs(context: BrowserContext): { gray: JpegToGray; close: () => Promise<void> } {
+  let page: Promise<Page> | undefined;
+  return {
+    gray: async (data, width, height) => {
+      try {
+        const p = await (page ??= context.newPage());
+        const out = await p.evaluate(async (b64: string, w: number, h: number) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }), { colorSpaceConversion: 'none', imageOrientation: 'none', premultiplyAlpha: 'none' });
+          if (bmp.width !== w || bmp.height !== h) return null;
+          const g = new OffscreenCanvas(w, h).getContext('2d')!;
+          g.drawImage(bmp, 0, 0);
+          const px = g.getImageData(0, 0, w, h).data;
+          const gray = new Uint8Array(w * h);
+          for (let i = 0, j = 0; j < gray.length; i += 4, j++) gray[j] = (px[i]! * 11 + px[i + 1]! * 16 + px[i + 2]! * 5) >> 5;
+          let s = '';
+          for (let i = 0; i < gray.length; i += 0x8000) s += String.fromCharCode(...gray.subarray(i, i + 0x8000));
+          return btoa(s);
+        }, Buffer.from(data).toString('base64'), width, height);
+        return out ? new Uint8Array(Buffer.from(out, 'base64')) : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    close: async () => {
+      await (await page?.catch(() => undefined))?.close().catch(() => {});
+    },
+  };
 }
 
 export async function saveJar(lp: LoadedPage, path: string, jar: QtJar): Promise<void> {

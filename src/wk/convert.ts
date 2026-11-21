@@ -13,7 +13,7 @@ import { emulate, openPage, type LoadedPage, type LoadSpec, type Reporter } from
 import type { FinalItem, LinkFate, OutlineItem } from '../pdf/assemble.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { version } from '../version.js';
-import { Chromium, loadJar, saveJar } from './chromium.js';
+import { Chromium, grayJpegs, loadJar, saveJar } from './chromium.js';
 import { QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
 import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
@@ -214,7 +214,6 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       roundFontSizes: true,
       truncateTopMargin: true,
       minimumFontSize: o.web.minimumFontSize > 0 ? o.web.minimumFontSize : 0,
-      grayscale: g.grayscale,
       noDefaultWidows: true,
       unsplitRows: true,
       webkit534Css: true,
@@ -604,6 +603,16 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     outDoc.doc.setTitle(title);
     outDoc.doc.setCreator(`PDFKiln ${version}`);
     outDoc.doc.setProducer('pdfkiln.org');
+    if (g.grayscale) {
+      // As wkhtmltopdf's Qt prints it: every colour in grey, the text kept.
+      const { toGray } = await import('../pdf/grayscale.js');
+      const jpegs = grayJpegs(context);
+      try {
+        await toGray(outDoc.doc, jpegs.gray);
+      } finally {
+        await jpegs.close();
+      }
+    }
     const bytes = await outDoc.doc.save(WRITE);
     outDoc.pages.forEach((_, i) => fb.progressChanged(((i + 1) * 100) / outDoc.pages.length, `Page ${i + 1} of ${outDoc.pages.length}`));
     try {
