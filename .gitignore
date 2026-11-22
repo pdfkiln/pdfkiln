@@ -17,3 +17,7 @@ bench/out/
 # Build output of the .NET test caller
 test/rotativa/bin/
 test/rotativa/obj/
+
+# PHPStan for the Composer launcher (test/phpstan)
+test/phpstan/vendor/
+test/phpstan/composer.lock

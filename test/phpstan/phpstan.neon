@@ -1,0 +1,10 @@
+# Static analysis of the Composer launcher (packaging/composer), run from this folder:
+# composer install, then vendor/bin/phpstan analyse. The launcher runs on PHP 7.4 and later.
+parameters:
+    level: max
+    phpVersion: 70400
+    paths:
+        - ../../packaging/composer/src/launch.php
+        - ../../packaging/composer/bin/pdfkiln
+        - ../../packaging/composer/bin/wkhtmltoimage
+        - ../../packaging/composer/bin/wkhtmltopdf

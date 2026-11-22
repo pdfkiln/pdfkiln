@@ -1,0 +1,9 @@
+{
+    "name": "pdfkiln/phpstan",
+    "description": "Static analysis of the Composer launcher, packaging/composer: composer install, then vendor/bin/phpstan analyse.",
+    "type": "project",
+    "license": "MIT",
+    "require-dev": {
+        "phpstan/phpstan": "^2.3"
+    }
+}

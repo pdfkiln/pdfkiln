@@ -78,6 +78,15 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+      # The Composer launcher (packaging/composer), at PHPStan's highest level.
+      # The runner's PHP and Composer do: the analysis targets PHP 7.4 either way.
+      - name: Static analysis of the Composer launcher (Linux)
+        if: runner.os == 'Linux'
+        working-directory: test/phpstan
+        run: |
+          composer install --no-interaction --no-progress
+          vendor/bin/phpstan analyse --no-progress
+
       # From dist/src on Linux; every system runs them bundled, as shipped.
       - name: Command tests
         if: runner.os == 'Linux'
