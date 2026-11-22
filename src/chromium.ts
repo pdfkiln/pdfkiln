@@ -3,7 +3,7 @@
 // the user's cache for the npm package, which downloads it on first use.
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import { userCacheDir } from './cache-dir.js';
@@ -66,9 +66,7 @@ export function executablePath(): string {
 }
 
 // The executable, downloaded first when the program has none: the npm
-// package, which ships chromium.json only. The archive is checked against
-// its SHA-256 and unpacked aside, then moved in place: two first calls at
-// once both succeed.
+// package, which ships chromium.json only.
 export async function ensureChromium(): Promise<string> {
   const exe = executablePath();
   if (process.env.PDFKILN_CHROMIUM || isSea()) return exe;
@@ -84,23 +82,54 @@ export async function ensureChromium(): Promise<string> {
   const key = platformKey();
   const archive = pin.archives[key];
   if (!archive) throw new Error(`chromium.json has no archive for ${key}`);
-  const url = `${pin.source}/${pin.version}/${key}/${archive.file}`;
-  const target = join(userCacheDir(), 'chromium', pin.version);
-  process.stderr.write(`pdfkiln: first use, downloading Chromium ${pin.version} (${Math.round(archive.size / 1e6)} MB) into ${target}\n`);
-  mkdirSync(dirname(target), { recursive: true });
-  const tmp = mkdtempSync(join(dirname(target), '.download-'));
+  return installChromium(`${pin.source}/${pin.version}/${key}/${archive.file}`, archive, join(userCacheDir(), 'chromium', pin.version), exe);
+}
+
+const mb = (bytes: number) => Math.floor(bytes / 1e6);
+
+// Downloads `archive` from `url` into the version's folder `target`, where
+// `exe` lands. The archive is checked against its size and SHA-256 and
+// unpacked aside, then moved in place: two first calls at once both
+// succeed. A `target` left without `exe` (an antivirus, a cleaner of
+// temporary files, a hand) is set aside before: a folder cannot be
+// replaced, and every call would download the archive again for nothing.
+export async function installChromium(url: string, archive: { file: string; size: number; sha256: string }, target: string, exe: string): Promise<string> {
+  if (existsSync(exe)) return exe;
+  const cache = dirname(target);
+  if (existsSync(target)) {
+    process.stderr.write(`pdfkiln: ${target} has lost ${basename(exe)}: it is installed again\n`);
+    discard(cache, target);
+    if (existsSync(target)) throw new Error(`${target} has no ${basename(exe)} and cannot be replaced: delete that folder`);
+  }
+  process.stderr.write(`pdfkiln: first use, downloading Chromium ${basename(target)} (${mb(archive.size)} MB) into ${target}\n`);
+  mkdirSync(cache, { recursive: true });
+  const tmp = mkdtempSync(join(cache, '.download-'));
   try {
     const response = await fetch(url);
     if (!response.ok || !response.body) throw new Error(`${url}: HTTP ${response.status}`);
     const zip = join(tmp, archive.file);
     const hash = createHash('sha256');
     const out = createWriteStream(zip);
-    for await (const chunk of Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)) {
-      hash.update(chunk as Buffer);
-      if (!out.write(chunk)) await new Promise<void>((ok) => out.once('drain', () => ok()));
+    let got = 0;
+    let lost: unknown;
+    try {
+      for await (const chunk of Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)) {
+        got += (chunk as Buffer).length;
+        hash.update(chunk as Buffer);
+        if (!out.write(chunk)) await new Promise<void>((ok) => out.once('drain', () => ok()));
+      }
+    } catch (e) {
+      lost = e;
     }
     out.end();
     await finished(out);
+    // Short of its size: the connection dropped, which the SHA-256 check
+    // would report as a damaged archive.
+    if (got < archive.size) {
+      const why = lost instanceof Error ? ` (${lost.message})` : '';
+      throw new Error(`the download of ${archive.file} stopped at ${mb(got)} of ${mb(archive.size)} MB: run it again${why}`);
+    }
+    if (lost) throw lost;
     const sha = hash.digest('hex');
     if (sha !== archive.sha256) throw new Error(`${url}: SHA-256 mismatch, expected ${archive.sha256}, got ${sha}`);
     extractZip(zip, join(tmp, 'chromium'));
@@ -112,6 +141,7 @@ export async function ensureChromium(): Promise<string> {
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+  if (!existsSync(exe)) throw new Error(`${exe} is missing after the install`);
   return exe;
 }
 

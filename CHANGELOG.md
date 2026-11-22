@@ -40,6 +40,9 @@ Bugs fixed:
 - **Frames that wait to be scrolled to**: a page with an iframe `loading="lazy"`, too far below the window to load, no longer makes the conversion 30 s longer called as `pdfkiln`, 60 s as `wkhtmltopdf`.
 - **Windows installer**: an update removes what the version before installed and the new one no longer has, among Chromium's files and the licenses of the bundled packages; up to 1.3.0, it stayed in `C:\Program Files\wkhtmltopdf`. The uninstall removes Chromium's folder whole, with the `debug.log` Chromium wrote there up to 1.3.0.
 - **Chromium's log on Windows**: Chromium no longer writes a `debug.log` beside itself, in the folder of the package or of the user's cache, where each conversion added its warnings, such as a certificate that does not verify. Its network service, which wrote them, runs in its main process, whose log goes with the conversion's temporary folder.
+- **Composer and npm packages, a program gone from the cache**: when a version's folder in the user's cache has lost its program, to an antivirus, a cleaner of temporary files or a hand, the next call installs that version again. Up to 1.3.0, every call downloaded the whole archive again and kept the broken folder: the Composer package then returned the path of a program that was not there, and the npm package failed.
+- **Composer and npm packages, a download cut short** says so, with how much of the archive arrived: `the download of … stopped at 75 of 150 MB: run it again`. Up to 1.3.0, it was reported as an archive that did not match its SHA-256.
+- **Composer package, errors on first use**: a cache folder where the archive cannot be written, an archive that cannot be read and a `tar` that cannot run give a `pdfkiln:` message. Up to 1.3.0, they stopped PHP with a TypeError.
 
 Called as `pdfkiln`, bug fixed:
 

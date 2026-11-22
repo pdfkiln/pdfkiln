@@ -181,11 +181,14 @@ function lastRun(string $dir, string $version, string $platform): int
 }
 
 // Renamed, then deleted: the version's folder is whole or gone, never half
-// there. What a running process still holds goes the next time.
-function discard(string $dist, string $dir): void
+// there. What a running process still holds goes the next time. False when
+// the folder could not be renamed.
+function discard(string $dist, string $dir): bool
 {
     $trash = $dist . DIRECTORY_SEPARATOR . 'delete-' . bin2hex(random_bytes(6));
-    if (@rename($dir, $trash)) removeTree($trash);
+    if (!@rename($dir, $trash)) return false;
+    removeTree($trash);
+    return true;
 }
 
 /** @param list<string> $cmd */
@@ -230,9 +233,15 @@ function fetch(array $pins, string $file, string $sha, string $tmp, string $dir)
         fclose($in);
         return "cannot write $archive";
     }
-    stream_copy_to_stream($in, $out);
+    $got = @stream_copy_to_stream($in, $out);
+    $length = contentLength(stream_get_meta_data($in)['wrapper_data'] ?? null);
     fclose($in);
     fclose($out);
+    // Short of the length the server announced: the connection dropped, which the
+    // SHA-256 check below would report as a damaged archive.
+    if ($length !== null && (int) $got < $length) {
+        return sprintf('the download of %s stopped at %d of %d MB: run it again', $file, intdiv((int) $got, 1000000), intdiv($length, 1000000));
+    }
     $hash = hash_file('sha256', $archive);
     if ($hash === false) return "cannot read $archive";
     if (!hash_equals($sha, $hash)) return "$file does not match its SHA-256: not used";
@@ -246,6 +255,21 @@ function fetch(array $pins, string $file, string $sha, string $tmp, string $dir)
     unlink($archive);
     if (!@rename($tmp, $dir) && !is_dir($dir)) return "cannot install in $dir";
     return null;
+}
+
+// The Content-Length of the last answer, from the headers of an HTTP stream:
+// the answers to the redirects come first. Null when it has none.
+/** @param mixed $headers */
+function contentLength($headers): ?int
+{
+    if (!is_array($headers)) return null;
+    $length = null;
+    foreach ($headers as $line) {
+        if (!is_string($line)) continue;
+        if (strncasecmp($line, 'HTTP/', 5) === 0) $length = null;
+        elseif (preg_match('/^content-length:\s*(\d+)\s*$/i', $line, $m)) $length = (int) $m[1];
+    }
+    return $length;
 }
 
 // The pins of the release (pins.json): its version, the URL of its archives
@@ -275,17 +299,34 @@ function binary(string $name = 'wkhtmltopdf'): string
     $platform = platform();
     if (!$pins || !$platform) throw new \RuntimeException('pdfkiln: no build of PDFKiln for this system');
     $dist = cacheDir() . DIRECTORY_SEPARATOR . 'dist';
-    $dir = $dist . DIRECTORY_SEPARATOR . "{$pins['version']}-$platform";
     try {
         track($dist, dirname(__DIR__), $pins['version']);
     } catch (\Throwable $e) {
         // The cache stays as it is: never a reason to fail a conversion.
     }
+    return ensure($pins, $platform, $dist, $name);
+}
+
+// The program `name` of the pinned version in the cache `dist`, installed
+// first if needed. A version's folder left without it (an antivirus, a
+// cleaner of temporary files, a hand) is set aside before: install() cannot
+// replace a folder, and every call would download the archive again for
+// nothing.
+/** @param array{version: string, url: string, sha256: array<string, string>} $pins */
+function ensure(array $pins, string $platform, string $dist, string $name): string
+{
+    $dir = $dist . DIRECTORY_SEPARATOR . "{$pins['version']}-$platform";
     $exe = program($dir, $pins['version'], $platform, $name);
-    if (!is_file($exe)) {
-        $error = install($pins, $platform, $dir);
-        if ($error) throw new \RuntimeException("pdfkiln: $error");
+    if (is_file($exe)) return $exe;
+    if (file_exists($dir)) {
+        say("$dir has lost its $name program: it is installed again");
+        // Not renamed: held by a running program (Windows), unless another call
+        // set it aside first.
+        if (!discard($dist, $dir) && is_dir($dir)) throw new \RuntimeException("pdfkiln: $dir has no $name program and cannot be replaced: delete that folder");
     }
+    $error = install($pins, $platform, $dir);
+    if ($error) throw new \RuntimeException("pdfkiln: $error");
+    if (!is_file($exe)) throw new \RuntimeException("pdfkiln: $exe is missing after the install");
     return $exe;
 }
 
