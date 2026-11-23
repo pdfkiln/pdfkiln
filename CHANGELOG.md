@@ -25,6 +25,10 @@ Called as `wkhtmltopdf`, `--debug-javascript`, accepted without effect up to 1.3
 
 Among the fixes, two that libraries meet: Odoo 15 and later print their reports with their style and header on a server with several databases, and a page given as a file prints its frames of another site, both as with wkhtmltopdf.
 
+Security:
+
+- Chromium 158.0.8127.36 → 158.0.8127.88 ([release notes](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop_01734282054.html)).
+
 Security, called as `pdfkiln`:
 
 - **Redirects from another site**: a request that another site sends to the input's host by a redirect, for an image, a style sheet, a script, a frame or a font, no longer takes `--header` and `--cookie` there, since that site chose it. Up to 1.3.0, all but the fonts took them. Only the input's own request keeps them through its redirects, such as a login on another site; a page it opens next, by a meta refresh or a script, does not.
