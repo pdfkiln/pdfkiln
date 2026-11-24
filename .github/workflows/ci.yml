@@ -392,7 +392,7 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           $setup = (Get-ChildItem dist/package/*-setup.exe).FullName
           "$((Get-FileHash $setup -Algorithm SHA256).Hash.ToLower())  $(Split-Path $setup -Leaf)" | Out-File -Encoding ascii "$setup.sha256"
-          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath' -Wait
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath', "/LOG=$PWD\install.log" -Wait
           $exe = "$env:ProgramFiles\wkhtmltopdf\bin\wkhtmltopdf.exe"
           & $exe --version
           if ($LASTEXITCODE) { exit 1 }
@@ -407,16 +407,25 @@ jobs:
           $licenses = "$env:ProgramFiles\wkhtmltopdf\licenses"
           Set-Content "$chromium\stale.dll" 'stale'
           Set-Content "$licenses\stale.txt" 'stale'
-          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PWD\update.log" -Wait
           if ((Test-Path "$chromium\stale.dll") -or (Test-Path "$licenses\stale.txt")) { Write-Error 'files of the version before left'; exit 1 }
           '<h1>updated</h1>' | & $exe -q - updated.pdf
           if ($LASTEXITCODE -or -not (Get-Content updated.pdf -TotalCount 1).StartsWith('%PDF-')) { exit 1 }
           # What Chromium writes beside itself goes with the uninstall.
           Set-Content "$chromium\debug.log" 'log'
-          Start-Process "$env:ProgramFiles\wkhtmltopdf\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
+          # A file still in use would need a restart, which /VERYSILENT makes
+          # without asking: never on a runner (one lost its connection during
+          # this step, CI of 23/11/2026). What still runs from the folder.
+          Get-Process | Where-Object { $_.Path -like "$env:ProgramFiles\wkhtmltopdf\*" } | Format-Table Id, Path -AutoSize
+          Start-Process "$env:ProgramFiles\wkhtmltopdf\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PWD\uninstall.log" -Wait
           Start-Sleep 5
           if (Test-Path $exe) { Write-Error 'still installed'; exit 1 }
           if (Test-Path $chromium) { Write-Error 'Chromium left after the uninstall'; exit 1 }
+
+      - name: Installer logs (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: Get-Content install.log, update.log, uninstall.log -ErrorAction SilentlyContinue
 
       # Installed from the packed tarball; the first conversion downloads
       # Chromium into PDFKILN_CACHE_DIR. On Linux, the AppArmor profile is
