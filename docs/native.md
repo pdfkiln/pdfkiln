@@ -2,7 +2,7 @@
 
 Called as `pdfkiln`, PDFKiln offers its own interface, with modern print defaults: print media, paper size, margins, headers and footers from the page's CSS (`@page` and its margin boxes). Its options give what the page cannot say itself, and `pdfkiln --help` lists them all:
 
-- for the page: a style sheet of your own (`--css`), its screen rules (`--media screen`), an element to wait for (`--wait-for`);
+- for the page: a style sheet of your own (`--css`), its screen rules (`--media screen`), its scale on the paper (`--scale`, below), an element to wait for (`--wait-for`);
 - for its requests: headers and cookies for the input's host (`--header`, `--cookie`), and no PDF rather than one without an image, a font or a style sheet that did not load (`--fail-on-resource-error`);
 - for the PDF: its title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), bookmarks from the headings (`--outline`), a tagged PDF for screen readers, from one input (`--tagged`), PDF/A and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`), and a password (`--user-password`, `--owner-password`), each below;
 - images instead of a PDF, and PDFs made elsewhere among the inputs, below too.
@@ -23,6 +23,19 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 - The XML is attached as its profile requires: `factur-x.xml`, or `xrechnung.xml` for XRECHNUNG; related as Data for MINIMUM and BASIC WL, which hold only part of the invoice, as Alternative otherwise.
 - PDFKiln does not write the XML, which comes from the invoicing software, nor check it against the EN 16931 business rules.
 - Not offered: PDF/A-1, which forbids the transparency Chromium draws with, and level A, which needs a fully tagged document.
+
+## Scale
+
+`--scale` prints the page smaller or larger, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size, so it holds a page as much wider: twice as wide at `--scale 0.5`. A page made for screens then prints as a wide window shows it, not in the layout it keeps for a narrow one. At scale 1, A4 with its 1 cm margins holds 718 pixels across:
+
+```sh
+pdfkiln --scale 0.56 https://example.com page.pdf     # as a window 1280 pixels wide shows it
+pdfkiln --scale 1.84 https://example.com phone.pdf    # as a phone 390 pixels wide shows it
+```
+
+- The page's media queries see the width the paper holds, 718 pixels divided by the scale on A4, and its scripts load in a window at that scale.
+- The margins keep their size, with the headers and footers the page puts there (`@page` margin boxes). Links and bookmarks go where the page shows their target.
+- For an image, `--scale` counts the pixels per CSS pixel instead: see below.
 
 ## Images
 

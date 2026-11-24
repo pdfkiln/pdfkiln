@@ -6,6 +6,14 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.5.0
+
+Called as `pdfkiln`, `--scale` sets the scale of a PDF too, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size and its margins, and holds a page as much wider: a page made for screens prints as a wide window shows it, not in the layout it keeps for a narrow one. On A4, `--scale 0.56` prints what a window 1280 pixels wide shows. Up to 1.4.0, `--scale` was for images only, and refused for a PDF.
+
+```sh
+pdfkiln --scale 0.56 https://example.com page.pdf
+```
+
 ## 1.4.0
 
 Called as `pdfkiln`, three new features:

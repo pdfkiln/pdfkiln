@@ -7,6 +7,10 @@
 //   1 cm otherwise), headers and footers from its @page margin boxes;
 //   --css adds a style sheet after the page's own, --media screen renders
 //   it as on screen;
+// - --scale prints the page smaller or larger, as the scale of a browser's
+//   print dialog does: the paper keeps its size and its margins, and holds
+//   a page as much wider, whose width its media queries see; the window
+//   the page loads in follows, the paper at that scale;
 // - --header and --cookie go with the requests to the input's host, and
 //   to no other; --wait-for waits for an element before the delay;
 // - --tagged keeps the structure tree; --outline adds bookmarks;
@@ -103,6 +107,10 @@ Rendering:
   --css <file>                Add a style sheet after the page's own
   --media <print|screen>      CSS media type (default: print; screen for an
                               image)
+  --scale <factor>            Size of a CSS pixel in the output (default: 1).
+                              PDF, 0.1 to 2: at 0.5, the paper holds a page
+                              twice as wide. Image: 2 doubles the pixels,
+                              for sharp images on high-density screens
 
 PDF:
   --outline                   Bookmarks from the headings (and a PDF input's)
@@ -136,8 +144,6 @@ Images:
   --height <px>               Window height, and an image of the window only
                               (default: 720, and an image of the whole page)
   --element <selector>        Only the first element matching this selector
-  --scale <factor>            Pixels per CSS pixel (default: 1; 2 for sharp
-                              images on high-density screens)
   --quality <1-100>           JPEG and WebP quality (default: 90 for JPEG,
                               lossless WebP)
   --transparent               No white behind a page without a background
@@ -402,7 +408,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     image = to;
   } else image = imageFormatOf(output);
   const pdfOnly = ['outline', 'tagged', 'title', 'author', 'subject', 'keywords', 'pdfa', 'factur-x', 'user-password', 'owner-password', 'no-print', 'no-copy', 'no-modify'] as const;
-  const imageOnly = ['width', 'height', 'element', 'scale', 'quality', 'transparent'] as const;
+  const imageOnly = ['width', 'height', 'element', 'quality', 'transparent'] as const;
   for (const name of image ? pdfOnly : imageOnly) {
     if (v[name] !== undefined) {
       stderr(image
@@ -421,9 +427,11 @@ export async function nativeMain(args: string[]): Promise<number> {
   const width = pixels('width', v.width);
   const height = pixels('height', v.height);
   if (width === null || height === null) return 1;
+  // --scale: the pixels of an image per CSS pixel, any number above 0; the
+  // scale of a PDF's print, within what Chromium prints at.
   const scale = v.scale === undefined ? 1 : Number(v.scale);
-  if (!Number.isFinite(scale) || scale <= 0) {
-    stderr('pdfkiln: --scale takes a number greater than 0\n');
+  if (image ? !Number.isFinite(scale) || scale <= 0 : !(scale >= 0.1 && scale <= 2)) {
+    stderr(image ? 'pdfkiln: --scale takes a number greater than 0\n' : 'pdfkiln: --scale takes a number from 0.1 to 2 for a PDF\n');
     return 1;
   }
   const quality = v.quality === undefined ? undefined : Number(v.quality);
@@ -838,7 +846,10 @@ export async function nativeMain(args: string[]): Promise<number> {
         allowFiles,
         isMain: true,
         media,
-        viewport: image ? { width: width ?? DEFAULT_WIDTH, height: height ?? DEFAULT_HEIGHT, scale } : { width: 794, height: 1123 },
+        // A PDF's window is its paper, A4 at 96 px an inch, at the scale of
+        // the print: the page's scripts load in what its style sheets print
+        // in.
+        viewport: image ? { width: width ?? DEFAULT_WIDTH, height: height ?? DEFAULT_HEIGHT, scale } : { width: Math.round(794 / scale), height: Math.round(1123 / scale) },
         blockPrivateNetwork: blockPrivate,
         ignoreCertificateErrors: insecure,
         // From a page printed from a file, Chromium holds the cookies of
@@ -878,6 +889,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
         preferCSSPageSize: true,
         printBackground: true,
+        scale,
         tagged: Boolean(v.tagged || v.outline),
         outline: Boolean(v.outline),
         // Puppeteer's own 30 s would cut a long document: --timeout decides.
@@ -886,7 +898,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       const doc = await PDFDocument.load(pdf, READ);
       if (frames.length) {
         const print = printer();
-        await placeFrames(doc, frames, PT_PER_PX, (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(lp, m, w, h, true, frameOut)));
+        await placeFrames(doc, frames, PT_PER_PX * scale, (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(lp, m, w, h, true, frameOut)));
         step('frames');
       }
       // --fail-on-resource-error: once printed, which asks for what the
@@ -895,8 +907,8 @@ export async function nativeMain(args: string[]): Promise<number> {
       if (incomplete()) return 1;
       await lp.page.close();
       // Markdown's targets move by its style sheet's margins.
-      if (markdown) fixDests(doc, MARGIN_LEFT_CM * CM_PT, MARGIN_TOP_CM * CM_PT, 1);
-      else fixDests(doc, CM_PT, CM_PT, 1);
+      if (markdown) fixDests(doc, MARGIN_LEFT_CM * CM_PT, MARGIN_TOP_CM * CM_PT, scale);
+      else fixDests(doc, CM_PT, CM_PT, scale);
       parts.push({ doc, outline: v.outline ? undoubleTitles(readOutline(doc), headings) : [] });
       step('print');
     }

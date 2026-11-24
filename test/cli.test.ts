@@ -1977,6 +1977,74 @@ describe('native interface', () => {
     assert.equal(r.stderr, `pdfkiln: --css: cannot read ${missing}\n`);
   });
 
+  test('--scale on a PDF: the paper holds a page as much wider, which its media queries and its window follow; refused out of 0.1 to 2', async () => {
+    // A page that turns its paper once laid out on 1200 px or more, and
+    // takes its window for title. A4 with its 1 cm margins holds 718 px.
+    const page = file('native/scale.html', '<style>@media (min-width: 1200px) { @page { size: A5 landscape } }</style><script>document.title = `${innerWidth} x ${innerHeight}`</script><p>x</p>');
+    const out = join(dir, 'native-scale.pdf');
+    const made = async (...args: string[]) => {
+      const r = await native([...args, page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      return [await paper(out), (await PDFDocument.load(readFileSync(out), { updateMetadata: false })).getTitle()];
+    };
+    assert.deepEqual(await made(), ['A4', '794 x 1123']);
+    assert.deepEqual(await made('--scale', '1'), ['A4', '794 x 1123']);
+    assert.deepEqual(await made('--scale', '0.5'), ['A5 landscape', '1588 x 2246']);
+    assert.deepEqual(await made('--scale', '2'), ['A4', '397 x 562']);
+    rmSync(out);
+    for (const scale of ['0.05', '2.5', 'half']) {
+      const r = await native(['--scale', scale, page, out]);
+      assert.equal(r.code, 1, scale);
+      assert.equal(r.stderr, 'pdfkiln: --scale takes a number from 0.1 to 2 for a PDF\n');
+    }
+    assert.equal(existsSync(out), false);
+  });
+
+  test('--scale on a PDF: the page at its scale inside the margins, which keep their size; a link, a bookmark and a frame of another origin where the page shows them', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const page = file('native/scale-links.html', `<title>T</title><style>body { margin: 0; font: 16px/1.2 sans-serif }</style>
+      <p><a href="#t">go</a></p><div style="height: 3000px"></div><h2 id="t" style="margin-left: 200px">Target</h2>`);
+    const out = join(dir, 'native-scale-links.pdf');
+    // Where the first word stands; the target's page and left edge, and how
+    // far from its top the link and the bookmark land.
+    const script = `import sys, json, pymupdf
+d = pymupdf.open(sys.argv[1])
+l = d[0].get_links()[0]
+p = d[l["page"]]
+w = [w for w in p.get_text("words") if w[4] == "Target"][0]
+# PyMuPDF gives named destinations in PDF coordinates.
+y = l["to"].y if l["kind"] == 1 else p.rect.height - l["to"].y
+b = d.get_toc(False)[0]
+print(json.dumps({"go": d[0].get_text("words")[0][:2], "page": l["page"], "x": w[0], "link": abs(w[1] - y), "bookmark": [b[2] - 1, abs(w[1] - b[3]["to"].y)]}))`;
+    const cm = 72 / 2.54;
+    for (const [scale, at] of [[1, 2], [0.5, 1]] as const) {
+      const r = await native(['--outline', '--scale', String(scale), page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      const m = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as { go: [number, number]; page: number; x: number; link: number; bookmark: [number, number] };
+      const where = `scale ${scale}: ${JSON.stringify(m)}`;
+      // The margins: 1 cm, whatever the scale.
+      assert.ok(Math.abs(m.go[0] - cm) < 2 && Math.abs(m.go[1] - cm) < 4, where);
+      // 3000 px above the target, 200 px on its left: 0.75 pt each at scale 1.
+      assert.equal(m.page, at, where);
+      assert.ok(Math.abs(m.x - (cm + 200 * 0.75 * scale)) < 2, where);
+      assert.ok(m.link < 3, where);
+      assert.deepEqual([m.bookmark[0], m.bookmark[1] < 8], [at, true], where);
+    }
+    // The frame printed apart, drawn at the scale of the page that holds it.
+    const frame = async (scale: number) => {
+      const pdf = join(dir, `native-scale-frame-${scale}.pdf`);
+      const r = await native(['--allow-private-network', '--scale', String(scale), framePage('native/frames/scale.html'), pdf]);
+      assert.equal(r.code, 0, r.stderr);
+      assertFramePrinted(pdf);
+      return firstPage(pdf).blocks.find((b) => b[4].includes('FRAME TEXT'))!;
+    };
+    const [full, half] = [await frame(1), await frame(0.5)];
+    // The frame's text: after the body's 8 px margin and the frame's 3 px
+    // border, and half as wide.
+    assert.ok(Math.abs(half[0] - (cm + 11 * 0.75 * 0.5)) < 2, JSON.stringify(half));
+    assert.ok(Math.abs((half[2] - half[0]) / (full[2] - full[0]) - 0.5) < 0.03, JSON.stringify([full, half]));
+  });
+
   test('pdfkiln wkhtmltopdf switches to the compatible mode', async () => {
     const r = await native(['wkhtmltopdf', '--version']);
     assert.match(r.stdout.toString(), /^wkhtmltopdf 0\.12\.6/);
@@ -1990,6 +2058,10 @@ describe('native interface', () => {
     assert.match(r.stdout.toString(), /\n {2}wkhtmltopdf {17}The command line of wkhtmltopdf 0\.12\.6\n/);
     assert.match(r.stdout.toString(), /\nDocument properties \(default: from the front matter of Markdown\):\n {2}--title <text> {14}Title \(default: the page's <title>\)\n/);
     assert.match(r.stdout.toString(), /\n {2}--from markdown {13}Read every input but PDFs as Markdown,\n/);
+    // --scale is for a PDF and for an image: with the rendering, not among
+    // the options of images.
+    assert.match(r.stdout.toString(), /\n {30}image\)\n {2}--scale <factor> {12}Size of a CSS pixel in the output \(default: 1\)\.\n/);
+    assert.doesNotMatch(r.stdout.toString(), /\nImages:\n(?: .*\n)*? {2}--scale /);
     assert.match(r.stdout.toString(), /\n {2}--fail-on-resource-error {4}Fail, without a PDF, /);
     // pdfkiln serve is gone (1.2.0).
     assert.doesNotMatch(r.stdout.toString(), /\bserve\b/);
