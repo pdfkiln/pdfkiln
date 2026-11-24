@@ -996,9 +996,12 @@ describe('interface', () => {
 
   test('system-ui is a family no font has, as in wkhtmltopdf: the next of the list, else the standard family', async (t) => {
     if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
-    const page = file('system-ui.html', `<!DOCTYPE html><style>.s { font: 16px system-ui, monospace }</style>
-      <p>standard</p><p style="font-family: system-ui">alone</p><p style="font-family: monospace">fixed</p>
-      <p style="font-family: system-ui, monospace">list</p><p class="s">sheet</p>`);
+    // A fixed font by name, one each system has: monospace takes the
+    // standard font where Courier New is missing, as on CI's Ubuntu.
+    const fixed = "'Liberation Mono', 'Courier New'";
+    const page = file('system-ui.html', `<!DOCTYPE html><style>.s { font: 16px system-ui, ${fixed} }</style>
+      <p>standard</p><p style="font-family: system-ui">alone</p><p style="font-family: ${fixed}">fixed</p>
+      <p style="font-family: system-ui, ${fixed}">list</p><p class="s">sheet</p>`);
     const out = join(dir, 'system-ui.pdf');
     const r = await run(['-q', page, out]);
     assert.equal(r.code, 0, r.stderr);
