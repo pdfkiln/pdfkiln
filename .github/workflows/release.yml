@@ -10,9 +10,11 @@ run-name: "Release from ci ${{ inputs.ci_run }} and arm64 ${{ inputs.arm64_run }
 #   gh workflow run release.yml -f ci_run=<id> -f arm64_run=<id> -f confirm=release
 #
 # A dry run checks and assembles the files, writes the notes in the run's
-# summary, and stops. The notes need the version's section in CHANGELOG.md. With "release" typed in, the release is created as a
-# draft: publishing it, which creates the tag, stays a click of the
-# maintainer's (draft=false publishes at once). The other channels, from the
+# summary, and stops. The notes need the version's section in CHANGELOG.md. With "release" typed in, the version's annotated tag
+# goes on the runs' commit, then the release is created on it as a draft:
+# publishing it stays a click of the maintainer's (draft=false publishes at
+# once). The tag is public from then on: a draft given up goes with it
+# (gh release delete <version> --cleanup-tag). The other channels, from the
 # same runs, each by hand: apt.yml (APT repository), npm.yml, docker.yml.
 #
 # Run it before them, and change no workflow on main between the CI runs and
@@ -157,6 +159,11 @@ jobs:
             gh attestation verify "$f" --repo "$GITHUB_REPOSITORY"
           done
 
+      # The annotated tag first, X.Y.Z without a v: published, a release
+      # without one gets a lightweight tag from GitHub. If this token cannot
+      # make it, the draft is made as before, and the tag goes by hand before
+      # the draft is published. A release that fails takes its tag back: a
+      # second run would find it and stop.
       - name: Release
         if: inputs.confirm == 'release'
         env:
@@ -164,10 +171,24 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           DRAFT: ${{ inputs.draft }}
         run: |
+          on=(--target "$SHA")
+          if object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$VERSION" -f message="PDFKiln $VERSION" \
+                -f object="$SHA" -f type=commit --jq .sha)" \
+             && gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$object" > /dev/null; then
+            on=(--verify-tag)
+            echo "annotated tag $VERSION ($object) on $SHA"
+          else
+            hand="git tag -a $VERSION -m \"PDFKiln $VERSION\" $SHA, then git push origin refs/tags/$VERSION"
+            echo "::warning::no annotated tag: push it before publishing the draft ($hand)"
+            echo "No annotated tag: push it before publishing the draft (\`$hand\`)." >> "$GITHUB_STEP_SUMMARY"
+          fi
           draft=()
           [ "$DRAFT" = true ] && draft=(--draft)
-          gh release create "$VERSION" release/* --repo "$GITHUB_REPOSITORY" --target "$SHA" \
-            --title "$VERSION" --notes-file notes.md "${draft[@]}"
+          if ! gh release create "$VERSION" release/* --repo "$GITHUB_REPOSITORY" "${on[@]}" \
+               --title "$VERSION" --notes-file notes.md "${draft[@]}"; then
+            [ "${on[0]}" = --verify-tag ] && gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
+            exit 1
+          fi
 
       - name: Dry run
         if: inputs.confirm != 'release'
