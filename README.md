@@ -7,7 +7,7 @@ Site, documentation and migration guides: [pdfkiln.org](https://pdfkiln.org)
 wkhtmltopdf is archived: its last release, 0.12.6, dates from June 2020, on a Qt WebKit that gets no security fixes. Yet pdfkit, knp-snappy, laravel-snappy, phpwkhtmltopdf, wicked_pdf, Rotativa, Odoo and ERPNext still call it. PDFKiln takes its place without a line of your code changing: the same command line, a current Chromium underneath.
 
 - **Same command line**: the [122 options](docs/options.md) of wkhtmltopdf 0.12.6, its defaults, messages and exit codes.
-- **Same pages**: on [32 real templates](docs/compatibility.md#compatibility-and-speed) (Odoo, ERPNext, Sylius, pandoc), the same page count as wkhtmltopdf on all 32, and 99.1 % of the words on the same page (Linux).
+- **Same pages**: on [32 real templates](docs/compatibility.md#compatibility-and-speed) (Odoo, ERPNext, Sylius, pandoc), the same page count as wkhtmltopdf on all 32, and 99.2 % of the words on the same page (Linux).
 - **Tested by the libraries themselves**: the [own test suites](docs/compatibility.md#tested-by-the-libraries) of pdfkit, knp-snappy, laravel-snappy, phpwkhtmltopdf, wicked_pdf, CakePdf and go-wkhtmltopdf pass with PDFKiln in place of wkhtmltopdf.
 - **Kept current**: each release ships the latest stable Chromium, sandboxed; on Debian and Ubuntu, `apt upgrade` brings it.
 
@@ -172,8 +172,8 @@ A complete call on the two-page Odoo invoice of the corpus, median, Ubuntu 24.04
 
 | Delay | wkhtmltopdf 0.12.6 | PDFKiln |
 | --- | --- | --- |
-| 200 ms | 0.59 s | 1.00 s |
-| 1000 ms, Odoo's | 2.19 s | 1.00 s |
+| 200 ms | 0.54 s | 0.76 s |
+| 1000 ms, Odoo's | 2.14 s | 0.76 s |
 
 wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops as soon as nothing can change the page any more. Windows, and how to measure: [docs/compatibility.md](docs/compatibility.md#compatibility-and-speed).
 

@@ -41,17 +41,15 @@ Called as `wkhtmltopdf`, the defaults of wkhtmltopdf are kept, it is the compati
 
 ## Compatibility and speed
 
-On the corpus of 32 real templates (Odoo 17, ERPNext 15, Sylius, pandoc; `corpus/README.md`), against the official wkhtmltopdf 0.12.6, in the development container (Ubuntu 24.04, `node dist/bench/compat.js`): the same page count on all 32, 99.1 % of the words on the same page.
+On the corpus of 32 real templates (Odoo 17, ERPNext 15, Sylius, pandoc; `corpus/README.md`), against the official wkhtmltopdf 0.12.6, in the `compat` job of the CI run of 24 November 2026 (Ubuntu 24.04, `node dist/bench/compat.js`): the same page count on all 32, 99.2 % of the words on the same page.
 
 A complete call on the two-page Odoo invoice of the corpus, median of the runs (`npm run bundle && node dist/bench/call.js --delay 200`, then without `--delay`: Odoo's own 1000 ms):
 
 | | Delay | wkhtmltopdf 0.12.6 | PDFKiln (bundled command) | Difference |
 | --- | --- | --- | --- | --- |
-| Ubuntu 24.04, GitHub Actions | 200 ms | 0.59 s | 1.00 s | +0.41 s |
-| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.19 s | 1.00 s | −1.19 s |
-| Windows Server 2025, GitHub Actions | 200 ms | 0.82 s | 1.66 s | +0.84 s |
-| Windows Server 2025, GitHub Actions | 1000 ms | 2.41 s | 1.68 s | −0.73 s |
-| Windows 11 PC, 20 threads | 200 ms | 1.21 s | 1.66 s | +0.45 s |
-| Windows 11 PC, 20 threads | 1000 ms | 2.80 s | 1.56 s | −1.24 s |
+| Ubuntu 24.04, GitHub Actions | 200 ms | 0.54 s | 0.76 s | +0.22 s |
+| Ubuntu 24.04, GitHub Actions | 1000 ms | 2.14 s | 0.76 s | −1.38 s |
+| Windows Server 2025, GitHub Actions | 200 ms | 0.80 s | 1.68 s | +0.88 s |
+| Windows Server 2025, GitHub Actions | 1000 ms | 2.42 s | 1.69 s | −0.73 s |
 
-CI run of 11 November 2026 (commit 5641518), 15 runs at 200 ms and 7 at 1000 ms; the Windows 11 rows, 9 runs; GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
+Same CI run (commit 8aecddf), 15 runs at 200 ms and 7 at 1000 ms; GitHub's runners vary by a few tenths of a second from one run to the next. wkhtmltopdf always waits the whole `--javascript-delay`; PDFKiln stops waiting as soon as nothing can change the page any more (no timer or animation frame pending, no request in flight, fonts loaded, the DOM still), which gives the same PDF sooner.
