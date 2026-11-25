@@ -153,8 +153,9 @@ export class LoadedPage {
   printRequested = false;
   title = '';
   status = 0; // of the page itself, once loaded; 0 without one (data:)
-  // The window resized, in CSS pixels, then the wait of the load again:
-  // the JavaScript delay, cut short once nothing can change the page.
+  // The window resized, in CSS pixels, then, once its resize event has
+  // come, the wait of the load again: the JavaScript delay, cut short once
+  // nothing can change the page.
   resize: (width: number, height: number) => Promise<void> = async () => {};
   constructor(readonly page: Page, readonly cdp: CDPSession, readonly spec: LoadSpec) {}
 }
@@ -813,8 +814,26 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   }
   lp.title = await page.title().catch(() => '');
   lp.resize = async (width, height) => {
+    const wait = load.jsdelay > 0 && !lp.printRequested;
+    // The window's resize event comes with the next frame drawn after the
+    // override, which headless Chromium on macOS may draw after settle's
+    // 20 ms of quiet (CI, macOS 15, Chromium 158): the page's scripts then
+    // missed the new size. A listener set up first, after the page's own,
+    // is waited for, up to the delay; then the page settles.
+    if (wait) {
+      await page.evaluate(() => {
+        Object.defineProperty(window, '__pdfkilnResized', { configurable: true, value: new Promise<void>((done) => addEventListener('resize', () => done(), { once: true })) });
+      }).catch(() => {});
+    }
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), deviceScaleFactor: spec.viewport.scale ?? 1, mobile: false });
-    if (load.jsdelay > 0 && !lp.printRequested) await settle(page, inflight, load.jsdelay);
+    if (!wait) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      page.evaluate(() => (window as unknown as { __pdfkilnResized?: Promise<void> }).__pdfkilnResized).catch(() => {}),
+      new Promise<void>((r) => { timer = setTimeout(r, load.jsdelay); }),
+    ]);
+    clearTimeout(timer);
+    await settle(page, inflight, load.jsdelay);
   };
   return lp;
 }
