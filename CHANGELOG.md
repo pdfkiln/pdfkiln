@@ -8,21 +8,30 @@ GitHub release.
 
 ## 1.5.0
 
-Called as `pdfkiln`, a page's media queries now see the width of the paper it sets. A page whose `@page` rules ask for A4 landscape, Letter or A3 was printed on that paper, but laid out by its media queries as on A4 portrait: on landscape A4, in the layout of a window 718 pixels wide. When all its pages come out on one paper other than A4 portrait, PDFKiln prints the page again on that paper, in a window of that size, in a fraction of a second more. A page whose layout depends on its width may change: Bootstrap 4's print style sheet, which asks for A3, now prints in its wide layout rather than its phone layout. A page on A4 portrait, and a document whose pages differ in size, print as before.
+Called as `pdfkiln`, two changes to the layout of a PDF:
 
-`--scale` sets the scale of a PDF too, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size and its margins, and holds a page as much wider: a page made for screens prints as a wide window shows it, not in the layout it keeps for a narrow one. On A4, `--scale 0.56` prints what a window 1280 pixels wide shows. Up to 1.4.0, `--scale` was for images only, and refused for a PDF.
+- **The page's paper**: a page is laid out for the paper set by its `@page` rules or by `--css` (`@page { size: A4 landscape }`), which its media queries and its scripts now see. Up to 1.4.0, a page that asked for A4 landscape, Letter or A3 was printed on that paper but laid out for A4 portrait, as in a window 718 pixels wide; on landscape A4, it now gets 1047 pixels, the width it is printed at. A page whose layout depends on its width may change: Bootstrap 4's print style sheet, which asks for A3, now prints in its wide layout rather than its phone layout. A page on a paper other than A4 portrait is printed twice, in a fraction of a second more; one on A4 portrait, and a document whose pages differ in size, print as before.
+- **`--scale` for a PDF**: the scale of the print, from 0.1 to 2, as in a browser's print dialog. The paper keeps its size and its margins, and holds a page as much wider: a page made for screens prints as a wide window shows it, not in the layout it keeps for narrow windows. On A4, `--scale 0.56` prints what a window 1280 pixels wide shows. Up to 1.4.0, `--scale` was for images only.
 
 ```sh
 pdfkiln --scale 0.56 https://example.com page.pdf
 ```
 
-Fixed: `--css` had no effect on a page whose Content-Security-Policy refuses inline styles, as many sites' does. It applies there too, without its `@import` rules; the policy stays in force for the page.
+Bugs fixed:
 
-Fixed: run as root, as a Docker image, a CI job or `drush` often runs it, both commands said only `Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed`. They now say that Chromium refuses to run as root with its sandbox on, and to run them as an unprivileged user; the sandbox stays on. On Ubuntu 23.10 and later, the Chromium of the archive, the npm or the Composer package, which AppArmor keeps from its sandbox until a profile allows it, now gets its own explanation too, with the path the profile must name. Called as `pdfkiln`, these explanations name its own option, `--no-sandbox`, rather than `--kiln-no-sandbox`.
+- **Composer package under php-fpm**: on Debian and Ubuntu, the first PDF failed with `pdfkiln: cannot create /var/www/.cache/pdfkiln/dist`, as php-fpm gives PHP the home folder of the pool's user, `/var/www` for `www-data`, which root owns. An account that cannot write in its home folder now keeps the program in `/var/tmp/pdfkiln-<uid>`, which stays on disk across reboots. So does an account without `HOME`, as under Apache's mod_php, which got `/tmp/pdfkiln-<uid>` up to 1.4.0: Debian 13 keeps `/tmp` in memory, and the program took 393 MB of it. Run at deployment from the project's folder, `sudo -u www-data vendor/bin/wkhtmltopdf --version` downloads the program where php-fpm looks for it, and says where. The package's README shows how to give it a folder of its own, which mod_php needs: Apache empties its temporary folders at each restart.
+- **Run as root**, as in many containers, CI jobs and `drush` calls, PDFKiln said only `Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed`. It now says that Chromium refuses to run as root with its sandbox on, and to run PDFKiln as an unprivileged user; the sandbox stays on.
+- **AppArmor**, on Ubuntu 23.10 and later, keeps the Chromium of the archive and of the npm and Composer packages from its sandbox until a profile allows it: PDFKiln now says so, with the path the profile must name. The Debian package loads its own profile.
 
-Called as `wkhtmltopdf`, `--user-style-sheet` given as a file or a `data:` URL ranks as in wkhtmltopdf 0.12.6, as a user style sheet: the page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, one of its rules more specific than the page's won, and the page's `!important` won over its own. On a page whose Content-Security-Policy refuses inline styles, where it had no effect, it applies too, without its `@import` rules.
+Called as `pdfkiln`, bugs fixed:
 
-Fixed: the Composer package failed at the first PDF under php-fpm on Debian and Ubuntu, with `pdfkiln: cannot create /var/www/.cache/pdfkiln/dist`: php-fpm gives PHP the home folder of the pool's user, `/var/www` for `www-data`, which root owns there. An account that cannot write in its home folder now keeps the program in `/var/tmp/pdfkiln-<uid>`, which stays on disk across reboots. So does an account without `HOME`, as under Apache's mod_php: up to 1.4.0, it got `/tmp/pdfkiln-<uid>`, which Debian 13 keeps in memory, where the program took 393 MB. Run at deployment, `sudo -u www-data vendor/bin/wkhtmltopdf --version` downloads the program where php-fpm looks for it, and says where. The package's README shows how to give it a folder of its own, under php-fpm and under Apache, whose service empties its temporary folders at each restart.
+- **`--css` on a page whose Content-Security-Policy refuses inline styles**, as many sites do, had no effect. It applies there too, without its `@import` rules; the policy stays in force for the page.
+- **The messages of a sandbox that cannot start** name `--no-sandbox`, where they named `--kiln-no-sandbox`, which `pdfkiln` refuses.
+
+Called as `wkhtmltopdf`, `--user-style-sheet` now as in wkhtmltopdf 0.12.6:
+
+- **Its rank**: given as a file or a `data:` URL, it is a user style sheet. The page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, a rule of it more specific than the page's won, and the page's `!important` won over its own.
+- **On a page whose Content-Security-Policy refuses inline styles**, which wkhtmltopdf's WebKit does not know, it had no effect. It applies there too, but without its `@import` rules.
 
 ## 1.4.0
 
