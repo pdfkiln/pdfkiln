@@ -393,9 +393,22 @@ export function emulateInPage(e: Emulation): void {
     for (const el of boxes) el.style.setProperty('break-inside', 'avoid');
   }
   if (e.noDefaultWidows || e.unsplitRows) {
+    const css = `@layer pdfkiln-defaults { ${e.noDefaultWidows ? 'html { orphans: 1; widows: 1 }' : ''} ${e.unsplitRows ? 'tr { break-inside: avoid }' : ''} }`;
     const style = doc.createElement('style');
-    style.textContent = `@layer pdfkiln-defaults { ${e.noDefaultWidows ? 'html { orphans: 1; widows: 1 }' : ''} ${e.unsplitRows ? 'tr { break-inside: avoid }' : ''} }`;
+    style.textContent = css;
     (doc.head ?? doc.documentElement).prepend(style);
+    // A page whose Content-Security-Policy refuses inline styles, which
+    // WebKit 534 does not know, leaves the element without its style sheet
+    // (measured, Chromium 158): it is then adopted, which the policy does
+    // not govern, as --user-style-sheet is (loader.ts). Its layer then
+    // comes after the page's own, whose rules wkhtmltopdf 0.12.6 ignores
+    // anyway (measured).
+    if (!style.sheet) {
+      style.remove();
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+    }
   }
   if (e.noShrinkToFit && doc.body) {
     // Only on visible boxes: a body that hides its overflow would become a

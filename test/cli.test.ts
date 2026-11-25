@@ -312,6 +312,20 @@ before(async () => {
     }
     if (path === '/rank/page.css') return res.writeHead(200, { 'content-type': 'text/css' }).end('.c1, .c2, .c3 { color: #ff0000 } .c4 { color: #ff0000 !important }');
     if (path === '/rank/imported.css') return res.writeHead(200, { 'content-type': 'text/css' }).end('.c6 { color: #0000ff }');
+    // The pages of two page-break tests of WebKit 534 (a table row that does
+    // not fit, a paragraph's first line alone at the bottom), under such a
+    // policy: their style from a style sheet of their own origin.
+    if (path === '/csp-breaks/rows' || path === '/csp-breaks/orphan') {
+      const body = path.endsWith('/rows')
+        ? `<div class="gap-rows"></div><table>${Array.from({ length: 6 }, (_, i) => `<tr><td><div class="row">R${i + 1}</div></td></tr>`).join('')}</table>`
+        : `<div class="gap-orphan"></div><p>${Array.from({ length: 4 }, (_, i) => `L${i + 1} ${'word '.repeat(30)}`).join('<br>')}</p>`;
+      return res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "style-src 'self'" })
+        .end(`<link rel="stylesheet" href="/csp-breaks/page.css">${body}`);
+    }
+    if (path === '/csp-breaks/page.css') {
+      return res.writeHead(200, { 'content-type': 'text/css' }).end('body{margin:0;font:16px/20px sans-serif} p{margin:0} '
+        + 'table{border-collapse:collapse;width:100%} td{border:1px solid;padding:10px} .row{height:150px} .gap-rows{height:115px} .gap-orphan{height:1285px}');
+    }
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
@@ -1376,6 +1390,21 @@ print(json.dumps(out))`;
     const [first, second] = pagesText(out);
     assert.doesNotMatch(first!, /R6/);
     assert.match(second!, /R6/);
+  });
+
+  test('these two breaks hold on a page whose Content-Security-Policy refuses inline styles, which wkhtmltopdf does not know', async (t) => {
+    // The pages of the two tests above, served with style-src 'self': the
+    // emulation's own style sheet, refused there as an element, is adopted.
+    // wkhtmltopdf 0.12.6 (Windows 11): R6 on the second page, L1 on the first.
+    const rows = join(dir, 'csp-rows.pdf');
+    const orphan = join(dir, 'csp-orphan.pdf');
+    assert.equal((await run(['-q', '--disable-smart-shrinking', '-T', '0', '-B', '0', `${base}/csp-breaks/rows`, rows])).code, 0);
+    assert.equal((await run(['-q', `${base}/csp-breaks/orphan`, orphan])).code, 0);
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const [first, second] = pagesText(rows);
+    assert.doesNotMatch(first!, /R6/);
+    assert.match(second!, /R6/);
+    assert.match(pagesText(orphan)[0]!, /L1 word/);
   });
 
   test('a block that scrolls its overflow and does not fit moves to the next page, whole', async (t) => {

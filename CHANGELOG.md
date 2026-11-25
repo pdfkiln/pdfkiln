@@ -28,10 +28,10 @@ Called as `pdfkiln`, bugs fixed:
 - **`--css` on a page whose Content-Security-Policy refuses inline styles**, as many sites do, had no effect. It applies there too, without its `@import` rules; the policy stays in force for the page.
 - **The messages of a sandbox that cannot start** name `--no-sandbox`, where they named `--kiln-no-sandbox`, which `pdfkiln` refuses.
 
-Called as `wkhtmltopdf`, `--user-style-sheet` now as in wkhtmltopdf 0.12.6:
+Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 
-- **Its rank**: given as a file or a `data:` URL, it is a user style sheet. The page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, a rule of it more specific than the page's won, and the page's `!important` won over its own.
-- **On a page whose Content-Security-Policy refuses inline styles**, which wkhtmltopdf's WebKit does not know, it had no effect. It applies there too, but without its `@import` rules.
+- **`--user-style-sheet`**, given as a file or a `data:` URL, is a user style sheet: the page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, a rule of it more specific than the page's won, and the page's `!important` won over its own.
+- **Pages whose Content-Security-Policy refuses inline styles**, which wkhtmltopdf's WebKit does not know: `--user-style-sheet` applies there too, but without its `@import` rules. Their page breaks fall as in wkhtmltopdf: a table row that does not fit moves whole to the next page, and a paragraph may leave a single line at the bottom or the top of a page. Up to 1.4.0, the user style sheet had no effect there, and Chromium split such rows and kept at least two lines of a paragraph together.
 
 ## 1.4.0
 
