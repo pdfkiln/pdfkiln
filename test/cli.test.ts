@@ -302,6 +302,16 @@ before(async () => {
       return res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "style-src 'self'" })
         .end('<!doctype html><title>T</title><style>p { display: none }</style><p>shown: the page\'s inline style is refused</p>');
     }
+    // A page that colours its lines in red, from a style sheet of its own
+    // origin, with or without such a policy; a style sheet for a user style
+    // sheet to import.
+    if (path === '/rank' || path === '/rank-csp') {
+      const lines = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6'].map((c) => `<p class="${c.toLowerCase()}">${c}</p>`).join('');
+      return res.writeHead(200, { 'content-type': 'text/html', ...(path === '/rank-csp' ? { 'content-security-policy': "style-src 'self'" } : {}) })
+        .end(`<!doctype html><title>T</title><link rel="stylesheet" href="/rank/page.css">${lines}`);
+    }
+    if (path === '/rank/page.css') return res.writeHead(200, { 'content-type': 'text/css' }).end('.c1, .c2, .c3 { color: #ff0000 } .c4 { color: #ff0000 !important }');
+    if (path === '/rank/imported.css') return res.writeHead(200, { 'content-type': 'text/css' }).end('.c6 { color: #0000ff }');
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
@@ -855,6 +865,34 @@ describe('interface', () => {
     r = await run(['--log-level', 'warn', '--user-style-sheet', `${base}/missing.css`, `${base}/ok`, out]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(r.stderr, `Warning: Failed to load ${base}/missing.css (ignore)\n`);
+  });
+
+  test('--user-style-sheet ranks as a user style sheet, as in wkhtmltopdf: below the page\'s rules whatever their specificity, above them with !important; under a Content-Security-Policy too', async () => {
+    // Measured on wkhtmltopdf 0.12.6: R, R, B, B, B and B on both pages,
+    // which it reads without the policy.
+    const sheet = file('user-rank.css', `@import url("${base}/rank/imported.css");
+      .c1 { color: #0000ff } body .c2 { color: #0000ff } .c3 { color: #0000ff !important } .c4 { color: #0000ff !important }
+      .c5 { color: #0000ff; display: block; height: 2000px }`);
+    // Each line's colour: R for the page's, B for the user style sheet's.
+    const script = `import sys, json, pymupdf
+out = {}
+for p in pymupdf.open(sys.argv[1]):
+    for b in p.get_text("dict")["blocks"]:
+        for l in b.get("lines", []):
+            for s in l["spans"]:
+                t = s["text"].strip()
+                if t in ("C1", "C2", "C3", "C4", "C5", "C6"):
+                    out[t] = "R" if s["color"] == 0xff0000 else "B" if s["color"] == 0x0000ff else hex(s["color"])
+print(json.dumps(" ".join(out.get(k, "-") for k in ("C1", "C2", "C3", "C4", "C5", "C6"))))`;
+    // Under the policy, its @import is not loaded: C6 stays black.
+    for (const [page, colours] of [['rank', 'R R B B B B'], ['rank-csp', 'R R B B B 0x0']] as const) {
+      const out = join(dir, `${page}.pdf`);
+      const r = await run(['-q', '--user-style-sheet', sheet, `${base}/${page}`, out]);
+      assert.equal(r.code, 0, r.stderr);
+      // C5's height: the user style sheet applies.
+      assert.ok((await PDFDocument.load(readFileSync(out))).getPageCount() > 1, page);
+      if (hasPyMuPDF) assert.equal(JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })), colours, page);
+    }
   });
 
   test('--username and --password answer the server\'s HTTP authentication, for the fonts too, Basic or Digest, as in wkhtmltopdf', async () => {

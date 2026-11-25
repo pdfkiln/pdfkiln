@@ -134,6 +134,38 @@ export function dropUnknownCss(css: string): string {
   });
 }
 
+// --user-style-sheet's rules in a cascade layer of their own, the first of
+// the page when the style sheet comes first: the page's rules outrank them
+// whatever their specificity, and their !important declarations outrank
+// the page's, as WebKit ranks a user style sheet (CSS 2.1's cascade,
+// measured on wkhtmltopdf 0.12.6). Its @import rules take the layer too,
+// its @namespace rules stay before the block, @charset goes.
+export const USER_LAYER = 'pdfkiln-user';
+const CSS_STRING = String.raw`"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'`;
+const CSS_URL = String.raw`url\(\s*(?:${CSS_STRING}|[^)]*)\s*\)`;
+const CSS_BLANK = /^(?:\s+|\/\*[\s\S]*?(?:\*\/|$))/;
+const CSS_STATEMENT = new RegExp(String.raw`^@(charset|import|namespace)\b(?:${CSS_STRING}|${CSS_URL}|[^;{"'])*;?`, 'i');
+const IMPORT_SOURCE = new RegExp(String.raw`^(@import\s*)(${CSS_URL}|${CSS_STRING})`, 'i');
+
+export function userLayer(css: string): string {
+  const head: string[] = [];
+  let rest = css;
+  for (;;) {
+    const blank = CSS_BLANK.exec(rest);
+    if (blank?.[0]) {
+      rest = rest.slice(blank[0].length);
+      continue;
+    }
+    const m = CSS_STATEMENT.exec(rest);
+    if (!m) break;
+    rest = rest.slice(m[0].length);
+    const kind = m[1]!.toLowerCase();
+    if (kind === 'import') head.push(/\blayer\b/i.test(m[0].replace(IMPORT_SOURCE, '')) ? m[0] : m[0].replace(IMPORT_SOURCE, `$1$2 layer(${USER_LAYER})`));
+    else if (kind === 'namespace') head.push(m[0]);
+  }
+  return `${head.map((s) => `${s}\n`).join('')}@layer ${USER_LAYER} {\n${rest}\n}\n`;
+}
+
 export function rewriteCss(css: string, e: Emulation): string {
   let out = e.webkit534Css ? dropUnknownCss(css) : css;
   if (e.mediaViewport || e.screenTypes) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dropUnknownCss, rewriteCss, rewriteMediaPrelude, rewriteMediaTypes } from '../src/engine/emulation.js';
+import { dropUnknownCss, rewriteCss, rewriteMediaPrelude, rewriteMediaTypes, userLayer } from '../src/engine/emulation.js';
 import { isPrivateAddress } from '../src/engine/relay.js';
 import { hfreplace, withParms } from '../src/wk/headers.js';
 import { sectionCache } from '../src/wk/convert.js';
@@ -27,6 +27,15 @@ test('media types, as a screen sees them', () => {
 test('@page rules are dropped', () => {
   assert.equal(rewriteCss('a{}@page{margin:0;@top-center{content:"x"}}b{}', { dropPageRules: true }), 'a{}b{}');
   assert.equal(rewriteCss('@page :first { size: A5 } p{}', { dropPageRules: true }), ' p{}');
+});
+
+test('the user style sheet in a cascade layer of its own, its imports too', () => {
+  assert.equal(userLayer('.a { color: red }'), '@layer pdfkiln-user {\n.a { color: red }\n}\n');
+  assert.equal(userLayer('@charset "utf-8";\n/* x */ @import url("a;b.css") screen;\n@import \'b.css\';\n@namespace svg url(http://www.w3.org/2000/svg);\np{}'),
+    '@import url("a;b.css") layer(pdfkiln-user) screen;\n@import \'b.css\' layer(pdfkiln-user);\n@namespace svg url(http://www.w3.org/2000/svg);\n@layer pdfkiln-user {\np{}\n}\n');
+  // An import in a layer of its own keeps it; a rule after another stays in the block.
+  assert.equal(userLayer('@import url(a.css) layer(x);p{}@import url(c.css);'), '@import url(a.css) layer(x);\n@layer pdfkiln-user {\np{}@import url(c.css);\n}\n');
+  assert.equal(userLayer(''), '@layer pdfkiln-user {\n\n}\n');
 });
 
 test('private addresses', () => {

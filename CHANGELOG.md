@@ -20,6 +20,8 @@ Fixed: `--css` had no effect on a page whose Content-Security-Policy refuses inl
 
 Fixed: run as root, as a Docker image, a CI job or `drush` often runs it, both commands said only `Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed`. They now say that Chromium refuses to run as root with its sandbox on, and to run them as an unprivileged user; the sandbox stays on. On Ubuntu 23.10 and later, the Chromium of the archive, the npm or the Composer package, which AppArmor keeps from its sandbox until a profile allows it, now gets its own explanation too, with the path the profile must name. Called as `pdfkiln`, these explanations name its own option, `--no-sandbox`, rather than `--kiln-no-sandbox`.
 
+Called as `wkhtmltopdf`, `--user-style-sheet` given as a file or a `data:` URL ranks as in wkhtmltopdf 0.12.6, as a user style sheet: the page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, one of its rules more specific than the page's won, and the page's `!important` won over its own. On a page whose Content-Security-Policy refuses inline styles, where it had no effect, it applies too, without its `@import` rules.
+
 ## 1.4.0
 
 Called as `pdfkiln`, three new features:

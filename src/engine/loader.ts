@@ -12,7 +12,7 @@ import type { BrowserContext, CDPSession, Frame, Page } from 'puppeteer-core';
 import type { LoadPage, PostItem, Web } from '../wk/settings.js';
 import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
-import { emulateInPage, rewriteCss, type Emulation } from './emulation.js';
+import { emulateInPage, rewriteCss, userLayer, type Emulation } from './emulation.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
 import type { GenericFamilies } from './fonts.js';
 import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert, type RelayProxy } from './relay.js';
@@ -726,14 +726,27 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   }
   // The user style sheet, first in each frame: its text, or a link that
   // Chromium loads as any other style sheet, the wait ending once it has
-  // loaded or failed.
+  // loaded or failed. Its text ranks as WebKit ranks a user style sheet, in
+  // a cascade layer of its own (userLayer), rewritten for the emulations
+  // as a served style sheet is. A page whose Content-Security-Policy
+  // refuses inline styles leaves the element without its style sheet: it
+  // is then adopted, which the policy does not govern, without its @import
+  // rules. The policy stays in force for the page.
   if (spec.userStyleSheet || spec.userStyleSheetUrl) {
+    const text = spec.userStyleSheet ? userLayer(spec.userStyleSheet) : '';
+    const css = spec.emulation ? rewriteCss(text, spec.emulation) : text;
     await Promise.all(documentFrames(page).map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
       const at = document.head ?? document.documentElement;
       if (!href) {
         const s = document.createElement('style');
         s.textContent = css;
         at.prepend(s);
+        if (!s.sheet) {
+          s.remove();
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(css);
+          document.adoptedStyleSheets = [sheet, ...document.adoptedStyleSheets];
+        }
         return done();
       }
       const l = document.createElement('link');
@@ -741,7 +754,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
       l.href = href;
       l.onload = l.onerror = () => done();
       at.prepend(l);
-    }), spec.userStyleSheet ?? '', spec.userStyleSheetUrl ?? '').catch(() => {})));
+    }), css, spec.userStyleSheetUrl ?? '').catch(() => {})));
   }
   // The native --css: last in the page, it wins over the page's own rules
   // (@page included). A page whose Content-Security-Policy refuses inline
