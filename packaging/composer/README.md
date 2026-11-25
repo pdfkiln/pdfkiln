@@ -42,6 +42,14 @@ Under Apache's mod_php, name the folder in `/etc/apache2/envvars` rather than in
 export PDFKILN_CACHE_DIR=/var/cache/pdfkiln
 ```
 
+php-fpm from packages.sury.org and the ondrej/php PPA runs in a systemd unit hardened as PHP's own is, which refuses every namespace (`RestrictNamespaces=true`), the three Chromium's sandbox needs included. The PDFs then fail with `Chromium's sandbox cannot start`, in a message that names the unit, while the same command works in a shell. Allow those three in a drop-in, which keeps the rest of the unit's hardening, and restart php-fpm; for php8.5-fpm:
+
+```
+sudo mkdir -p /etc/systemd/system/php8.5-fpm.service.d
+printf '[Service]\nRestrictNamespaces=user pid net\n' | sudo tee /etc/systemd/system/php8.5-fpm.service.d/pdfkiln.conf
+sudo systemctl daemon-reload && sudo systemctl restart php8.5-fpm
+```
+
 On Linux, Chromium needs its system libraries (`libnss3`, `libgbm1` and others) and, on Ubuntu 24.04, an AppArmor profile for its sandbox: the Debian package and the Docker image bring both, so prefer them on a Linux server ([Installation](https://github.com/pdfkiln/pdfkiln#installation)). This package suits Windows and macOS machines, and Linux ones that already have those libraries.
 
 PHP 7.4 or later; `tar` (Linux, macOS, Windows 10 and later).

@@ -67,7 +67,7 @@ docker run --rm -i --security-opt seccomp=seccomp.json ghcr.io/pdfkiln/pdfkiln w
 
 ### PHP
 
-PHP 7.4 or later: `wkhtmltopdf` and `wkhtmltoimage` in `vendor/bin`, for knp-snappy and the other PHP libraries. On a Linux server, prefer the Debian package or Docker.
+PHP 7.4 or later: `wkhtmltopdf` and `wkhtmltoimage` in `vendor/bin`, for knp-snappy and the other PHP libraries. On a Linux server, prefer the Debian package or Docker. Whatever the package, php-fpm from packages.sury.org or the ondrej/php PPA refuses Chromium's sandbox the namespaces it needs: allow them in a drop-in for its systemd unit ([Chromium's sandbox](docs/install.md#chromiums-sandbox)).
 
 ```sh
 composer require pdfkiln/pdfkiln
@@ -100,7 +100,7 @@ sudo apt install libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-
   libxkbcommon0 libxrandr2 fontconfig fonts-liberation fonts-noto-color-emoji
 ```
 
-Chromium's sandbox stays on: run PDFKiln as an unprivileged user, not root. On Ubuntu 23.10 and later, AppArmor restricts the user namespaces the sandbox needs; the Debian package loads a profile that allows them.
+Chromium's sandbox stays on: run PDFKiln as an unprivileged user, not root. On Ubuntu 23.10 and later, AppArmor restricts the user namespaces the sandbox needs; the Debian package loads a profile that allows them. Where the system refuses them, PDFKiln says why: [Chromium's sandbox](docs/install.md#chromiums-sandbox).
 
 ## Migrating from wkhtmltopdf
 

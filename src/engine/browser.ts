@@ -100,8 +100,9 @@ export function chromiumCommand(exe: string, args: string[], space: AddressSpace
 
 // Whether this system lets a process create a user namespace, which
 // Chromium's sandbox needs: Docker's default seccomp profile refuses it,
-// as does a kernel with unprivileged user namespaces turned off, and
-// Chromium then only says "Target closed". Asked of unshare (util-linux)
+// as do a systemd unit's RestrictNamespaces= and a kernel with
+// unprivileged user namespaces turned off, and Chromium then only says
+// "Target closed". Asked of unshare (util-linux)
 // once Chromium has failed; null when it cannot tell.
 export function userNamespaces(): boolean | null {
   if (process.platform !== 'linux') return null;
@@ -112,6 +113,33 @@ export function userNamespaces(): boolean | null {
     // unshare exits 1 when the kernel refuses; anything else tells nothing.
     return (e as { status?: number }).status === 1 ? false : null;
   }
+}
+
+// The systemd service this process runs in, when a seccomp filter is on
+// it, as systemd's RestrictNamespaces= puts one: php-fpm's unit in PHP's
+// sources, whose hardening the packages of packages.sury.org and the
+// ondrej/php PPA keep, refuses every namespace (RestrictNamespaces=true),
+// where Debian 13's php-fpm refuses none. Its name is the leaf of the
+// process's control group. Null in a shell or a container, which sit in a
+// scope or at the root of their group, and without a filter, as the unit
+// then refuses nothing. Asked once user namespaces are refused.
+export interface SystemdUnit {
+  name: string;
+  // A unit of a user's own service manager: systemctl --user.
+  user: boolean;
+}
+
+export function systemdUnit(read: (path: string) => string | null = readText): SystemdUnit | null {
+  if (!/^Seccomp:\s*2\s*$/m.test(read('/proc/self/status') ?? '')) return null;
+  const lines = (read('/proc/self/cgroup') ?? '').split('\n');
+  // systemd's own hierarchy under cgroup v1, the unified one under v2.
+  const line = lines.find((l) => /^\d+:name=systemd:/.test(l)) ?? lines.find((l) => l.startsWith('0::'));
+  if (!line) return null;
+  const path = line.trim().replace(/^\d+:[^:]*:/, '').split('/');
+  const name = path.at(-1)!;
+  // Escaped names (\x2d) are left out: they would need quoting.
+  if (!/^[\w.:@-]+\.service$/.test(name)) return null;
+  return { name, user: path.slice(0, -1).some((p) => /^user@\d+\.service$/.test(p)) };
 }
 
 // Whether this process runs as root, by its real or its effective user ID,
@@ -176,6 +204,7 @@ export interface Probes {
   root?: () => boolean;
   appArmor?: () => string | null;
   namespaces?: () => boolean | null;
+  unit?: () => SystemdUnit | null;
 }
 
 // Explains the usual reasons Chromium cannot start, with the fix, in the
@@ -203,7 +232,11 @@ export function explain(message: string, probes: Probes = {}, noSandbox = '--kil
     return `Chromium's sandbox cannot start: AppArmor allows the user namespaces it needs only to programs with a profile that allows them, as on Ubuntu 23.10 and later. The Debian package loads one for its Chromium; for this one, load a profile that allows userns to ${restricted} (https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md). ${noSandbox} works around it, not recommended.`;
   }
   if (probes.namespaces?.() === false) {
-    return `Chromium's sandbox cannot start: this system refuses the user namespaces it needs. In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone). ${noSandbox} works around it, not recommended.`;
+    // A unit that filters system calls first: it is the likeliest to refuse.
+    const unit = probes.unit?.();
+    const ctl = unit?.user ? 'systemctl --user' : 'systemctl';
+    const service = unit ? ` PDFKiln runs in the systemd unit ${unit.name}, whose RestrictNamespaces= may refuse them: run ${ctl} edit ${unit.name}, add the lines [Service] and RestrictNamespaces=user pid net, the three namespaces the sandbox needs, then ${ctl} restart ${unit.name}.` : '';
+    return `Chromium's sandbox cannot start: this system refuses the user namespaces it needs.${service} In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone). ${noSandbox} works around it, not recommended.`;
   }
   return `Chromium did not start: ${message.split('\n')[0]}`;
 }
@@ -349,7 +382,7 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
     forget();
     removeQuietly(profile);
     const probes: Probes = { serverCore: windowsServerCore, missing: () => missingLibraries(exe), space: addressSpace };
-    if (!opts.noSandbox) Object.assign(probes, { root: runsAsRoot, appArmor: () => appArmorRestricts(exe), namespaces: userNamespaces });
+    if (!opts.noSandbox) Object.assign(probes, { root: runsAsRoot, appArmor: () => appArmorRestricts(exe), namespaces: userNamespaces, unit: () => systemdUnit() });
     throw new LaunchError(explain(e instanceof Error ? e.message : String(e), probes, opts.noSandboxOption));
   }
   pid = browser.process()?.pid;

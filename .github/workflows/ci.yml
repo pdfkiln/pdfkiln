@@ -80,6 +80,16 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/pdfkiln-chromium
           node dist/bench/sandbox.js
 
+      # A systemd unit that refuses the sandbox its namespaces, as php-fpm's
+      # of packages.sury.org does (RestrictNamespaces=true): both commands
+      # name the unit and the drop-in that allows them. After the profile
+      # above, without which AppArmor is told first.
+      - name: Sandbox refused by a systemd unit, explained (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo -n systemd-run --wait --pipe --quiet -p User="$(id -un)" -p RestrictNamespaces=yes -p WorkingDirectory="$PWD" \
+            -E PDFKILN_CHROMIUM="$(node dist/scripts/fetch-chromium.js)" "$(command -v node)" --test --test-name-pattern='systemd unit' dist/test/messages.test.js
+
       - name: Chromium pin and Stable channel (Linux)
         if: runner.os == 'Linux'
         run: echo "pinned $(node -p "require('./chromium.json').version"), Stable $(node dist/scripts/update-chromium.js --dry-run)"

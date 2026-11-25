@@ -6,6 +6,12 @@ A version that changes Chromium says so under Security: the two versions,
 and a link to Google's release notes. Up to 1.0.2, see each version's
 GitHub release.
 
+## 1.5.1
+
+Bugs fixed:
+
+- **A systemd unit that refuses user namespaces**, such as php-fpm's from packages.sury.org and the ondrej/php PPA, hardened as PHP's own unit is (`RestrictNamespaces=true`): PDFKiln now names the unit and how to allow the three namespaces Chromium's sandbox needs, the rest of the unit's hardening kept: `systemctl edit php8.5-fpm.service`, the lines `[Service]` and `RestrictNamespaces=user pid net`, then a restart of the unit. Up to 1.5.0, the message gave only the fixes for Docker and for the kernel, which do not apply there. wkhtmltopdf, which has no sandbox, ran under such a unit as it is: a migration needs this drop-in, which `docs/install.md` gives as a file, for scripts.
+
 ## 1.5.0
 
 Called as `pdfkiln`, two changes to the layout of a PDF:

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { executablePath } from '../src/chromium.js';
-import { addressSpace, appArmorRestricts, chromiumCommand, explain, parseLdd, runsAsRoot } from '../src/engine/browser.js';
+import { addressSpace, appArmorRestricts, chromiumCommand, explain, parseLdd, runsAsRoot, systemdUnit, userNamespaces } from '../src/engine/browser.js';
 import { Feedback } from '../src/wk/feedback.js';
 import { handleError, qtErrorForHttpStatus, qtErrorString } from '../src/wk/qtnet.js';
 
@@ -115,6 +115,48 @@ test('a system that refuses user namespaces: the sandbox, and the seccomp profil
   assert.equal(refused(null), `Chromium did not start: ${closed}`);
 });
 
+test('a systemd unit that refuses user namespaces: named, with the drop-in that allows those of the sandbox', () => {
+  // php8.5-fpm 8.5.13 of packages.sury.org, Debian 13, whose unit has the
+  // hardening of PHP's own, RestrictNamespaces=true among it (25/11/2026).
+  const status = 'Name:\tnode\nNoNewPrivs:\t0\nSeccomp:\t2\nSeccomp_filters:\t4\n';
+  const files: Record<string, string> = { '/proc/self/status': status, '/proc/self/cgroup': '0::/system.slice/php8.5-fpm.service\n' };
+  const read = (p: string) => files[p] ?? null;
+  assert.deepEqual(systemdUnit(read), { name: 'php8.5-fpm.service', user: false });
+  // Under cgroup v1, systemd's own hierarchy, with or without the unified one.
+  files['/proc/self/cgroup'] = '12:pids:/system.slice/php-fpm.service\n1:name=systemd:/system.slice/php-fpm.service\n';
+  assert.deepEqual(systemdUnit(read), { name: 'php-fpm.service', user: false });
+  files['/proc/self/cgroup'] = '1:name=systemd:/system.slice/php-fpm.service\n0::/\n';
+  assert.deepEqual(systemdUnit(read), { name: 'php-fpm.service', user: false });
+  // A template's instance, and a unit of a user's own manager.
+  files['/proc/self/cgroup'] = '0::/system.slice/system-worker.slice/worker@2.service\n';
+  assert.deepEqual(systemdUnit(read), { name: 'worker@2.service', user: false });
+  files['/proc/self/cgroup'] = '0::/user.slice/user-1000.slice/user@1000.service/app.slice/queue.service\n';
+  assert.deepEqual(systemdUnit(read), { name: 'queue.service', user: true });
+  // A shell over SSH, a terminal, a container (Docker, Kubernetes): a scope
+  // or the root of the group, never a service.
+  for (const cgroup of ['0::/user.slice/user-1000.slice/session-3.scope', '0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice/vte-spawn-1.scope', '0::/', '0::/system.slice/docker-4f1e.scope', '1:name=systemd:/docker/4f1e', '0::/system.slice/dev-disk-by\\x2duuid-1.service']) {
+    files['/proc/self/cgroup'] = `${cgroup}\n`;
+    assert.equal(systemdUnit(read), null, cgroup);
+  }
+  // Without a seccomp filter, the unit refuses nothing: the kernel does.
+  files['/proc/self/cgroup'] = '0::/system.slice/cron.service\n';
+  files['/proc/self/status'] = status.replace('Seccomp:\t2', 'Seccomp:\t0');
+  assert.equal(systemdUnit(read), null);
+  assert.equal(systemdUnit(() => null), null);
+  const closed = 'Protocol error (Target.setDiscoverTargets): Target closed';
+  const seccomp = "In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone).";
+  const fpm = { namespaces: () => false, unit: () => ({ name: 'php8.5-fpm.service', user: false }) };
+  assert.equal(explain(closed, fpm), `Chromium's sandbox cannot start: this system refuses the user namespaces it needs. PDFKiln runs in the systemd unit php8.5-fpm.service, whose RestrictNamespaces= may refuse them: run systemctl edit php8.5-fpm.service, add the lines [Service] and RestrictNamespaces=user pid net, the three namespaces the sandbox needs, then systemctl restart php8.5-fpm.service. ${seccomp} --kiln-no-sandbox works around it, not recommended.`);
+  assert.match(explain(closed, fpm, '--no-sandbox'), / --no-sandbox works around it, not recommended\.$/);
+  assert.match(explain(closed, { namespaces: () => false, unit: () => ({ name: 'queue.service', user: true }) }), /: run systemctl --user edit queue\.service, .* then systemctl --user restart queue\.service\. In a container/);
+  // Outside a unit, or where namespaces are allowed, as before.
+  assert.equal(explain(closed, { namespaces: () => false, unit: () => null }), `Chromium's sandbox cannot start: this system refuses the user namespaces it needs. ${seccomp} --kiln-no-sandbox works around it, not recommended.`);
+  assert.equal(explain(closed, { namespaces: () => true, unit: fpm.unit }), `Chromium did not start: ${closed}`);
+  // Root and AppArmor come before.
+  assert.match(explain(closed, { ...fpm, root: () => true }), /refuses to run as root/);
+  assert.match(explain(closed, { ...fpm, appArmor: () => '/c/chrome' }), /AppArmor/);
+});
+
 test('AppArmor that keeps user namespaces from Chromium: named, unless a profile names that Chromium', () => {
   const exe = '/home/u/.cache/pdfkiln/chromium/158.0.8127.88/chrome-headless-shell-linux64/chrome-headless-shell';
   // Ubuntu 24.04, a shell of the user's.
@@ -161,6 +203,19 @@ test('under AppArmor, both commands say that their Chromium needs a profile', (t
   const exe = packaged || runsAsRoot() ? null : appArmorRestricts(executablePath());
   if (!exe) return t.skip('where AppArmor keeps user namespaces from the Chromium of the sources');
   const why = `Chromium's sandbox cannot start: AppArmor allows the user namespaces it needs only to programs with a profile that allows them, as on Ubuntu 23.10 and later. The Debian package loads one for its Chromium; for this one, load a profile that allows userns to ${exe} (https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).`;
+  assert.deepEqual(convert('wkhtmltopdf', ['-q']), { code: 1, pdf: false, stderr: `Error: ${why} --kiln-no-sandbox works around it, not recommended.\nExit with code 1, due to unknown error.\n` });
+  assert.deepEqual(convert('pdfkiln', []), { code: 1, pdf: false, stderr: `pdfkiln: error: ${why} --no-sandbox works around it, not recommended.\n` });
+});
+
+// WSL and CI run it as an unprivileged user under systemd-run -p
+// RestrictNamespaces=yes, a transient unit that refuses them as
+// php-fpm's of packages.sury.org does.
+test('in a systemd unit that refuses user namespaces, both commands name it', (t) => {
+  const unit = runsAsRoot() || userNamespaces() !== false ? null : systemdUnit();
+  const packaged = process.env.PDFKILN_TEST_WKHTMLTOPDF || process.env.PDFKILN_TEST_PDFKILN;
+  if (!unit || (!packaged && appArmorRestricts(executablePath()))) return t.skip('in a systemd unit that refuses user namespaces');
+  const ctl = unit.user ? 'systemctl --user' : 'systemctl';
+  const why = `Chromium's sandbox cannot start: this system refuses the user namespaces it needs. PDFKiln runs in the systemd unit ${unit.name}, whose RestrictNamespaces= may refuse them: run ${ctl} edit ${unit.name}, add the lines [Service] and RestrictNamespaces=user pid net, the three namespaces the sandbox needs, then ${ctl} restart ${unit.name}. In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone).`;
   assert.deepEqual(convert('wkhtmltopdf', ['-q']), { code: 1, pdf: false, stderr: `Error: ${why} --kiln-no-sandbox works around it, not recommended.\nExit with code 1, due to unknown error.\n` });
   assert.deepEqual(convert('pdfkiln', []), { code: 1, pdf: false, stderr: `pdfkiln: error: ${why} --no-sandbox works around it, not recommended.\n` });
 });

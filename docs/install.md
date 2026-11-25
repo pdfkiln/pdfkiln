@@ -82,7 +82,24 @@ brew install pdfkiln/tap/pdfkiln
 - uses: pdfkiln/setup@v1
 ```
 
-Chromium's sandbox stays on: run as an unprivileged user, not root.
+## Chromium's sandbox
+
+Chromium's sandbox stays on: run PDFKiln as an unprivileged user, not root. The sandbox needs a user namespace, and a PID and a network namespace in it. Where the system refuses them, Chromium cannot start, and PDFKiln says why and what allows them:
+
+- **Docker**: its default seccomp profile refuses them; run the container with [`docker/seccomp.json`](../docker/seccomp.json), as above.
+- **AppArmor**, on Ubuntu 23.10 and later, allows them only to programs with a profile that allows them. The Debian package loads one for its Chromium; for the Chromium of an archive or of the npm or Composer package, load one that names it.
+- **A systemd unit with `RestrictNamespaces=`**, such as php-fpm's from [packages.sury.org](https://packages.sury.org/php/) and the [ondrej/php PPA](https://launchpad.net/~ondrej/+archive/ubuntu/php): their unit has the hardening of PHP's own, `RestrictNamespaces=true` among it, which refuses every namespace, so a PHP application's PDFs fail where the same command works in a shell. Debian 13's own php-fpm refuses none. Allow the three the sandbox needs in a drop-in, which keeps the rest of the unit's hardening; for php8.5-fpm, each PHP version having its own unit:
+
+  ```sh
+  sudo mkdir -p /etc/systemd/system/php8.5-fpm.service.d
+  printf '[Service]\nRestrictNamespaces=user pid net\n' | sudo tee /etc/systemd/system/php8.5-fpm.service.d/pdfkiln.conf
+  sudo systemctl daemon-reload && sudo systemctl restart php8.5-fpm
+  ```
+
+  `sudo systemctl edit php8.5-fpm`, with the same two lines, does the same. wkhtmltopdf, which has no sandbox, ran under such a unit as it is.
+- **A kernel that turns them off** for unprivileged users, with `user.max_user_namespaces` at 0, or `kernel.unprivileged_userns_clone` at 0 where the kernel has it: raise the first, set the second to 1.
+
+`--kiln-no-sandbox` (`--no-sandbox` called as `pdfkiln`) works around each of them, not recommended.
 
 ## Releases
 
