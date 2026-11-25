@@ -10,7 +10,7 @@ GitHub release.
 
 Bugs fixed:
 
-- **A systemd unit that refuses user namespaces**, such as php-fpm's from packages.sury.org and the ondrej/php PPA, hardened as PHP's own unit is (`RestrictNamespaces=true`): PDFKiln now names the unit and how to allow the three namespaces Chromium's sandbox needs, the rest of the unit's hardening kept: `systemctl edit php8.5-fpm.service`, the lines `[Service]` and `RestrictNamespaces=user pid net`, then a restart of the unit. Up to 1.5.0, the message gave only the fixes for Docker and for the kernel, which do not apply there. wkhtmltopdf, which has no sandbox, ran under such a unit as it is: a migration needs this drop-in, which `docs/install.md` gives as a file, for scripts.
+- **php-fpm from packages.sury.org or the ondrej/php PPA** keeps Chromium from its sandbox: PDFKiln now names the unit and the two lines that allow it.
 
 ## 1.5.0
 
