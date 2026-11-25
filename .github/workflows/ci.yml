@@ -58,6 +58,16 @@ jobs:
       - run: npm run fetch:chromium
       - run: pip install -r bench/requirements.txt
 
+      # Chromium's sandbox refused, before the profile below: under AppArmor,
+      # to this unconfined runner, and to root. Through the pipe, Chromium
+      # tells Puppeteer nothing but "Target closed": both commands must still
+      # say why (test/messages.test.ts; skipped where the cause is absent).
+      - name: Sandbox refusals explained (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          node --test --test-name-pattern=AppArmor dist/test/messages.test.js
+          sudo -n env PDFKILN_CHROMIUM="$(node dist/scripts/fetch-chromium.js)" "$(command -v node)" --test --test-name-pattern='as root' dist/test/messages.test.js
+
       # Ubuntu 24.04 keeps unprivileged user namespaces from unconfined
       # programs; Chromium's sandbox needs them. An AppArmor profile for the
       # binary fixes it, as Ubuntu does for Chrome: the sandbox stays on.

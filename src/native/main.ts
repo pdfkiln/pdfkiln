@@ -700,6 +700,7 @@ export async function nativeMain(args: string[]): Promise<number> {
     if (chromium) session = await launch({
       dir: work,
       noSandbox: v['no-sandbox'],
+      noSandboxOption: '--no-sandbox',
       proxyServer: relay?.url,
       proxyBypassList: relay ? '<-loopback>' : undefined,
       ignoreCertificateErrors: insecure,

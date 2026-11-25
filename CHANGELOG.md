@@ -18,6 +18,8 @@ pdfkiln --scale 0.56 https://example.com page.pdf
 
 Fixed: `--css` had no effect on a page whose Content-Security-Policy refuses inline styles, as many sites' does. It applies there too, without its `@import` rules; the policy stays in force for the page.
 
+Fixed: run as root, as a Docker image, a CI job or `drush` often runs it, both commands said only `Chromium did not start: Protocol error (Target.setDiscoverTargets): Target closed`. They now say that Chromium refuses to run as root with its sandbox on, and to run them as an unprivileged user; the sandbox stays on. On Ubuntu 23.10 and later, the Chromium of the archive, the npm or the Composer package, which AppArmor keeps from its sandbox until a profile allows it, now gets its own explanation too, with the path the profile must name. Called as `pdfkiln`, these explanations name its own option, `--no-sandbox`, rather than `--kiln-no-sandbox`.
+
 ## 1.4.0
 
 Called as `pdfkiln`, three new features:

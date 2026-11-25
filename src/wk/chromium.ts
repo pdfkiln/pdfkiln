@@ -42,6 +42,7 @@ export class Chromium {
     this.session = await launch({
       dir: work,
       noSandbox: g.kiln.noSandbox,
+      noSandboxOption: '--kiln-no-sandbox',
       proxyServer,
       proxyBypassList: proxyBypass.join(';') || undefined,
       ignoreCertificateErrors: !g.kiln.blockInvalidCertificates,

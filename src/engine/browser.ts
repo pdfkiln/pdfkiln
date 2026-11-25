@@ -2,7 +2,7 @@
 // temporary folder, the sandbox on, DevTools over a pipe, and a deadline
 // after which the whole process group is killed.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import puppeteer, { type Browser } from 'puppeteer-core';
 import { ensureChromium } from '../chromium.js';
@@ -11,6 +11,9 @@ export interface LaunchOptions {
   // Folder of the conversion: the profile goes in it, the caller removes it.
   dir: string;
   noSandbox?: boolean;
+  // The option of the command that turns the sandbox off, which the
+  // explanation of a sandbox that cannot start names.
+  noSandboxOption?: string;
   // Chromium's own proxy settings, as --proxy-server and --proxy-bypass-list.
   proxyServer?: string;
   proxyBypassList?: string;
@@ -111,28 +114,96 @@ export function userNamespaces(): boolean | null {
   }
 }
 
-// Explains the usual reasons Chromium cannot start, with the fix.
-export function explain(message: string, serverCore: () => boolean = windowsServerCore, missing: () => string[] = () => [], space: () => AddressSpace | null = () => null, namespaces: () => boolean | null = () => null): string {
-  if (serverCore()) {
+// Whether this process runs as root, by its real or its effective user ID,
+// root in a container's user namespace included. Chromium inherits them,
+// and with its sandbox on refuses to start as root, on Linux: its zygote
+// exits at once (crbug.com/638180). It says so on its stderr only, which
+// Puppeteer keeps to itself: through the pipe, "Target closed" is all that
+// comes (Chromium 158). Asked once Chromium has failed.
+export function runsAsRoot(): boolean {
+  return process.platform === 'linux' && (process.getuid?.() === 0 || process.geteuid?.() === 0);
+}
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// The profiles in /etc/apparmor.d, where the Debian package writes its own
+// and Ubuntu its programs'.
+function appArmorProfiles(): string[] {
+  try {
+    return readdirSync('/etc/apparmor.d', { withFileTypes: true })
+      .filter((f) => f.isFile())
+      .map((f) => readText(join('/etc/apparmor.d', f.name)) ?? '');
+  } catch {
+    return [];
+  }
+}
+
+// The Chromium that AppArmor keeps from the user namespaces its sandbox
+// needs, or null. From Ubuntu 23.10, with
+// kernel.apparmor_restrict_unprivileged_userns, an unconfined program gets
+// none it can use, unless a profile allows them to it, as the Debian
+// package's does to its Chromium: then Chromium says "No usable sandbox!"
+// on its stderr only. Looked for: the restriction, this process unconfined,
+// so Chromium too unless a profile names it, and no profile in
+// /etc/apparmor.d that names it. In a container, confined by the
+// container's profile, it cannot tell: null. Asked once Chromium has failed.
+export function appArmorRestricts(exe: string, read: (path: string) => string | null = readText, profiles: () => string[] = appArmorProfiles): string | null {
+  if (read('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')?.trim() !== '1') return null;
+  const label = read('/proc/self/attr/apparmor/current') ?? read('/proc/self/attr/current');
+  if (label?.replace(/\0/g, '').trim() !== 'unconfined') return null;
+  let real = exe;
+  try {
+    real = realpathSync(exe);
+  } catch {
+    // The path as given.
+  }
+  return profiles().some((p) => p.includes(exe) || p.includes(real)) ? null : exe;
+}
+
+// What is asked of a Chromium that did not start, once it has failed:
+// through the pipe, Puppeteer passes on none of its words, so each usual
+// reason is looked for. Those of the sandbox are not asked when it is off.
+export interface Probes {
+  serverCore?: () => boolean;
+  missing?: () => string[];
+  space?: () => AddressSpace | null;
+  root?: () => boolean;
+  appArmor?: () => string | null;
+  namespaces?: () => boolean | null;
+}
+
+// Explains the usual reasons Chromium cannot start, with the fix, in the
+// order Chromium meets them; noSandbox is the command's option that turns
+// the sandbox off.
+export function explain(message: string, probes: Probes = {}, noSandbox = '--kiln-no-sandbox'): string {
+  if (probes.serverCore?.()) {
     return 'Chromium does not run on Windows Server Core: it stops at start, for want of system libraries. Use Windows Server with the Desktop Experience, or the mcr.microsoft.com/windows/server container image rather than servercore.';
   }
-  const libs = missing();
+  const libs = probes.missing?.() ?? [];
   if (libs.length) {
     return `Chromium cannot start: the system lacks ${libs.join(', ')}. The Debian package installs Chromium's libraries; with the archive or the Composer package, install them first (README, Installation, Linux and macOS archives).`;
   }
   // A soft cap is raised (chromiumCommand), a hard one cannot be.
-  const cap = space();
+  const cap = probes.space?.();
   if (cap && cap.hard !== Infinity) {
     return `Chromium cannot start under a cap on its address space (ulimit -v, RLIMIT_AS) of ${Math.round(cap.hard / 2 ** 20)} MiB: it reserves far more than it uses. Lift the hard cap: LimitAS=infinity in a systemd unit, ulimit -H -v unlimited in the shell that starts the program.`;
   }
-  if (/as root without --no-sandbox/i.test(message)) {
-    return 'Chromium refuses to run as root with its sandbox on. Run the command as an unprivileged user (or pass --kiln-no-sandbox, not recommended).';
+  // Chromium checks the user before it tries the sandbox.
+  if (probes.root?.()) {
+    return `Chromium refuses to run as root with its sandbox on. Run the command as an unprivileged user (or pass ${noSandbox}, not recommended).`;
   }
-  if (namespaces() === false) {
-    return "Chromium's sandbox cannot start: this system refuses the user namespaces it needs. In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone). --kiln-no-sandbox works around it, not recommended.";
+  const restricted = probes.appArmor?.();
+  if (restricted) {
+    return `Chromium's sandbox cannot start: AppArmor allows the user namespaces it needs only to programs with a profile that allows them, as on Ubuntu 23.10 and later. The Debian package loads one for its Chromium; for this one, load a profile that allows userns to ${restricted} (https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md). ${noSandbox} works around it, not recommended.`;
   }
-  if (/No usable sandbox|namespace|setuid sandbox|zygote/i.test(message)) {
-    return "Chromium's sandbox could not start: unprivileged user namespaces are unavailable. On Ubuntu 23.10 and later, AppArmor restricts them: install an AppArmor profile for Chromium that allows userns (see the README), or enable kernel.unprivileged_userns_clone. --kiln-no-sandbox works around it, not recommended.";
+  if (probes.namespaces?.() === false) {
+    return `Chromium's sandbox cannot start: this system refuses the user namespaces it needs. In a container, run it with PDFKiln's seccomp profile (docker run --security-opt seccomp=seccomp.json, from https://raw.githubusercontent.com/pdfkiln/pdfkiln/main/docker/seccomp.json); elsewhere, allow unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone). ${noSandbox} works around it, not recommended.`;
   }
   return `Chromium did not start: ${message.split('\n')[0]}`;
 }
@@ -277,7 +348,9 @@ export async function launch(opts: LaunchOptions): Promise<Session> {
   } catch (e) {
     forget();
     removeQuietly(profile);
-    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), windowsServerCore, () => missingLibraries(exe), addressSpace, opts.noSandbox ? () => null : userNamespaces));
+    const probes: Probes = { serverCore: windowsServerCore, missing: () => missingLibraries(exe), space: addressSpace };
+    if (!opts.noSandbox) Object.assign(probes, { root: runsAsRoot, appArmor: () => appArmorRestricts(exe), namespaces: userNamespaces });
+    throw new LaunchError(explain(e instanceof Error ? e.message : String(e), probes, opts.noSandboxOption));
   }
   pid = browser.process()?.pid;
   let closed = false;
