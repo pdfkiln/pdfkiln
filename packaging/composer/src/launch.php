@@ -32,15 +32,27 @@ function ownUid(): ?int
     return $uid === false ? null : $uid;
 }
 
-// A real folder that this account alone can change.
+// A real folder that this account alone can change. Silenced, as each test
+// of a path: under open_basedir, a framework turns the warning into an error.
 function ownFolder(string $path, ?int $uid): bool
 {
-    return $uid !== null && is_dir($path) && !is_link($path) && @fileowner($path) === $uid && (@fileperms($path) & 0022) === 0;
+    return $uid !== null && @is_dir($path) && !@is_link($path) && @fileowner($path) === $uid && (@fileperms($path) & 0022) === 0;
 }
 
 function cacheUnder(string $home): string
 {
     return PHP_OS_FAMILY === 'Darwin' ? "$home/Library/Caches/pdfkiln" : "$home/.cache/pdfkiln";
+}
+
+// Whether this account can make the folder `dir`, or write in it: the
+// nearest folder of its path that exists is the one it writes in.
+function canMake(string $dir): bool
+{
+    for ($d = $dir; !@file_exists($d); $d = $up) {
+        $up = \dirname($d);
+        if ($up === $d) return false;
+    }
+    return @is_dir($d) && @is_writable($d);
 }
 
 function cacheDir(): string
@@ -50,22 +62,37 @@ function cacheDir(): string
     if (PHP_OS_FAMILY === 'Windows') return (getenv('LOCALAPPDATA') ?: getenv('USERPROFILE') . '\\AppData\\Local') . '\\pdfkiln';
     $xdg = getenv('XDG_CACHE_HOME');
     if ($xdg && PHP_OS_FAMILY !== 'Darwin') return "$xdg/pdfkiln";
+    // The home folder that HOME names, else the account's own, when this
+    // account can write there. php-fpm sets HOME to the home folder of the
+    // pool's user, /var/www for www-data, which root owns on Debian and
+    // Ubuntu (up to 1.4, the first use failed there), and so does sudo -u
+    // www-data: both then get the same folder, and a download run that way
+    // at deployment serves php-fpm. Apache's mod_php sets no HOME.
     $home = getenv('HOME');
-    if ($home) return cacheUnder($home);
-    // No HOME: php-fpm clears the environment by default. Up to 1.1, the
-    // cache then went to the shared temporary folder, where another account
-    // could have put its own program first. That folder stays in use only
-    // when this account alone can change it; else the account's home
-    // folder, or a private folder of the temporary folder.
+    if ($home && canMake(cacheUnder($home))) return cacheUnder($home);
     $uid = ownUid();
-    $tmp = sys_get_temp_dir();
-    if (PHP_OS_FAMILY !== 'Darwin' && ownFolder("$tmp/.cache", $uid) && ownFolder("$tmp/.cache/pdfkiln", $uid)) return "$tmp/.cache/pdfkiln";
     $account = $uid !== null && \function_exists('posix_getpwuid') ? posix_getpwuid($uid) : false;
-    if ($account && !empty($account['dir']) && is_dir($account['dir']) && is_writable($account['dir'])) return cacheUnder($account['dir']);
-    $own = "$tmp/pdfkiln-$uid";
-    if ($uid !== null && !file_exists($own)) @mkdir($own, 0700);
-    if (!ownFolder($own, $uid)) throw new \RuntimeException("pdfkiln: no private cache folder: set HOME or PDFKILN_CACHE_DIR");
-    return $own;
+    if ($account && !empty($account['dir']) && canMake(cacheUnder($account['dir']))) return cacheUnder($account['dir']);
+    $tmp = rtrim(sys_get_temp_dir(), '/');
+    return privateCache($tmp === '/tmp' ? ['/var/tmp', '/tmp'] : [$tmp], $uid);
+}
+
+// For an account with no home folder it can write in, such as www-data: a
+// folder of its own in a temporary folder, never one that another account
+// could have made first, with its own program in it. /var/tmp first, which
+// stays on disk across reboots: Debian 13 keeps /tmp in memory, and Debian
+// and Ubuntu empty it at each boot (up to 1.4, an account without HOME got
+// /tmp). A temporary folder set for PHP (sys_temp_dir, TMPDIR) is the only
+// one tried.
+/** @param list<string> $bases */
+function privateCache(array $bases, ?int $uid): string
+{
+    foreach ($uid === null ? [] : $bases as $base) {
+        $own = "$base/pdfkiln-$uid";
+        if (!@file_exists($own)) @mkdir($own, 0700);
+        if (ownFolder($own, $uid)) return $own;
+    }
+    throw new \RuntimeException('pdfkiln: no cache folder of its own for this account: set PDFKILN_CACHE_DIR');
 }
 
 // The platform names of the archives (scripts/package.ts).
@@ -222,7 +249,9 @@ function install(array $pins, string $platform, string $dir): ?string
 function fetch(array $pins, string $file, string $sha, string $tmp, string $dir): ?string
 {
     $archive = $tmp . DIRECTORY_SEPARATOR . $file;
-    say("downloading $file (first use)");
+    // The cache folder, to check that a download run at deployment lands
+    // where the web server's PHP looks.
+    say("downloading $file into " . \dirname($dir, 2) . ' (first use)');
     $in = @fopen("{$pins['url']}/$file", 'rb');
     if (!$in) {
         $hint = strncmp($pins['url'], 'https:', 6) === 0 && !\extension_loaded('openssl') ? ": PHP's openssl extension is not loaded" : '';

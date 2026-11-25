@@ -22,6 +22,8 @@ Fixed: run as root, as a Docker image, a CI job or `drush` often runs it, both c
 
 Called as `wkhtmltopdf`, `--user-style-sheet` given as a file or a `data:` URL ranks as in wkhtmltopdf 0.12.6, as a user style sheet: the page's rules outrank it whatever their specificity, and its `!important` declarations outrank the page's. Up to 1.4.0, one of its rules more specific than the page's won, and the page's `!important` won over its own. On a page whose Content-Security-Policy refuses inline styles, where it had no effect, it applies too, without its `@import` rules.
 
+Fixed: the Composer package failed at the first PDF under php-fpm on Debian and Ubuntu, with `pdfkiln: cannot create /var/www/.cache/pdfkiln/dist`: php-fpm gives PHP the home folder of the pool's user, `/var/www` for `www-data`, which root owns there. An account that cannot write in its home folder now keeps the program in `/var/tmp/pdfkiln-<uid>`, which stays on disk across reboots. So does an account without `HOME`, as under Apache's mod_php: up to 1.4.0, it got `/tmp/pdfkiln-<uid>`, which Debian 13 keeps in memory, where the program took 393 MB. Run at deployment, `sudo -u www-data vendor/bin/wkhtmltopdf --version` downloads the program where php-fpm looks for it, and says where. The package's README shows how to give it a folder of its own, under php-fpm and under Apache, whose service empties its temporary folders at each restart.
+
 ## 1.4.0
 
 Called as `pdfkiln`, three new features:
