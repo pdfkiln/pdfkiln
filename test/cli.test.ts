@@ -296,6 +296,12 @@ before(async () => {
       userCssRequest = `${req.headers.cookie ?? 'no cookie'}, ${req.headers['x-test'] ?? 'no header'}`;
       return res.writeHead(200, { 'content-type': 'text/css' }).end('h1 { height: 2000px }');
     }
+    // A page whose Content-Security-Policy refuses inline styles, its own
+    // included, as many sites' does.
+    if (path === '/csp') {
+      return res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': "style-src 'self'" })
+        .end('<!doctype html><title>T</title><style>p { display: none }</style><p>shown: the page\'s inline style is refused</p>');
+    }
     if (path === '/img') imgHeader = String(req.headers['x-test'] ?? 'none');
     if (path === '/img') imgCookie = String(req.headers.cookie ?? 'none');
     if (path === '/third-party') return html(`<img src="${other}/img">`);
@@ -1975,6 +1981,51 @@ describe('native interface', () => {
     r = await native(['--css', missing, printOnly, out]);
     assert.equal(r.code, 1);
     assert.equal(r.stderr, `pdfkiln: --css: cannot read ${missing}\n`);
+  });
+
+  test('--css applies under a Content-Security-Policy that refuses inline styles, which stays in force for the page', async () => {
+    const out = join(dir, 'native-css-csp.pdf');
+    const r = await native(['--allow-private-network', '--css', file('native/csp-a5.css', '@page { size: A5 landscape }'), `${base}/csp`, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(await paper(out), 'A5 landscape');
+    // The page's own inline style, refused by its policy, still is.
+    if (hasPyMuPDF) assert.match(pagesText(out)[0]!, /shown: the page's inline style is refused/);
+  });
+
+  test('the page\'s media queries and its window see the paper it sets for all its pages; a document whose pages differ keeps A4 for them', async () => {
+    // Narrow or wide, as the media queries see the page; the window, once
+    // resized, for title. A4 with its 1 cm margins holds 718 px, 1047 in
+    // landscape.
+    const rules = '.w::after { content: "narrow" } @media (min-width: 1000px) { .w::after { content: "wide" } }';
+    const resized = '<script>addEventListener("resize", () => { document.title = `${innerWidth} x ${innerHeight}` })</script>';
+    const out = join(dir, 'native-paper.pdf');
+    // The paper of each page, its text, and whether the page was printed
+    // again on its paper (PDFKILN_TIMINGS: the "paper" step).
+    const made = async (name: string, css: string, ...args: string[]) => {
+      const r = await native([...args, file(`native/paper/${name}.html`, `<title>T</title><style>${css} ${rules}</style><p class="w"></p>${resized}`), out], '', { PDFKILN_TIMINGS: '1' });
+      assert.equal(r.code, 0, r.stderr);
+      const doc = await PDFDocument.load(readFileSync(out), { updateMetadata: false });
+      const near = (a: number, b: number) => Math.abs(a - b) < 1.5;
+      const sizes = doc.getPages().map((p) => p.getSize()).map(({ width, height }) => (near(width, 595.3) && near(height, 841.9) ? 'A4' : near(width, 841.9) && near(height, 595.3) ? 'A4 landscape' : `${width} x ${height}`));
+      return { sizes, title: doc.getTitle(), again: 'paper' in JSON.parse(lastLine(r.stderr)!), text: hasPyMuPDF ? pagesText(out)[0]!.trim() : undefined };
+    };
+    // Chromium's A4 landscape: 841.92 x 594.96 pt.
+    let m = await made('landscape', '@page { size: A4 landscape }');
+    assert.deepEqual([m.sizes, m.title, m.again], [['A4 landscape'], '1123 x 793', true]);
+    if (hasPyMuPDF) assert.equal(m.text, 'wide');
+    // Smaller, the page holds a window as much wider.
+    m = await made('landscape-scale', '@page { size: A4 landscape }', '--scale', '0.5');
+    assert.deepEqual([m.sizes, m.title, m.again], [['A4 landscape'], '2245 x 1587', true]);
+    // A4 portrait, set by the page or not: printed once, as before.
+    for (const css of ['@page { size: A4 }', '@page { margin: 0 }', '']) {
+      m = await made('a4', css);
+      assert.deepEqual([m.sizes, m.title, m.again], [['A4'], 'T', false], css);
+      if (hasPyMuPDF) assert.equal(m.text, 'narrow');
+    }
+    // The first page in landscape, the next in A4: as before.
+    m = await made('first', '@page :first { size: A4 landscape } body::after { content: ""; display: block; height: 3000px }');
+    assert.deepEqual([m.sizes[0], m.sizes.at(-1), m.again], ['A4 landscape', 'A4', false]);
+    if (hasPyMuPDF) assert.equal(m.text, 'narrow');
   });
 
   test('--scale on a PDF: the paper holds a page as much wider, which its media queries and its window follow; refused out of 0.1 to 2', async () => {

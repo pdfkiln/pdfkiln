@@ -4,9 +4,11 @@
 //   or - (standard input), merged in order; - as output is the standard
 //   output;
 // - print media; paper size and margins from the page's @page rule (A4 and
-//   1 cm otherwise), headers and footers from its @page margin boxes;
-//   --css adds a style sheet after the page's own, --media screen renders
-//   it as on screen;
+//   1 cm otherwise), headers and footers from its @page margin boxes; the
+//   page's media queries see the paper all its pages share, on which it
+//   is printed again when that is not A4 portrait;
+//   --css adds a style sheet after the page's own, under a Content-
+//   Security-Policy too, --media screen renders it as on screen;
 // - --scale prints the page smaller or larger, as the scale of a browser's
 //   print dialog does: the paper keeps its size and its margins, and holds
 //   a page as much wider, whose width its media queries see; the window
@@ -192,6 +194,15 @@ const stderr = (s: string) => writeSync(2, s);
 // internal links' targets by the difference.
 const CM_PT = 72 / 2.54;
 const PT_PER_PX = 72 / 96;
+// A4 in points; Chromium prints its own A4 within a point of it (595.92
+// wide), and an @page size within a point and a half is the same paper.
+const A4_PT = { width: 595.28, height: 841.89 };
+const near = (a: number, b: number) => Math.abs(a - b) < 1.5;
+// The paper all the pages of a PDF share, or none when they differ.
+const onePaper = (doc: PDFDocument): { width: number; height: number } | null => {
+  const [first, ...rest] = doc.getPages().map((p) => p.getSize());
+  return first && rest.every((s) => near(s.width, first.width) && near(s.height, first.height)) ? first : null;
+};
 
 // An input is a URL when it says so, a file otherwise: a missing file is
 // not looked for on the web, as wkhtmltopdf's guess did (report.html as
@@ -884,8 +895,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       // The frames Chromium prints blank: printed apart, then drawn in
       // (src/engine/frames.ts).
       const frames = await markFrames(lp);
-      const pdf = await lp.page.pdf({
-        format: 'A4',
+      const print = {
         margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
         preferCSSPageSize: true,
         printBackground: true,
@@ -894,11 +904,25 @@ export async function nativeMain(args: string[]): Promise<number> {
         outline: Boolean(v.outline),
         // Puppeteer's own 30 s would cut a long document: --timeout decides.
         timeout: 0,
-      });
-      const doc = await PDFDocument.load(pdf, READ);
+      };
+      let doc = await PDFDocument.load(await lp.page.pdf({ ...print, format: 'A4' }), READ);
+      // Chromium prints a page on the paper its @page rules set, but its
+      // media queries see the paper of the print (measured, Chromium 158):
+      // on A4 landscape, a page laid out for a window 718 px wide. When all
+      // the pages come out on one paper other than A4 portrait, the page
+      // is printed again on that paper, its window at that paper too: its
+      // style sheets and its scripts then see the width it is printed at.
+      // A document whose pages differ in size keeps A4 for them.
+      const paper = onePaper(doc);
+      if (paper && !(near(paper.width, A4_PT.width) && near(paper.height, A4_PT.height))) {
+        step('print');
+        await lp.resize(paper.width / PT_PER_PX / scale, paper.height / PT_PER_PX / scale);
+        doc = await PDFDocument.load(await lp.page.pdf({ ...print, width: `${paper.width / 72}in`, height: `${paper.height / 72}in` }), READ);
+        step('paper');
+      }
       if (frames.length) {
-        const print = printer();
-        await placeFrames(doc, frames, PT_PER_PX * scale, (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(lp, m, w, h, true, frameOut)));
+        const apart = printer();
+        await placeFrames(doc, frames, PT_PER_PX * scale, (m, w, h) => apart(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(lp, m, w, h, true, frameOut)));
         step('frames');
       }
       // --fail-on-resource-error: once printed, which asks for what the

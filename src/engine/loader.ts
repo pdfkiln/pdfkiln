@@ -153,6 +153,9 @@ export class LoadedPage {
   printRequested = false;
   title = '';
   status = 0; // of the page itself, once loaded; 0 without one (data:)
+  // The window resized, in CSS pixels, then the wait of the load again:
+  // the JavaScript delay, cut short once nothing can change the page.
+  resize: (width: number, height: number) => Promise<void> = async () => {};
   constructor(readonly page: Page, readonly cdp: CDPSession, readonly spec: LoadSpec) {}
 }
 
@@ -741,12 +744,21 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     }), spec.userStyleSheet ?? '', spec.userStyleSheetUrl ?? '').catch(() => {})));
   }
   // The native --css: last in the page, it wins over the page's own rules
-  // (@page included).
+  // (@page included). A page whose Content-Security-Policy refuses inline
+  // styles leaves the element without its style sheet (measured, Chromium
+  // 158): the style sheet is then adopted, which the policy does not
+  // govern, after the page's own all the same, but without @import rules.
+  // The policy stays in force for the page.
   if (spec.css) {
     await page.evaluate((css: string) => {
       const s = document.createElement('style');
       s.textContent = css;
       document.documentElement.append(s);
+      if (s.sheet) return;
+      s.remove();
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
     }, spec.css).catch(() => {});
   }
   // The native --wait-for, whatever the delay; --timeout bounds it.
@@ -787,6 +799,10 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     if (!lp.printRequested) await Promise.race([settle(page, inflight, load.jsdelay), printCalled]);
   }
   lp.title = await page.title().catch(() => '');
+  lp.resize = async (width, height) => {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)), deviceScaleFactor: spec.viewport.scale ?? 1, mobile: false });
+    if (load.jsdelay > 0 && !lp.printRequested) await settle(page, inflight, load.jsdelay);
+  };
   return lp;
 }
 

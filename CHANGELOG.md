@@ -8,11 +8,15 @@ GitHub release.
 
 ## 1.5.0
 
-Called as `pdfkiln`, `--scale` sets the scale of a PDF too, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size and its margins, and holds a page as much wider: a page made for screens prints as a wide window shows it, not in the layout it keeps for a narrow one. On A4, `--scale 0.56` prints what a window 1280 pixels wide shows. Up to 1.4.0, `--scale` was for images only, and refused for a PDF.
+Called as `pdfkiln`, a page's media queries now see the width of the paper it sets. A page whose `@page` rules ask for A4 landscape, Letter or A3 was printed on that paper, but laid out by its media queries as on A4 portrait: on landscape A4, in the layout of a window 718 pixels wide. When all its pages come out on one paper other than A4 portrait, PDFKiln prints the page again on that paper, in a window of that size, in a fraction of a second more. A page whose layout depends on its width may change: Bootstrap 4's print style sheet, which asks for A3, now prints in its wide layout rather than its phone layout. A page on A4 portrait, and a document whose pages differ in size, print as before.
+
+`--scale` sets the scale of a PDF too, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size and its margins, and holds a page as much wider: a page made for screens prints as a wide window shows it, not in the layout it keeps for a narrow one. On A4, `--scale 0.56` prints what a window 1280 pixels wide shows. Up to 1.4.0, `--scale` was for images only, and refused for a PDF.
 
 ```sh
 pdfkiln --scale 0.56 https://example.com page.pdf
 ```
+
+Fixed: `--css` had no effect on a page whose Content-Security-Policy refuses inline styles, as many sites' does. It applies there too, without its `@import` rules; the policy stays in force for the page.
 
 ## 1.4.0
 

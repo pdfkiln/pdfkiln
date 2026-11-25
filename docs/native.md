@@ -7,6 +7,8 @@ Called as `pdfkiln`, PDFKiln offers its own interface, with modern print default
 - for the PDF: its title, author, subject and keywords (`--title`, `--author`, `--subject`, `--keywords`), bookmarks from the headings (`--outline`), a tagged PDF for screen readers, from one input (`--tagged`), PDF/A and Factur-X or ZUGFeRD invoices (`--pdfa`, `--factur-x`), and a password (`--user-password`, `--owner-password`), each below;
 - images instead of a PDF, and PDFs made elsewhere among the inputs, below too.
 
+`--css` comes after the page's own rules, and wins over them. On a page whose Content-Security-Policy refuses inline styles, as many sites' does, it applies all the same, without its `@import` rules; the policy stays in force for the page.
+
 It prints Markdown too, which wkhtmltopdf never did: `pdfkiln notes.md notes.pdf`, or an http or https URL of a `.md` file, takes GitHub's dialect (tables, task lists, alerts, footnotes, emoji, raw HTML), math as `$...$` or `\(...\)`, and coloured code, lays it out for paper (page numbers, nothing cut across a page break), and takes the title, author and language from its front matter; `--css` adds to its style.
 
 This interface is young: unlike the wkhtmltopdf command line, it may change in a minor version, as in 1.1.0 and 1.2.0, and the version's notes (`CHANGELOG.md`) say so first.
@@ -24,6 +26,13 @@ pdfkiln --factur-x invoice.xml invoice.html invoice.pdf
 - PDFKiln does not write the XML, which comes from the invoicing software, nor check it against the EN 16931 business rules.
 - Not offered: PDF/A-1, which forbids the transparency Chromium draws with, and level A, which needs a fully tagged document.
 
+## Paper and width
+
+A page's media queries see the width of the paper it is printed on, less 1 cm on each side: 718 pixels on A4. When all its pages come out on one paper other than A4 portrait, set by its `@page` rules or by `--css` (`@page { size: A4 landscape }`, `letter`, `A3`), PDFKiln prints the page again on that paper, in a window of that size: its media queries and its scripts then see the width it is printed at, 1047 pixels on landscape A4. That second print takes a fraction of a second.
+
+- A document whose pages differ in size, a cover in landscape for instance, keeps A4 for its media queries.
+- The page's own margins do not change the width its media queries see.
+
 ## Scale
 
 `--scale` prints the page smaller or larger, from 0.1 to 2, as the scale of a browser's print dialog does. The paper keeps its size, so it holds a page as much wider: twice as wide at `--scale 0.5`. A page made for screens then prints as a wide window shows it, not in the layout it keeps for a narrow one. At scale 1, A4 with its 1 cm margins holds 718 pixels across:
@@ -33,7 +42,7 @@ pdfkiln --scale 0.56 https://example.com page.pdf     # as a window 1280 pixels 
 pdfkiln --scale 1.84 https://example.com phone.pdf    # as a phone 390 pixels wide shows it
 ```
 
-- The page's media queries see the width the paper holds, 718 pixels divided by the scale on A4, and its scripts load in a window at that scale.
+- The page's media queries see the width the paper holds divided by the scale, 718 pixels on A4 (above), and its scripts load in a window at that scale.
 - The margins keep their size, with the headers and footers the page puts there (`@page` margin boxes). Links and bookmarks go where the page shows their target.
 - For an image, `--scale` counts the pixels per CSS pixel instead: see below.
 
