@@ -125,6 +125,7 @@ Called as `pdfkiln`, PDFKiln does what wkhtmltopdf never did. The page gets curr
 
 ```sh
 pdfkiln invoice.html invoice.pdf                          # paper, margins, headers from @page
+pdfkiln --scale 0.56 https://example.com page.pdf         # as a window 1280 pixels wide shows it
 pdfkiln README.md README.pdf                              # Markdown, as GitHub writes it
 pdfkiln page.html page.png                                # an image: PNG, WebP or JPEG
 pdfkiln invoice.html terms.pdf invoice.pdf                # a PDF made elsewhere, after the page
