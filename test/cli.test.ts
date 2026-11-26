@@ -1207,6 +1207,26 @@ describe('objects and numbering', () => {
     assert.ok((await headings(['toc', '--xsl-style-sheet', xsl])).includes('function'));
   });
 
+  // wkhtmltopdf loads its tables of contents apart from the pages, by a
+  // loader that is not its main one. Scala's spec, whose table made by
+  // --xsl-style-sheet never sets window.status, waited until --kiln-timeout.
+  test('toc: neither --window-status nor --run-script, as in wkhtmltopdf', async (t) => {
+    const page = file('toc/status.html', `<title>Status</title><h1>Status heading</h1>
+      <script>addEventListener('DOMContentLoaded', () => { window.status = 'loaded'; });</script>`);
+    const xsl = file('toc/status.xsl', `<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:o="http://wkhtmltopdf.org/outline">
+  <xsl:template match="/o:outline"><html><body><xsl:for-each select="o:item/o:item"><p>Entry <xsl:value-of select="@title"/></p></xsl:for-each></body></html></xsl:template>
+</xsl:stylesheet>`);
+    const script = "document.body.insertAdjacentHTML('beforeend', '<p>RUN SCRIPT</p>')";
+    for (const toc of [['toc'], ['toc', '--xsl-style-sheet', xsl]]) {
+      const out = join(dir, 'toc-status.pdf');
+      const r = await run(['-q', '--kiln-timeout', '20', '--window-status', 'loaded', '--javascript-delay', '1000', '--run-script', script, page, ...toc, page, out]);
+      assert.equal(r.code, 0, `${toc.join(' ')}: ${r.stderr}`);
+      if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+      assert.deepEqual(pagesText(out).map((p) => [p.includes('Status heading'), p.includes('RUN SCRIPT')]), [[true, true], [true, false], [true, true]], toc.join(' '));
+    }
+  });
+
   test('links: to another object, its elements, the web; and the options that drop them', async (t) => {
     const a = file('links/a.html', `<title>A</title><p><a href="b.html">b</a></p><p><a href="b.html#sec">sec</a></p>
       <p><a href="b.html#gone">gone</a></p><p><a href="#self">self</a></p><p><a href="other.html#x">other</a></p>

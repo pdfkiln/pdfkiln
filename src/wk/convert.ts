@@ -423,7 +423,10 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
           }
           const file = join(work, `toc-${k}-${pass}.html`);
           writeFileSync(file, html);
-          const l = await openPage(context, { ...specOf(o, true), url: pathToFileURL(file).href, viewport: pageViewport(o) }, fb);
+          // With its object's settings, by a loader of its own: as
+          // wkhtmltopdf's, which is not the main one, it runs no
+          // --run-script and waits for no --window-status.
+          const l = await openPage(context, { ...specOf(o, true), isMain: false, url: pathToFileURL(file).href, viewport: pageViewport(o) }, fb);
           const r = await printOne(l, o, true, k);
           const old = printed[k];
           changed ||= !old || old.pages !== r.pages || !sameTree(old.outline, r.outline);

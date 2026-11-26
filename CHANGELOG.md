@@ -16,6 +16,10 @@ Bugs fixed:
 
 - **php-fpm from packages.sury.org or the ondrej/php PPA** keeps Chromium from its sandbox: PDFKiln now names the unit and the two lines that allow it.
 
+Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
+
+- **Tables of contents** run no `--run-script` and wait for no `--window-status`. Up to 1.5.0, a table made by `--xsl-style-sheet`, which never sets the status, stopped the conversion at `--kiln-timeout`, without a PDF.
+
 ## 1.5.0
 
 Called as `pdfkiln`, two changes to the layout of a PDF:

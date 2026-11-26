@@ -38,7 +38,7 @@ export interface LoadSpec {
   web: Web;
   load: LoadPage;
   // The main loader runs --run-script and waits for --window-status;
-  // header and footer loaders do not.
+  // header, footer and table of contents loaders do not.
   isMain: boolean;
   // Files the page may read besides the page itself and --allow.
   allowFiles?: string[];
