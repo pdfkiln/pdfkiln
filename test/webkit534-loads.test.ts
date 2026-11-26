@@ -98,9 +98,11 @@ describe('CSS that WebKit 534 did not read, where it loads an address', () => {
     assert.equal(cleanCss('@import url(s.css) print;@import url(t.css) (width >= 0);@import url(u.css) layer(x);@import "v.css" supports(display:grid);p{}'), '@import url(s.css) print;p{}');
   });
 
-  test('@font-face: the sources of a format it did not load go, the next one stays; tech() made src invalid', () => {
-    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2"),url(b.woff) format("woff")}'), '@font-face{font-family:x;src:url(b.woff) format("woff")}');
-    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2")}'), '@font-face{font-family:x;}');
+  // Google Fonts gives Chromium's user agent woff2 alone, where it gave
+  // wkhtmltopdf's TrueType: without it, no font at all.
+  test('@font-face: every source stays, woff2 too; tech() made src invalid', () => {
+    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2"),url(b.woff) format("woff")}'), '@font-face{font-family:x;src:url(a.woff2) format("woff2"),url(b.woff) format("woff")}');
+    assert.equal(cleanCss("@font-face{font-family:x;src:url(a.woff2) format('woff2');unicode-range:U+0000-00FF}"), "@font-face{font-family:x;src:url(a.woff2) format('woff2');unicode-range:U+0000-00FF}");
     assert.equal(cleanCss('@font-face{font-family:x;src:local(X),url(a.ttf) format("truetype")}'), '@font-face{font-family:x;src:local(X),url(a.ttf) format("truetype")}');
     assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2") tech(variations)}'), '@font-face{font-family:x;}');
     assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff)}@page{background:url(a.png)}'), '@font-face{font-family:x;src:url(a.woff)}@page{}');

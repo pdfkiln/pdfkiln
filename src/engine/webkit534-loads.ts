@@ -18,9 +18,10 @@
 //   value it did not parse (linear-gradient(), calc(), var(), a size after
 //   / in background), a rule it did not apply (@supports, @layer, :is(),
 //   nesting, a media query it found false); an @import with conditions it
-//   did not parse; the @font-face sources of a format it did not load
-//   (woff2), so that the next one loads, as it loaded it. Only these
-//   declarations go: the others stay as Chromium reads them.
+//   did not parse. Only these declarations go: the others stay as Chromium
+//   reads them. Of an @font-face, the woff2 source stays, which Chromium
+//   takes where WebKit took the next: an address of the same src, and the
+//   only one that servers such as Google Fonts give Chromium.
 // Chromium reads data: documents (an iframe's, an object's) and data:
 // style sheets without the Fetch domain: they are cleaned here, written
 // again in UTF-8. A page is read in the encoding Chromium will read it in
@@ -138,8 +139,6 @@ const FUNCTIONS = new Set([
   'url', 'rgb', 'rgba', 'hsl', 'hsla', 'attr', 'counter', 'counters', 'rect', 'local', 'format', '-webkit-canvas',
   '-webkit-gradient', '-webkit-linear-gradient', '-webkit-radial-gradient', '-webkit-repeating-linear-gradient', '-webkit-repeating-radial-gradient',
 ]);
-// It passed over a font source of another format (woff2) to the next.
-const FONT_FORMATS = new Set(['truetype', 'opentype', 'woff', 'svg']);
 // At-rules: it did not apply what @supports, @layer, @container, @page or
 // an unprefixed @keyframes hold.
 const AT_RULES = new Set(['media', 'font-face', '-webkit-keyframes']);
@@ -256,26 +255,6 @@ function backgroundOk(t: Token[]): boolean {
   return true;
 }
 
-// The sources of @font-face src in a format WebKit 534 loaded: their text,
-// null when none is left, undefined when all are.
-function fontSources(css: string, t: Token[]): string | null | undefined {
-  const entries: Token[][] = [[]];
-  let depth = 0;
-  for (const k of t) {
-    if (k.type === 'function' || k.type === '(') depth++;
-    else if (k.type === ')') depth--;
-    if (k.type === ',' && depth === 0) entries.push([]);
-    else entries[entries.length - 1]!.push(k);
-  }
-  const sources = entries.map(nonBlank).filter((e) => e.length);
-  const kept = sources.filter((e) => {
-    const f = e.findIndex((k) => k.type === 'function' && lowerAscii(k.value) === 'format');
-    return f === -1 || (e[f + 1]?.type === 'string' && FONT_FORMATS.has(lowerAscii(e[f + 1]!.value.trim())));
-  });
-  if (kept.length === sources.length) return undefined;
-  return kept.length ? kept.map((e) => css.slice(e[0]!.start, e[e.length - 1]!.end)).join(', ') : null;
-}
-
 interface Block {
   at?: string; // the at-rule's name; none for a style rule
   bad: boolean; // a block WebKit 534 did not apply
@@ -336,15 +315,10 @@ export function cleanCss(css: string, ctx: Context = { scripting: true, depth: 0
         const prop = lowerAscii(decl[0].value);
         const value = decl.slice(2).filter((k) => k.type !== ';');
         const block = stack[stack.length - 1];
-        let drop = Boolean(block?.bad) || prop.startsWith('--')
+        const drop = Boolean(block?.bad) || prop.startsWith('--')
           || (block?.at === 'font-face' ? prop !== 'src' : !URL_PROPERTIES.has(prop))
           || value.some((k) => k.type === 'function' && !FUNCTIONS.has(lowerAscii(k.value)) && !IMAGE_SETS.has(lowerAscii(k.value)))
           || (prop === 'background' && !backgroundOk(value));
-        if (!drop && prop === 'src' && value.length) {
-          const kept = fontSources(css, value);
-          if (kept === null) drop = true;
-          else if (kept !== undefined) edits.push([value[0]!.start, value[value.length - 1]!.end, kept]);
-        }
         if (drop) edits.push([start, end, '']);
       }
     }

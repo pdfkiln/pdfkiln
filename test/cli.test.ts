@@ -1632,19 +1632,20 @@ describe('security', () => {
       ${frame ? `<iframe src="${u}/frame.html"></iframe>` : ''}<img src="${u}/${p}-img.png">`;
     try {
       // On the standard input, as libraries give it, without and with
-      // JavaScript. Of the fonts, the woff one, as WebKit 534 passed over
-      // woff2.
+      // JavaScript. Of the fonts, the woff2 one, where WebKit 534 took the
+      // next of the same src: Google Fonts gives Chromium woff2 alone. Empty
+      // here, it fails, and Chromium takes the next.
       for (const js of [['--disable-javascript'], []]) {
         seen.length = 0;
         const r = await run(['-q', ...js, '-', join(dir, 'loads.pdf')], { stdin: page('stdin') });
         assert.equal(r.code, 0, r.stderr);
-        assert.deepEqual(seen.sort(), ['/stdin-font.woff', '/stdin-img.png'], js.join(' '));
+        assert.deepEqual(seen.sort(), ['/stdin-font.woff', '/stdin-font.woff2', '/stdin-img.png'], js.join(' '));
       }
       // From the network, with a frame from there too.
       seen.length = 0;
       const r = await run(['-q', '--disable-javascript', `${u}/page.html`, join(dir, 'loads.pdf')]);
       assert.equal(r.code, 0, r.stderr);
-      assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-font.woff', '/page-img.png', '/page.html']);
+      assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-font.woff', '/page-font.woff2', '/page-img.png', '/page.html']);
     } finally {
       s.close();
     }
