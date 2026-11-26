@@ -1243,6 +1243,25 @@ describe('objects and numbering', () => {
     }
   });
 
+  // Chromium titles a bookmark with its heading's text twice when the
+  // heading, moved down by position: relative, crosses the foot of its page:
+  // it is drawn on both (Scala's spec, 4 bookmarks of 358). wkhtmltopdf
+  // names a bookmark after its heading's text.
+  test('outline: a heading across the foot of a page, its bookmark titled once, as in wkhtmltopdf', async (t) => {
+    // A4, 10 mm margins, smart shrinking: pages of 1308.7 px; the heading
+    // laid out at 1267 px, drawn from 1299 to 1319.
+    const page = file('outline/foot.html', `<title>Foot</title><style>body { margin: 0 } main { position: relative; top: 32px }
+      h3 { margin: 0; font-size: 16px; line-height: 20px }</style><main><div style="height: 1267px"></div><h3>Default Arguments</h3><p>After</p></main>`);
+    const out = join(dir, 'outline-foot.pdf');
+    const xml = join(dir, 'outline-foot.xml');
+    const r = await run(['-q', '--dump-outline', xml, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual([...readFileSync(xml, 'utf8').matchAll(/title="([^"]*)"/g)].map((m) => m[1]), ['Foot', 'Default Arguments']);
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const toc = JSON.parse(execFileSync(python, ['-I', '-c', 'import sys, json, pymupdf\nprint(json.dumps(pymupdf.open(sys.argv[1]).get_toc()))', out], { encoding: 'utf8' }));
+    assert.deepEqual(toc, [[1, 'Default Arguments', 1]]);
+  });
+
   test('links: to another object, its elements, the web; and the options that drop them', async (t) => {
     const a = file('links/a.html', `<title>A</title><p><a href="b.html">b</a></p><p><a href="b.html#sec">sec</a></p>
       <p><a href="b.html#gone">gone</a></p><p><a href="#self">self</a></p><p><a href="other.html#x">other</a></p>

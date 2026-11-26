@@ -54,7 +54,6 @@ import { basename, dirname, extname, join, posix, resolve, sep } from 'node:path
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import type { PDFDocument } from '@cantoo/pdf-lib';
-import type { Page } from 'puppeteer-core';
 import { deadline, launch, LaunchError, removeQuietly, type Session } from '../engine/browser.js';
 import { filePath } from '../engine/files.js';
 import { markFrames, printApart, printer } from '../engine/frames.js';
@@ -309,13 +308,6 @@ function writeAll(fd: number, data: Uint8Array): void {
 function writeOutput(output: string, data: Uint8Array): void {
   if (output === '-') writeAll(1, data);
   else writeFileSync(output, data);
-}
-
-// The text of the page's headings, as rendered and as written; none if the
-// page does not answer, which leaves Chromium's titles as they are.
-function headingTexts(page: Page): Promise<string[]> {
-  return page.evaluate(() => Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'), (h) => [(h as HTMLElement).innerText, h.textContent ?? '']).flat())
-    .catch(() => []);
 }
 
 // PDFKILN_TIMINGS=1 writes the time of each step, in ms, on stderr, as the
@@ -889,7 +881,7 @@ export async function nativeMain(args: string[]): Promise<number> {
         step('write');
         return 0;
       }
-      const [{ PDFDocument }, { fixDests, placeFrames, readOutline, undoubleTitles }] = pdfLib!;
+      const [{ PDFDocument }, { fixDests, headingTexts, placeFrames, readOutline, undoubleTitles }] = pdfLib!;
       // --outline: the headings' text, which puts right a bookmark Chromium
       // titles twice (undoubleTitles).
       const headings = v.outline ? await headingTexts(lp.page) : [];

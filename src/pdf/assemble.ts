@@ -6,6 +6,7 @@ import {
   PDFArray, PDFCatalog, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFPageLeaf, PDFPageTree, PDFRawStream,
   PDFRef, PDFStream, PDFString, type PDFObject,
 } from '@cantoo/pdf-lib';
+import type { Page } from 'puppeteer-core';
 
 export interface OutlineItem {
   title: string;
@@ -104,10 +105,12 @@ export function readOutline(doc: PDFDocument): OutlineItem[] {
 // A bookmark Chromium titles with its heading's text twice, when a page
 // break pushes the heading to the next page ("InstallationInstallation",
 // measured with Chromium 157 on a heading kept with what follows it by
-// break-after: avoid): it gets the text once. Only a title that is a
-// heading of the page twice over, and not itself a heading's text, changes:
-// a heading named "TomTom" keeps its name. headings: the page's headings,
-// as rendered and as written (innerText, textContent).
+// break-after: avoid), or when the heading is drawn across the foot of a
+// page, on both, as position: relative may move it (Chromium 158): it gets
+// the text once. Only a title that is a heading of the page twice over,
+// and not itself a heading's text, changes: a heading named "TomTom" keeps
+// its name. headings: the page's headings, as rendered and as written
+// (innerText, textContent).
 export function undoubleTitles(items: OutlineItem[], headings: string[]): OutlineItem[] {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
   const texts = new Set(headings.map(norm));
@@ -118,6 +121,14 @@ export function undoubleTitles(items: OutlineItem[], headings: string[]): Outlin
     return { ...it, title, children: fix(it.children) };
   });
   return fix(items);
+}
+
+// The text of the page's headings, as rendered and as written, read before
+// printing; none if the page does not answer, which leaves Chromium's
+// titles as they are.
+export function headingTexts(page: Page): Promise<string[]> {
+  return page.evaluate(() => Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'), (h) => [(h as HTMLElement).innerText, h.textContent ?? '']).flat())
+    .catch(() => []);
 }
 
 // Chromium writes the named destinations of internal links in the page's

@@ -171,7 +171,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       xslt: objects.some((o) => isToc(o) && Boolean(o.tocXsl)),
     });
     // Loaded while Chromium started.
-    const [{ PDFDict, PDFDocument, PDFName }, { fixDests, merge, moveDest, placeFrames, prune, readOutline, repeatPages, retargetLinks, setPageSize, writeOutline }] = await pdfModules();
+    const [{ PDFDict, PDFDocument, PDFName }, { fixDests, headingTexts, merge, moveDest, placeFrames, prune, readOutline, repeatPages, retargetLinks, setPageSize, undoubleTitles, writeOutline }] = await pdfModules();
     const fontFamilies = chromium.fontFamilies;
     step('launch');
     const jar = new QtJar();
@@ -350,6 +350,9 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       // The style sheets no longer depend on the media type: print media
       // makes Chromium repeat table headers.
       if (!o.web.printMediaType) await l.cdp.send('Emulation.setEmulatedMedia', { media: 'print' });
+      // wkhtmltopdf names a bookmark after its heading's text; Chromium may
+      // write it twice (undoubleTitles).
+      const headings = withOutline ? await headingTexts(l.page) : [];
       const pdf = await l.page.pdf({
         width: `${width}mm`,
         height: `${height}mm`,
@@ -369,7 +372,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
         await placeFrames(doc, frames, PT_PER_PX * scaleOf(o), (m, w, h) => print(`${m.url} ${Math.round(w)} ${Math.round(h)}`, () => printApart(l, m, w, h, o.web.background, framesOf(fb))));
       }
       fixDests(doc, left * PT_PER_MM, top * PT_PER_MM, scaleOf(o));
-      return { doc, outline: withOutline ? readOutline(doc) : [], pages: doc.getPageCount() };
+      return { doc, outline: withOutline ? undoubleTitles(readOutline(doc), headings) : [], pages: doc.getPageCount() };
     };
     let done = 0;
     const toPrint = live.filter(({ o }) => !isToc(o));
