@@ -10,7 +10,7 @@ GitHub release.
 
 Security, called as `wkhtmltopdf`:
 
-- **Addresses wkhtmltopdf never read**: Chromium fetches addresses that wkhtmltopdf's WebKit did not read, which an application that cleans the HTML it converts of `url()`, `src` and `href` leaves in place: `image-set("…")`, `srcset`, `imagesrcset` and preload links, `<video poster>`, `srcdoc`, an SVG `href` without `xlink:`. They are now taken out of the page, its frames and its style sheets before Chromium reads them, as wkhtmltopdf ignored them, and so is CSS that WebKit did not read where it loads an address: `mask-image` or `border-image`, `linear-gradient()` or `calc()` beside a `url()`, `@supports` and `@layer`, selectors such as `:is()`, a media query it found false. A page that declares no charset and is not UTF-8 is read as windows-1252, as by wkhtmltopdf, where Chromium guessed one.
+- **Addresses wkhtmltopdf never read**: Chromium fetches addresses that wkhtmltopdf's WebKit ignored, which an application that cleans the HTML it converts of `url()`, `src` and `href` leaves in place: `image-set("…")`, `srcset`, preload links, `<video poster>`, an SVG `href` without `xlink:`, and the `url()` of CSS that WebKit did not read (`mask-image`, `@supports`, `:is()`…). They are now taken out of the page, its frames and its style sheets before Chromium reads them ([the full list](https://github.com/pdfkiln/pdfkiln/blob/main/docs/compatibility.md#security)).
 
 Bugs fixed:
 
@@ -18,9 +18,10 @@ Bugs fixed:
 
 Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 
-- **Tables of contents** run no `--run-script` and wait for no `--window-status`. Up to 1.5.0, a table made by `--xsl-style-sheet`, which never sets the status, stopped the conversion at `--kiln-timeout`, without a PDF.
-- **`--header-font-name` and `--footer-font-name`** are read as wkhtmltopdf's Qt reads them: names parted by commas, each taken out of its quotes. Up to 1.5.0, a quote in the name put the text at the top of each page.
-- **A heading drawn across the foot of a page**, as `position: relative` may move it, has its text once in its bookmark and in the table of contents, where Chromium gave it twice.
+- **A file that declares no charset** and is not UTF-8 is read as windows-1252. Up to 1.5.0, Chromium guessed one.
+- **Tables of contents** run no `--run-script` and wait for no `--window-status`. Up to 1.5.0, with `--window-status`, a table made by `--xsl-style-sheet` stopped the conversion at `--kiln-timeout`, without a PDF.
+- **`--header-font-name` and `--footer-font-name`** take a list of names parted by commas, each out of its quotes. Up to 1.5.0, a quote in the name put the text at the top of each page.
+- **A heading drawn across the foot of a page** has its text once in its bookmark and in the table of contents. Up to 1.5.0, Chromium gave it twice.
 
 ## 1.5.0
 
