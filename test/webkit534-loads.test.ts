@@ -198,6 +198,21 @@ describe('encodings', () => {
     assert.equal(utf8.body.toString('utf8'), '<style>p{}</style><p>é</p>');
   });
 
+  // Chromium guesses the encoding of a page whose type declares none:
+  // Shift_JIS, where ソ (0x83 0x5C) is one character. Read in windows-1252,
+  // its second byte escapes the quote that ends the string, which then
+  // holds the image-set(: served with the charset it was read in.
+  test('a page whose type declares no charset: guessed, unless ASCII, with a BOM, or a response without a type', () => {
+    const page = Buffer.concat([Buffer.from('<style>p{--a:"'), Buffer.from([0x83, 0x5c]), Buffer.from('";background-image:image-set("http://x" 1x)}</style>')]);
+    const c = cleanDocument(page, 'text/html', false)!;
+    assert.deepEqual([c.changed, c.guessed, c.contentType], [false, true, 'text/html; charset=windows-1252']);
+    const d = cleanDocument(page, 'text/html; charset=shift_jis', false)!;
+    assert.deepEqual([d.changed, d.guessed], [true, false]);
+    assert.equal(cleanDocument(Buffer.from('<p>plain</p>'), 'text/html', false)!.guessed, false);
+    assert.equal(cleanDocument(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('<p>é</p>')]), 'text/html', false)!.guessed, false);
+    assert.equal(cleanDocument(page, undefined, false)!.guessed, false);
+  });
+
   test('UTF-16 with its BOM; windows-1252 written again as such', () => {
     const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('<img srcset="http://x 1x">', 'utf16le')]);
     const c = cleanDocument(utf16, 'text/html', false)!;

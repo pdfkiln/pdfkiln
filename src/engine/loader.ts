@@ -261,10 +261,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   };
   // A response over https with a certificate error is "insecure", from a
   // Chromium started with --ignore-certificate-errors. Not a style sheet
-  // rewritten for the emulations: fulfilled here, its response tells
-  // neither its connection nor its certificate (connectionId 0,
-  // securityState "unknown", Chromium 157), and a connection that only
-  // carried style sheets goes without its warning.
+  // rewritten for the emulations, nor a page cleaned or served with its
+  // charset (webkit534Loads): fulfilled here, its response tells neither
+  // its connection nor its certificate (connectionId 0, securityState
+  // "unknown", Chromium 157), and a connection that only carried them goes
+  // without its warning.
   const checkCertificate = (r: { url: string; securityState?: string; connectionId?: number }) => {
     if (spec.ignoreCertificateErrors && r.connectionId && r.url.startsWith('https:') && r.securityState?.startsWith('insecure')) sslErrorIgnored(r.connectionId);
   };
@@ -343,7 +344,7 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // there, as a style sheet served is: before Chromium reads them, so that
   // they load what WebKit 534 loaded (a media query it found false loads
   // nothing); the emulations in the page before printing find them done.
-  const cleaned = (body: Buffer, contentType: string) => (clean ? cleanDocument(body, contentType, web.enableJavascript, rewrite ? (css) => rewriteCss(css, rewrite) : undefined) : undefined);
+  const cleaned = (body: Buffer, contentType: string | undefined) => (clean ? cleanDocument(body, contentType, web.enableJavascript, rewrite ? (css) => rewriteCss(css, rewrite) : undefined) : undefined);
   let pageRequested = false;
   let pageNetwork = '';
   const post = postBody(load.post);
@@ -360,17 +361,18 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const url = request.url;
     if (e.responseStatusCode !== undefined || e.responseErrorReason) {
       if (e.responseErrorReason) return cdp.send('Fetch.continueRequest', { requestId });
-      // A document from the network, to clean: served from here only when
-      // it changes, Chromium's response kept otherwise. Served from here,
-      // as a rewritten style sheet, it tells neither its connection nor
-      // its certificate (checkCertificate). A redirect has no body.
+      // A document from the network, to clean: served from here when it
+      // changes, or when Chromium would guess its encoding (guessed),
+      // Chromium's response kept otherwise. Served from here, as a
+      // rewritten style sheet, it tells neither its connection nor its
+      // certificate (checkCertificate). A redirect has no body.
       if (e.resourceType === 'Document') {
         const status = e.responseStatusCode ?? 200;
         if (!clean || (status >= 300 && status < 400) || status === 204) return cdp.send('Fetch.continueRequest', { requestId });
-        const type = e.responseHeaders?.find((h) => /^content-type$/i.test(h.name))?.value ?? 'text/html';
+        const type = e.responseHeaders?.find((h) => /^content-type$/i.test(h.name))?.value;
         const body = await cdp.send('Fetch.getResponseBody', { requestId });
         const c = cleaned(Buffer.from(body.body, body.base64Encoded ? 'base64' : 'utf8'), type);
-        if (!c?.changed) return cdp.send('Fetch.continueRequest', { requestId });
+        if (!c?.changed && !c?.guessed) return cdp.send('Fetch.continueRequest', { requestId });
         const headers = (e.responseHeaders ?? []).filter((h) => !/^(content-length|content-encoding|content-type)$/i.test(h.name));
         headers.push({ name: 'Content-Type', value: c.contentType });
         return cdp.send('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: headers, body: c.body.toString('base64') });
@@ -571,8 +573,8 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
         .map(([name, value]) => ({ name, value }));
       if (r.status >= 400 && !isReport(e.resourceType)) fail(request.url, qtErrorForHttpStatus(r.status), r.status, qtErrorString(qtErrorForHttpStatus(r.status), request.url, r.status, r.statusText), r.status);
       let data = r.body;
-      const c = e.resourceType === 'Document' && r.status < 300 ? cleaned(data, r.headers.find(([k]) => /^content-type$/i.test(k))?.[1] ?? 'text/html') : undefined;
-      if (c?.changed) {
+      const c = e.resourceType === 'Document' && r.status < 300 ? cleaned(data, r.headers.find(([k]) => /^content-type$/i.test(k))?.[1]) : undefined;
+      if (c?.changed || c?.guessed) {
         data = c.body;
         const at = responseHeaders.findIndex((h) => /^content-type$/i.test(h.name));
         if (at !== -1) responseHeaders.splice(at, 1);

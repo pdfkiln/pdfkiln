@@ -1612,6 +1612,14 @@ describe('security', () => {
       seen.push(req.url ?? '');
       if (req.url === '/page.html') return res.writeHead(200, { 'content-type': 'text/html' }).end(page('page', true));
       if (req.url === '/frame.html') return res.writeHead(200, { 'content-type': 'text/html' }).end(`<img srcset="${u}/frame-srcset.png 1x"><img src="${u}/frame-img.png">`);
+      // Japanese in Shift_JIS, which Chromium would guess: 日本語のテキストです。これは文字コードの自動判定のための文章です。
+      if (req.url === '/sjis.html') {
+        return res.writeHead(200, { 'content-type': 'text/html' }).end(Buffer.concat([
+          Buffer.from('<title>S</title><style>p{--a:"'), Buffer.from([0x83, 0x5c]), Buffer.from(`";background-image:image-set("${u}/sjis-image-set.png" 1x)}</style><p>`),
+          Buffer.from('93fa967b8cea82cc8365834c8358836782c582b7814282b182ea82cd95b68e9a8352815b836882cc8ea993ae94bb92e882cc82bd82df82cc95b68fcd82c582b78142'.repeat(60), 'hex'),
+          Buffer.from('</p>'),
+        ]));
+      }
       res.writeHead(200, { 'content-type': 'image/png' }).end();
     });
     await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
@@ -1646,6 +1654,15 @@ describe('security', () => {
       const r = await run(['-q', '--disable-javascript', `${u}/page.html`, join(dir, 'loads.pdf')]);
       assert.equal(r.code, 0, r.stderr);
       assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-font.woff', '/page-font.woff2', '/page-img.png', '/page.html']);
+      // A page whose type declares no charset, which Chromium would read in
+      // Shift_JIS: read in windows-1252, ソ ends in a backslash that takes
+      // the image-set( into a string. Served in windows-1252, as a file is
+      // and as wkhtmltopdf reads it: its Japanese is Latin letters.
+      seen.length = 0;
+      const sjis = await run(['-q', '--disable-javascript', `${u}/sjis.html`, join(dir, 'loads.pdf')]);
+      assert.equal(sjis.code, 0, sjis.stderr);
+      assert.deepEqual(seen, ['/sjis.html']);
+      if (hasPyMuPDF) assert.match(pagesText(join(dir, 'loads.pdf'))[0]!, /“ú–\{Œê/);
     } finally {
       s.close();
     }

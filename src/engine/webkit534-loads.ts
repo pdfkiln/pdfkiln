@@ -713,39 +713,53 @@ export interface CleanedDocument {
   // With the charset Chromium is to read it in.
   contentType: string;
   changed: boolean;
+  // Chromium would choose its encoding: an HTML document whose type
+  // declares none, without a BOM, whose bytes read otherwise in another
+  // encoding. It may guess Shift_JIS, where a backslash of this reading is
+  // half a character: an image-set( this reading took for a string loads.
+  // Served with its charset then, changed or not, as a file is.
+  guessed: boolean;
 }
+
+// Bytes that do not read the same in every encoding Chromium may guess:
+// high ones, the escape of ISO-2022-JP, NUL of UTF-16 without its BOM.
+const guessable = (b: Buffer) => b.some((x) => x >= 0x80 || x === 0x1b || x === 0);
 
 // A document served as contentType, cleaned; undefined for one that is not
 // HTML nor XML. Read in the encoding the content type pins, which serveFile
 // gives Chromium even when nothing changes; written again in that encoding
-// when it takes one byte a character, else in UTF-8.
-export function cleanDocument(body: Buffer, contentType: string, scripting: boolean, css?: (text: string) => string): CleanedDocument | undefined {
-  const [type, ...params] = contentType.split(';');
+// when it takes one byte a character, else in UTF-8. A response without a
+// type is read as HTML, but never guessed: Chromium sniffs its type, and
+// served from here it would be HTML whatever it is.
+export function cleanDocument(body: Buffer, contentType: string | undefined, scripting: boolean, css?: (text: string) => string): CleanedDocument | undefined {
+  const [type, ...params] = (contentType ?? 'text/html').split(';');
   const mime = lowerAscii(type!.trim());
   const declared = params.map((p) => /^\s*charset\s*=\s*"?([^";]*)"?/i.exec(p)?.[1]).find((c) => c !== undefined);
   const ctx = { scripting, depth: 0, css };
   if (mime === 'text/html') {
     const encoding = htmlEncoding(body, declared);
+    const guessed = contentType !== undefined && !bomEncoding(body) && !encodingOf(declared) && guessable(body);
     const text = decode(body, encoding);
     let cleaned = cleanHtml(text, ctx);
-    if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false };
+    if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false, guessed };
     let e = encode(cleaned, encoding);
     if (e.encoding !== encoding && css) {
       // Written again in UTF-8, a page in Shift_JIS or UTF-16 would lose
       // its encoding, which its style sheets and scripts may need: only
       // what must go, its styles rewritten in the page before printing.
       cleaned = cleanHtml(text, { ...ctx, css: undefined });
-      if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false };
+      if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false, guessed };
       e = encode(cleaned, encoding);
     }
-    return { body: e.body, contentType: `${mime}; charset=${e.encoding}`, changed: true };
+    return { body: e.body, contentType: `${mime}; charset=${e.encoding}`, changed: true, guessed };
   }
+  // Chromium reads XML in the encoding it declares, else in UTF-8, as here.
   if (isXmlType(mime)) {
     const encoding = xmlEncoding(body, declared);
     const text = decode(body, encoding);
     const cleaned = cleanXml(text, ctx);
-    if (cleaned === null || cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false };
-    return { body: Buffer.from(cleaned, 'utf8'), contentType: `${mime}; charset=utf-8`, changed: true };
+    if (cleaned === null || cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false, guessed: false };
+    return { body: Buffer.from(cleaned, 'utf8'), contentType: `${mime}; charset=utf-8`, changed: true, guessed: false };
   }
   return undefined;
 }

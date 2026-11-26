@@ -18,7 +18,7 @@ Bugs fixed:
 
 Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 
-- **A file that declares no charset** and is not UTF-8 is read as windows-1252. Up to 1.5.0, Chromium guessed one.
+- **A page that declares no charset** and is not UTF-8 is read as windows-1252. Up to 1.5.0, Chromium guessed one.
 - **Tables of contents** run no `--run-script` and wait for no `--window-status`. Up to 1.5.0, with `--window-status`, a table made by `--xsl-style-sheet` stopped the conversion at `--kiln-timeout`, without a PDF.
 - **`--header-font-name` and `--footer-font-name`** take a list of names parted by commas, each out of its quotes. Up to 1.5.0, a quote in the name put the text at the top of each page.
 - **A heading drawn across the foot of a page** has its text once in its bookmark and in the table of contents. Up to 1.5.0, Chromium gave it twice.
