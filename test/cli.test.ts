@@ -1106,6 +1106,22 @@ describe('objects and numbering', () => {
     assert.match(text[3]!, /14\/14 Part two 1\/1/);
   });
 
+  // Scala's spec splits --footer-font-name "Luxi Sans" in two words, "Luxi
+  // and an object Sans". The quote ended the style attribute of the footer
+  // text, whose number went to the top of each page.
+  test('--footer-font-name with a quote: the footer at the foot of each page, as in wkhtmltopdf', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const page = file('footer-quote.html', `<title>Quote</title>${'<p>line</p>'.repeat(120)}`);
+    const out = join(dir, 'footer-quote.pdf');
+    const r = await run(['-q', '--footer-center', '[page]', '--footer-font-name', '"Luxi', page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    // The numbers of each page, and whether they are in its bottom tenth.
+    const script = 'import sys, json, pymupdf\nprint(json.dumps([[[w[4], w[1] > p.rect.height * 0.9] for w in p.get_text("words") if w[4].isdigit()] for p in pymupdf.open(sys.argv[1])]))';
+    const pages = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as [string, boolean][][];
+    assert.ok(pages.length >= 3, JSON.stringify(pages));
+    assert.deepEqual(pages, pages.map((_, i) => [[String(i + 1), true]]));
+  });
+
   test('--header-html from an http address prints, as in wkhtmltopdf', async (t) => {
     if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
     const out = join(dir, 'web-header.pdf');

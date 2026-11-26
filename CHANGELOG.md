@@ -19,6 +19,7 @@ Bugs fixed:
 Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 
 - **Tables of contents** run no `--run-script` and wait for no `--window-status`. Up to 1.5.0, a table made by `--xsl-style-sheet`, which never sets the status, stopped the conversion at `--kiln-timeout`, without a PDF.
+- **`--header-font-name` and `--footer-font-name`** are read as wkhtmltopdf's Qt reads them: names parted by commas, each taken out of its quotes. Up to 1.5.0, a quote in the name put the text at the top of each page.
 
 ## 1.5.0
 

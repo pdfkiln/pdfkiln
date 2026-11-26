@@ -86,6 +86,17 @@ export function withParms(url: string, parms: Parms): string {
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+// --header-font-name and --footer-font-name as Qt 4.8 reads a family
+// (qfontdatabase.cpp familyList): names split at the commas, each trimmed
+// and taken out of one pair of quotes, then the default family. Each name
+// goes in as a CSS string.
+export function fontFamily(name: string): string {
+  const unquote = (s: string) => ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")) ? s.slice(1, -1) : s);
+  const css = (s: string) => `'${s.replace(/[\\'\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}'`;
+  return [...name.split(',').map((s) => unquote(s.trim())).filter(Boolean).map(css), 'sans-serif'].join(', ');
+}
 
 export function hasText(h: HeaderFooter): boolean {
   return h.line || Boolean(h.left || h.center || h.right);
@@ -97,13 +108,15 @@ export function hasText(h: HeaderFooter): boolean {
 export function textDocument(g: Geometry, pages: { header: HeaderFooter; footer: HeaderFooter; parms: Parms }[]): string {
   const cw = g.width - g.left - g.right;
   const box = (h: HeaderFooter, parms: Parms, header: boolean) => {
-    const font = `font-family: '${h.fontName.replace(/'/g, "\\'")}', sans-serif; font-size: ${h.fontSize}pt;`;
+    const font = `font-family: ${fontFamily(h.fontName)}; font-size: ${h.fontSize}pt;`;
     const pos = header
       ? `top: calc(${g.top - h.spacing}mm - 1lh)`
       : `bottom: calc(${g.bottom - h.spacing}mm - 1lh)`;
+    // Escaped: a quote in the font's name ended the attribute, and the
+    // text lost its place, at the top of the page.
     const text = ([['left', h.left], ['center', h.center], ['right', h.right]] as const)
       .filter(([, t]) => t)
-      .map(([a, t]) => `<div class="t" style="${font} ${pos}; text-align: ${a}">${esc(hfreplace(t, parms))}</div>`)
+      .map(([a, t]) => `<div class="t" style="${attr(`${font} ${pos}; text-align: ${a}`)}">${esc(hfreplace(t, parms))}</div>`)
       .join('');
     const lineY = header ? g.top - h.spacing : g.height - g.bottom + h.spacing;
     const line = h.line ? `<div class="l" style="top: ${lineY}mm"></div>` : '';
