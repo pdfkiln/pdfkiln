@@ -13,6 +13,7 @@ import type { LoadPage, PostItem, Web } from '../wk/settings.js';
 import type { QtJar } from '../wk/cookiejar.js';
 import { qtErrorForChromium, qtErrorForHttpStatus, qtErrorString } from '../wk/qtnet.js';
 import { emulateInPage, rewriteCss, userLayer, type Emulation } from './emulation.js';
+import { cleanDataUrl, cleanDocument } from './webkit534-loads.js';
 import { canonical, contentType, FileAccess, filePath, qtPath, readLocal } from './files.js';
 import type { GenericFamilies } from './fonts.js';
 import { BlockedAddress, CertificateError, relayGet, relayRequest, type ClientCert, type RelayProxy } from './relay.js';
@@ -334,7 +335,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   });
 
   // Fetch: every request, and style sheet responses to rewrite.
-  const rewrite = spec.emulation && (spec.emulation.mediaViewport || spec.emulation.dropPageRules || spec.emulation.screenTypes || spec.emulation.webkit534Css) ? spec.emulation : undefined;
+  const rewrite = spec.emulation && (spec.emulation.mediaViewport || spec.emulation.dropPageRules || spec.emulation.screenTypes || spec.emulation.webkit534Css || spec.emulation.webkit534Loads) ? spec.emulation : undefined;
+  // Documents cleaned of what WebKit 534 never loaded, before Chromium
+  // reads them: <noscript> is markup without JavaScript.
+  const clean = Boolean(spec.emulation?.webkit534Loads);
+  const cleaned = (body: Buffer, contentType: string) => (clean ? cleanDocument(body, contentType, web.enableJavascript) : undefined);
   let pageRequested = false;
   let pageNetwork = '';
   const post = postBody(load.post);
@@ -350,8 +355,24 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const { requestId, request } = e;
     const url = request.url;
     if (e.responseStatusCode !== undefined || e.responseErrorReason) {
+      if (e.responseErrorReason) return cdp.send('Fetch.continueRequest', { requestId });
+      // A document from the network, to clean: served from here only when
+      // it changes, Chromium's response kept otherwise. Served from here,
+      // as a rewritten style sheet, it tells neither its connection nor
+      // its certificate (checkCertificate). A redirect has no body.
+      if (e.resourceType === 'Document') {
+        const status = e.responseStatusCode ?? 200;
+        if (!clean || (status >= 300 && status < 400) || status === 204) return cdp.send('Fetch.continueRequest', { requestId });
+        const type = e.responseHeaders?.find((h) => /^content-type$/i.test(h.name))?.value ?? 'text/html';
+        const body = await cdp.send('Fetch.getResponseBody', { requestId });
+        const c = cleaned(Buffer.from(body.body, body.base64Encoded ? 'base64' : 'utf8'), type);
+        if (!c?.changed) return cdp.send('Fetch.continueRequest', { requestId });
+        const headers = (e.responseHeaders ?? []).filter((h) => !/^(content-length|content-encoding|content-type)$/i.test(h.name));
+        headers.push({ name: 'Content-Type', value: c.contentType });
+        return cdp.send('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: headers, body: c.body.toString('base64') });
+      }
       // A style sheet response, to rewrite.
-      if (e.responseErrorReason || !rewrite) return cdp.send('Fetch.continueRequest', { requestId });
+      if (!rewrite) return cdp.send('Fetch.continueRequest', { requestId });
       const body = await cdp.send('Fetch.getResponseBody', { requestId });
       const css = Buffer.from(body.body, body.base64Encoded ? 'base64' : 'utf8').toString('utf8');
       const headers = (e.responseHeaders ?? []).filter((h) => !/^(content-length|content-encoding)$/i.test(h.name));
@@ -430,9 +451,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     // Chromium cannot be given a client certificate: the command makes
     // the request.
     if (clientCert && url.startsWith('https:')) return relayTls(e, headers, postData);
-    if (main || site) return cdp.send('Fetch.continueRequest', { requestId, headers, ...(postData ? { method: 'POST', postData: postData.toString('base64') } : {}) });
+    // A document's response comes back here to be cleaned.
+    const toClean = clean && e.resourceType === 'Document' && /^https?:/.test(url) ? { interceptResponse: true } : {};
+    if (main || site) return cdp.send('Fetch.continueRequest', { requestId, headers, ...toClean, ...(postData ? { method: 'POST', postData: postData.toString('base64') } : {}) });
     if (rewrite && e.resourceType === 'Stylesheet') return cdp.send('Fetch.continueRequest', { requestId, headers, interceptResponse: true });
-    return cdp.send('Fetch.continueRequest', { requestId, headers });
+    return cdp.send('Fetch.continueRequest', { requestId, headers, ...toClean });
   };
 
   // The Cookie header wkhtmltopdf sends with a request (LoadSpec.qtCookies),
@@ -494,6 +517,14 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     const ext = extname(path).toLowerCase();
     if (ext === '.css' && rewrite) body = Buffer.from(rewriteCss(data.toString('utf8'), rewrite));
     if ((ext === '.html' || ext === '.htm') && web.defaultEncoding && !hasCharset(data)) type = contentType(path, web.defaultEncoding);
+    // A page or a frame, cleaned, with the charset it was read in: Chromium
+    // then reads it so, where it would guess one for a page that declares
+    // none.
+    const c = e.resourceType === 'Document' ? cleaned(body, type) : undefined;
+    if (c) {
+      body = c.body;
+      type = c.contentType;
+    }
     return cdp.send('Fetch.fulfillRequest', {
       requestId,
       responseCode: 200,
@@ -536,6 +567,13 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
         .map(([name, value]) => ({ name, value }));
       if (r.status >= 400 && !isReport(e.resourceType)) fail(request.url, qtErrorForHttpStatus(r.status), r.status, qtErrorString(qtErrorForHttpStatus(r.status), request.url, r.status, r.statusText), r.status);
       let data = r.body;
+      const c = e.resourceType === 'Document' && r.status < 300 ? cleaned(data, r.headers.find(([k]) => /^content-type$/i.test(k))?.[1] ?? 'text/html') : undefined;
+      if (c?.changed) {
+        data = c.body;
+        const at = responseHeaders.findIndex((h) => /^content-type$/i.test(h.name));
+        if (at !== -1) responseHeaders.splice(at, 1);
+        responseHeaders.push({ name: 'Content-Type', value: c.contentType });
+      }
       if (rewrite && e.resourceType === 'Stylesheet' && r.status < 300) data = Buffer.from(rewriteCss(data.toString('utf8'), rewrite));
       if (e.resourceType === 'Font') responseHeaders.push({ name: 'Access-Control-Allow-Origin', value: '*' });
       await cdp.send('Fetch.fulfillRequest', { requestId, responseCode: r.status, responseHeaders, body: data.toString('base64') });
@@ -704,9 +742,12 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
     spec.qtCookies?.gave(load.cookies, URL.parse(cookieUrl)?.hostname ?? '');
   }
 
-  // Load, then run-script, then window-status, then the delay.
+  // Load, then run-script, then window-status, then the delay. A page
+  // given as a data: URL, which Chromium reads without the Fetch domain,
+  // is cleaned here.
+  const target = clean && /^[\t\n\f\r ]*data:/i.test(spec.url) ? cleanDataUrl(spec.url, 'document', { scripting: web.enableJavascript, depth: 0 }) ?? spec.url : spec.url;
   try {
-    lp.status = (await page.goto(spec.url, { waitUntil: 'load', timeout: 0, referer: spec.referer }))?.status() ?? 0;
+    lp.status = (await page.goto(target, { waitUntil: 'load', timeout: 0, referer: spec.referer }))?.status() ?? 0;
   } catch (e) {
     lp.ok = false;
     // After the request's own failure, when it had one.

@@ -32,7 +32,11 @@ The own test suites of pdfkit 1.0.0, knp-snappy 1.7.3, laravel-snappy 1.0.5, php
 
 ## Security
 
-Called as `wkhtmltopdf`, the defaults of wkhtmltopdf are kept, it is the compatibility contract: a page reads no local file but itself unless `--enable-local-file-access` or `--allow <path>` says so (neither `..` nor a symbolic link gets around `--allow`), and loads whatever it wants from the network, from a server whose certificate does not verify too, with the warning "SSL error ignored". On top of them:
+Called as `wkhtmltopdf`, the defaults of wkhtmltopdf are kept, it is the compatibility contract: a page reads no local file but itself unless `--enable-local-file-access` or `--allow <path>` says so (neither `..` nor a symbolic link gets around `--allow`), and loads whatever it wants from the network, from a server whose certificate does not verify too, with the warning "SSL error ignored".
+
+Chromium knows ways to fetch an address that wkhtmltopdf's WebKit never read, which an application that cleans the HTML it converts of what wkhtmltopdf loads (`url()`, `@import`, `src`, `href`) leaves in place. So, before Chromium reads a page, its frames and its style sheets, PDFKiln takes them out, as WebKit ignored them: `image-set()` and `-webkit-image-set()`, whose address may be a string (the declaration that holds one); `srcset` and `sizes`, the sources of `<picture>`, `imagesrcset` and the links that are no style sheet (`preload`, `prefetch`); the poster and sources of `<video>` and `<audio>`; `srcdoc`; and in SVG, an `href` without `xlink:` and the `fill`, `stroke`, `clip-path`, `mask`, `filter` and `marker` that point into another document. `data:` frames, objects and style sheets are cleaned too. A page is read in the encoding Chromium will read it in: one that declares none and is not UTF-8 is read as windows-1252, as by wkhtmltopdf, where Chromium would guess one. CSS that WebKit did not parse but that holds a `url()` (`mask-image`, `@supports`, `var()`...) still loads, as do the requests of scripts.
+
+On top of these defaults:
 
 - `--kiln-block-private-network`: no loopback, private or link-local address (cloud metadata `169.254.169.254` included), checked after DNS resolution;
 - `--kiln-block-invalid-certificates`: nothing from a server whose certificate does not verify (self-signed, expired, issued for another name);

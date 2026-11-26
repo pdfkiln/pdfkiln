@@ -2,6 +2,7 @@
 // mode reproduces (measured on the corpus, bench/). Style sheets
 // served to Chromium are rewritten by rewriteCss; what is inline in the
 // page is rewritten in the page by emulateInPage, just before printing.
+import { cleanCss } from './webkit534-loads.js';
 
 export interface Emulation {
   // Media queries evaluated against this viewport: [0, 0] without
@@ -48,6 +49,10 @@ export interface Emulation {
   // and wkhtmltopdf kept the first. Done on the text: a browser keeps only
   // the last declaration of a property.
   webkit534Css?: boolean;
+  // Nothing loaded that WebKit 534 never read (webkit534-loads.ts): the
+  // page, its frames and its style sheets cleaned before Chromium reads
+  // them.
+  webkit534Loads?: boolean;
   // WebKit 534 controls widows and orphans only when the page sets them
   // (hasAutoWidows); Chromium's initial value is 2. A layered default of 1
   // that any rule of the page overrides.
@@ -167,7 +172,8 @@ export function userLayer(css: string): string {
 }
 
 export function rewriteCss(css: string, e: Emulation): string {
-  let out = e.webkit534Css ? dropUnknownCss(css) : css;
+  let out = e.webkit534Loads ? cleanCss(css) : css;
+  if (e.webkit534Css) out = dropUnknownCss(out);
   if (e.mediaViewport || e.screenTypes) {
     const [w, h] = e.mediaViewport ?? [0, 0];
     out = out.replace(/@media([^{;]+)\{/g, (_m, prelude: string) => {

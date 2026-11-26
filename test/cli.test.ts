@@ -1550,6 +1550,68 @@ describe('security', () => {
     assert.equal(r.code, 0);
   });
 
+  test('nothing loads that wkhtmltopdf 0.12.6 never loaded: image-set(), srcset, preload links, media, SVG 2 href, srcdoc, data: frames', async () => {
+    const seen: string[] = [];
+    const gif = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+    const s = createServer((req, res) => {
+      seen.push(req.url ?? '');
+      if (req.url === '/page.html') return res.writeHead(200, { 'content-type': 'text/html' }).end(page('page', true));
+      if (req.url === '/frame.html') return res.writeHead(200, { 'content-type': 'text/html' }).end(`<img srcset="${u}/frame-srcset.png 1x"><img src="${u}/frame-img.png">`);
+      res.writeHead(200, { 'content-type': 'image/png' }).end();
+    });
+    await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
+    const u = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+    const page = (p: string, frame = false) => `<style>body{background-image:image-set("${u}/${p}-image-set.png" 1x)} div{background:\\69mage-set("${u}/${p}-escaped.png" 1x)}</style>
+      <p style="background-image:-webkit-image-set('${u}/${p}-attr.png' 1x)">x</p><div>escaped</div>
+      <img src="${gif}" srcset="${u}/${p}-srcset.png 1x">
+      <picture><source srcset="${u}/${p}-source.png"><img src="${gif}"></picture>
+      <link rel="preload" as="image" imagesrcset="${u}/${p}-imagesrcset.png 1x"><link rel="prefetch" href="${u}/${p}-prefetch.html">
+      <video poster="${u}/${p}-poster.png" width="10" height="10"></video>
+      <svg width="10" height="10"><image href="${u}/${p}-svg2.png" width="10" height="10"/><rect width="10" height="10" fill="url(${u}/${p}-fill.svg#g)"/></svg>
+      <iframe srcdoc="&lt;img src=&quot;${u}/${p}-srcdoc.png&quot;&gt;"></iframe>
+      <iframe src="data:text/html,${encodeURIComponent(`<img srcset="${u}/${p}-data-frame.png 1x">`)}"></iframe>
+      ${frame ? `<iframe src="${u}/frame.html"></iframe>` : ''}<img src="${u}/${p}-img.png">`;
+    try {
+      // On the standard input, as libraries give it, without and with JavaScript.
+      for (const js of [['--disable-javascript'], []]) {
+        seen.length = 0;
+        const r = await run(['-q', ...js, '-', join(dir, 'loads.pdf')], { stdin: page('stdin') });
+        assert.equal(r.code, 0, r.stderr);
+        assert.deepEqual(seen, ['/stdin-img.png'], js.join(' '));
+      }
+      // From the network, with a frame from there too.
+      seen.length = 0;
+      const r = await run(['-q', '--disable-javascript', `${u}/page.html`, join(dir, 'loads.pdf')]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-img.png', '/page.html']);
+    } finally {
+      s.close();
+    }
+  });
+
+  test('a page given as a file is read in the charset it declares or --encoding gives, else as UTF-8 when it is, else as windows-1252, as wkhtmltopdf', async (t) => {
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    // αβ in Shift_JIS: Greek, which the fonts of every system draw.
+    const greek = Buffer.from([0x83, 0xbf, 0x83, 0xc0]);
+    const cases: [string, Buffer, string[], RegExp][] = [
+      ['utf8.html', Buffer.from('<p>café crème</p>', 'utf8'), [], /café crème/],
+      ['cp1252.html', Buffer.from('<p>café </p>', 'latin1'), [], /café €/],
+      ['meta-sjis.html', Buffer.concat([Buffer.from('<meta charset="shift_jis"><p>'), greek, Buffer.from('</p>')]), [], /αβ/],
+      ['option-sjis.html', Buffer.concat([Buffer.from('<p>'), greek, Buffer.from('</p>')]), ['--encoding', 'shift_jis'], /αβ/],
+      // Where Chromium would guess Shift_JIS.
+      ['undeclared-sjis.html', Buffer.concat([Buffer.from('<p>'), greek, Buffer.from('</p>')]), [], /ƒ¿ƒÀ/],
+    ];
+    for (const [name, bytes, args, text] of cases) {
+      const page = join(dir, 'charsets', name);
+      mkdirSync(dirname(page), { recursive: true });
+      writeFileSync(page, bytes);
+      const out = join(dir, 'charsets', `${name}.pdf`);
+      const r = await run(['-q', ...args, page, out]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(pagesText(out)[0]!, text, name);
+    }
+  });
+
   test('a certificate that does not verify is ignored, with a warning per connection, as wkhtmltopdf 0.12.6; --kiln-block-invalid-certificates refuses it', async (t) => {
     const s = await selfSignedServer();
     if (!s) return t.skip('openssl missing');

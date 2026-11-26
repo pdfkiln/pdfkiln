@@ -8,6 +8,10 @@ GitHub release.
 
 ## 1.5.1
 
+Security, called as `wkhtmltopdf`:
+
+- **Addresses wkhtmltopdf never read**: Chromium fetches addresses that wkhtmltopdf's WebKit did not read, which an application that cleans the HTML it converts of `url()`, `src` and `href` leaves in place: `image-set("…")`, `srcset`, `imagesrcset` and preload links, `<video poster>`, `srcdoc`, an SVG `href` without `xlink:`. They are now taken out of the page, its frames and its style sheets before Chromium reads them, as wkhtmltopdf ignored them. A page that declares no charset and is not UTF-8 is read as windows-1252, as by wkhtmltopdf, where Chromium guessed one.
+
 Bugs fixed:
 
 - **php-fpm from packages.sury.org or the ondrej/php PPA** keeps Chromium from its sandbox: PDFKiln now names the unit and the two lines that allow it.
