@@ -12,7 +12,15 @@
 //   534), srcdoc of iframe;
 // - in SVG, href without xlink: (SVG 2) to another document, and fill,
 //   stroke, marker-*, clip-path, mask and filter attributes that point into
-//   another document.
+//   another document;
+// - a declaration that loads an address where WebKit 534 did not read it:
+//   a property whose url() it did not load (mask-image, border-image...), a
+//   value it did not parse (linear-gradient(), calc(), var(), a size after
+//   / in background), a rule it did not apply (@supports, @layer, :is(),
+//   nesting, a media query it found false); an @import with conditions it
+//   did not parse; the @font-face sources of a format it did not load
+//   (woff2), so that the next one loads, as it loaded it. Only these
+//   declarations go: the others stay as Chromium reads them.
 // Chromium reads data: documents (an iframe's, an object's) and data:
 // style sheets without the Fetch domain: they are cleaned here, written
 // again in UTF-8. A page is read in the encoding Chromium will read it in
@@ -29,6 +37,10 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 interface Context {
   scripting: boolean; // JavaScript on: <noscript> is text
   depth: number; // of data: documents within data: documents
+  // What a style element or attribute, or a data: style sheet, becomes:
+  // cleanCss, or the compatible mode's rewriting, which holds it
+  // (rewriteCss), as a style sheet served from the network is rewritten.
+  css?: (text: string) => string;
 }
 const MAX_DEPTH = 8;
 
@@ -113,11 +125,168 @@ function urlAt(tokens: Token[], i: number): [string, number] | undefined {
   return [tokens[k]!.value, tokens[m]?.type === ')' ? m : k];
 }
 
+// What WebKit 534 read of a declaration that loads an address, measured on
+// wkhtmltopdf 0.12.6 against a loopback server: it loaded the url() of
+// these properties, with these functions, in these rules, and no other.
+const URL_PROPERTIES = new Set([
+  'background', 'background-image', 'list-style', 'list-style-image', 'content', 'cursor',
+  '-webkit-border-image', '-webkit-mask', '-webkit-mask-image', '-webkit-mask-box-image', '-webkit-box-reflect',
+]);
+// Another function made the declaration invalid there: linear-gradient(),
+// calc(), min(), var(), -webkit-cross-fade(), tech()...
+const FUNCTIONS = new Set([
+  'url', 'rgb', 'rgba', 'hsl', 'hsla', 'attr', 'counter', 'counters', 'rect', 'local', 'format', '-webkit-canvas',
+  '-webkit-gradient', '-webkit-linear-gradient', '-webkit-radial-gradient', '-webkit-repeating-linear-gradient', '-webkit-repeating-radial-gradient',
+]);
+// It passed over a font source of another format (woff2) to the next.
+const FONT_FORMATS = new Set(['truetype', 'opentype', 'woff', 'svg']);
+// At-rules: it did not apply what @supports, @layer, @container, @page or
+// an unprefixed @keyframes hold.
+const AT_RULES = new Set(['media', 'font-face', '-webkit-keyframes']);
+// Media features: a query with another (prefers-color-scheme), or in a
+// syntax it did not know (width >= 0, or), was false there.
+const MEDIA_FEATURES = new Set([
+  ...['width', 'height', 'device-width', 'device-height', 'aspect-ratio', 'device-aspect-ratio', 'color', 'color-index', 'monochrome'].flatMap((f) => [f, `min-${f}`, `max-${f}`]),
+  'orientation', 'grid', 'scan', '-webkit-device-pixel-ratio', '-webkit-min-device-pixel-ratio', '-webkit-max-device-pixel-ratio',
+  '-webkit-transform-2d', '-webkit-transform-3d', '-webkit-transition', '-webkit-animation', '-webkit-view-mode',
+]);
+// Selectors: a rule with another was dropped (:is(), :where(), :has(),
+// :focus-within, a flag in [a=b i], :not() of more than a simple
+// selector, :nth-child(… of S), nesting).
+const PSEUDO_CLASSES = new Set([
+  'active', 'checked', 'default', 'disabled', 'empty', 'enabled', 'first-child', 'first-of-type', 'focus', 'hover',
+  'indeterminate', 'invalid', 'last-child', 'last-of-type', 'link', 'only-child', 'only-of-type', 'optional',
+  'read-only', 'read-write', 'required', 'root', 'target', 'valid', 'visited', 'before', 'after', 'first-line',
+  'first-letter', 'window-inactive', 'horizontal', 'vertical', 'decrement', 'increment', 'start', 'end',
+  'double-button', 'single-button', 'no-button', 'corner-present',
+]);
+const PSEUDO_FUNCTIONS = new Set(['not', 'nth-child', 'nth-last-child', 'nth-of-type', 'nth-last-of-type', 'lang', '-webkit-any']);
+const PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-line', 'first-letter', 'selection']);
+const POSITIONS = new Set(['left', 'right', 'top', 'bottom', 'center']);
+const nonBlank = (t: Token[]) => t.filter((x) => x.type !== 'whitespace');
+
+function selectorOk(t: Token[]): boolean {
+  for (let i = 0; i < t.length; i++) {
+    const k = t[i]!;
+    if (k.type === 'whitespace' || k.type === 'ident' || k.type === 'hash' || k.type === ',') continue;
+    if (k.type === 'delim') {
+      if ('.*>+~|'.includes(k.value)) continue;
+      return false;
+    }
+    if (k.type === '[') {
+      const close = t.findIndex((x, j) => j > i && x.type === ']');
+      if (close === -1) return false;
+      const inner = nonBlank(t.slice(i + 1, close));
+      const eq = inner.findIndex((x) => x.type === 'delim' && x.value === '=');
+      // [a], [ns|a], [a=v], [a~=v]...: one value, no flag after it.
+      if ((eq !== -1 && inner.length - eq !== 2) || inner.some((x) => x.type !== 'ident' && x.type !== 'string' && x.type !== 'delim')) return false;
+      i = close;
+      continue;
+    }
+    if (k.type !== ':') return false;
+    const n = t[i + 1];
+    if (n?.type === ':') {
+      const e = t[i + 2];
+      if (e?.type !== 'ident' || !(PSEUDO_ELEMENTS.has(lowerAscii(e.value)) || lowerAscii(e.value).startsWith('-webkit-'))) return false;
+      i += 2;
+    } else if (n?.type === 'ident') {
+      if (!(PSEUDO_CLASSES.has(lowerAscii(n.value)) || lowerAscii(n.value).startsWith('-webkit-'))) return false;
+      i += 1;
+    } else if (n?.type === 'function' && PSEUDO_FUNCTIONS.has(lowerAscii(n.value))) {
+      const name = lowerAscii(n.value);
+      let depth = 1;
+      let j = i + 2;
+      for (; j < t.length && depth > 0; j++) {
+        if (t[j]!.type === '(' || t[j]!.type === 'function') depth++;
+        else if (t[j]!.type === ')') depth--;
+      }
+      const args = t.slice(i + 2, j - 1);
+      const a = nonBlank(args);
+      if (name.startsWith('nth-') && a.some((x) => x.type === 'ident' && lowerAscii(x.value) === 'of')) return false;
+      if (name === 'not') {
+        const simple = (a.length === 1 && (a[0]!.type === 'ident' || a[0]!.type === 'hash' || (a[0]!.type === 'delim' && a[0]!.value === '*')))
+          || (a.length === 2 && a[0]!.type === 'delim' && a[0]!.value === '.' && a[1]!.type === 'ident')
+          || (a.length === 2 && a[0]!.type === ':' && a[1]!.type === 'ident' && PSEUDO_CLASSES.has(lowerAscii(a[1]!.value)))
+          || (a[0]?.type === '[' && a[a.length - 1]?.type === ']' && !a.slice(1, -1).some((x) => x.type === '[' || x.type === ']'));
+        if (!simple) return false;
+      }
+      if (name === '-webkit-any' && !selectorOk(args)) return false;
+      i = j - 1;
+    } else return false;
+  }
+  return true;
+}
+
+// features: whether a feature it did not know makes the query false, as
+// in @media; an @import loaded its sheet whatever its media.
+function mediaOk(t: Token[], features: boolean): boolean {
+  const q = nonBlank(t);
+  for (let i = 0; i < q.length; i++) {
+    const k = q[i]!;
+    if (k.type === ',') continue;
+    if (k.type === 'ident') {
+      if (lowerAscii(k.value) === 'or' || lowerAscii(k.value) === 'layer') return false;
+      continue;
+    }
+    if (k.type !== '(') return false;
+    const close = q.findIndex((x, j) => j > i && x.type === ')');
+    if (close === -1) return false;
+    const inner = q.slice(i + 1, close);
+    if (inner[0]?.type !== 'ident' || (features && !MEDIA_FEATURES.has(lowerAscii(inner[0].value)))) return false;
+    if (inner.length > 1 && (inner[1]!.type !== ':' || inner.length === 2 || inner.slice(2).some((x) => !['number', 'dimension', 'percentage', 'ident'].includes(x.type) && !(x.type === 'delim' && x.value === '/')))) return false;
+    i = close;
+  }
+  return true;
+}
+
+// background: no size after /, positions of two values at most.
+function backgroundOk(t: Token[]): boolean {
+  let depth = 0;
+  let positions = 0;
+  for (const k of t) {
+    if (k.type === 'function' || k.type === '(') depth++;
+    else if (k.type === ')') depth--;
+    else if (depth > 0) continue;
+    else if (k.type === 'delim' && k.value === '/') return false;
+    else if (k.type === ',') positions = 0;
+    else if ((k.type === 'ident' && POSITIONS.has(lowerAscii(k.value))) || k.type === 'dimension' || k.type === 'percentage' || k.type === 'number') {
+      if (++positions > 2) return false;
+    }
+  }
+  return true;
+}
+
+// The sources of @font-face src in a format WebKit 534 loaded: their text,
+// null when none is left, undefined when all are.
+function fontSources(css: string, t: Token[]): string | null | undefined {
+  const entries: Token[][] = [[]];
+  let depth = 0;
+  for (const k of t) {
+    if (k.type === 'function' || k.type === '(') depth++;
+    else if (k.type === ')') depth--;
+    if (k.type === ',' && depth === 0) entries.push([]);
+    else entries[entries.length - 1]!.push(k);
+  }
+  const sources = entries.map(nonBlank).filter((e) => e.length);
+  const kept = sources.filter((e) => {
+    const f = e.findIndex((k) => k.type === 'function' && lowerAscii(k.value) === 'format');
+    return f === -1 || (e[f + 1]?.type === 'string' && FONT_FORMATS.has(lowerAscii(e[f + 1]!.value.trim())));
+  });
+  if (kept.length === sources.length) return undefined;
+  return kept.length ? kept.map((e) => css.slice(e[0]!.start, e[e.length - 1]!.end)).join(', ') : null;
+}
+
+interface Block {
+  at?: string; // the at-rule's name; none for a style rule
+  bad: boolean; // a block WebKit 534 did not apply
+}
+
 // A style sheet or the declarations of a style attribute, without the
-// declarations that hold image-set(), and with its data: imports cleaned.
+// declarations that hold image-set(), without those that load an address
+// WebKit 534 did not read, and with its data: imports cleaned.
 export function cleanCss(css: string, ctx: Context = { scripting: true, depth: 0 }): string {
   // Escaped, a name has a backslash.
-  if (!/image-set|data:|\\/i.test(css)) return css;
+  if (!/image-set|url|data:|\\/i.test(css)) return css;
   const tokens = tokenize(css);
   const edits: Edit[] = [];
   tokens.forEach((t, i) => {
@@ -126,6 +295,8 @@ export function cleanCss(css: string, ctx: Context = { scripting: true, depth: 0
       edits.push([start, end, '']);
     }
   });
+  // @import: of a data: sheet, cleaned; with conditions WebKit 534 did not
+  // parse (layer(), supports(), media queries of Level 4), dropped.
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
     if (t.type !== 'at-keyword' || lowerAscii(t.value) !== 'import') continue;
@@ -133,10 +304,70 @@ export function cleanCss(css: string, ctx: Context = { scripting: true, depth: 0
     while (tokens[j]?.type === 'whitespace') j++;
     if (!tokens[j]) break;
     const found = tokens[j]!.type === 'string' ? ([tokens[j]!.value, j] as [string, number]) : urlAt(tokens, j);
-    if (!found || !isData(found[0])) continue;
+    if (!found) continue;
+    let end = found[1] + 1;
+    while (end < tokens.length && tokens[end]!.type !== ';') end++;
+    if (fetches(found[0]) && !mediaOk(tokens.slice(found[1] + 1, end), false)) {
+      edits.push([...around(tokens, i, css.length), '']);
+      continue;
+    }
+    if (!isData(found[0])) continue;
     const cleaned = cleanDataUrl(found[0], 'css', ctx);
     if (cleaned === null) edits.push([...around(tokens, i, css.length), '']);
     else if (cleaned !== found[0]) edits.push([tokens[j]!.start, tokens[found[1]]!.end, `url(${cssString(cleaned)})`]);
+  }
+  // Each declaration that loads an address, read as WebKit 534 read it.
+  const stack: Block[] = [];
+  const judged = new Set<number>();
+  let from = 0;
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    const u = urlAt(tokens, i);
+    if (u && fetches(u[0])) {
+      const [start, end] = around(tokens, i, css.length);
+      let a = i;
+      while (a > 0 && tokens[a - 1]!.start >= start) a--;
+      let b = i;
+      while (b < tokens.length && tokens[b]!.end <= end) b++;
+      const decl = nonBlank(tokens.slice(a, b));
+      if (!judged.has(start) && decl[0]?.type === 'ident' && decl[1]?.type === ':') {
+        judged.add(start);
+        const prop = lowerAscii(decl[0].value);
+        const value = decl.slice(2).filter((k) => k.type !== ';');
+        const block = stack[stack.length - 1];
+        let drop = Boolean(block?.bad) || prop.startsWith('--')
+          || (block?.at === 'font-face' ? prop !== 'src' : !URL_PROPERTIES.has(prop))
+          || value.some((k) => k.type === 'function' && !FUNCTIONS.has(lowerAscii(k.value)) && !IMAGE_SETS.has(lowerAscii(k.value)))
+          || (prop === 'background' && !backgroundOk(value));
+        if (!drop && prop === 'src' && value.length) {
+          const kept = fontSources(css, value);
+          if (kept === null) drop = true;
+          else if (kept !== undefined) edits.push([value[0]!.start, value[value.length - 1]!.end, kept]);
+        }
+        if (drop) edits.push([start, end, '']);
+      }
+    }
+    if (t.type === '(' || t.type === 'function' || t.type === '[') depth++;
+    else if ((t.type === ')' || t.type === ']') && depth > 0) depth--;
+    else if (depth === 0 && t.type === '{') {
+      const prelude = tokens.slice(from, i);
+      const head = nonBlank(prelude)[0];
+      const parent = stack[stack.length - 1];
+      if (head?.type === 'at-keyword') {
+        const name = lowerAscii(head.value);
+        const rest = prelude.slice(prelude.indexOf(head) + 1);
+        stack.push({ at: name, bad: Boolean(parent?.bad) || (parent !== undefined && parent.at !== 'media') || !AT_RULES.has(name) || (name === 'media' && !mediaOk(rest, true)) });
+      } else {
+        // A style rule: at the top or in @media; keyframes take theirs.
+        const keyframe = parent?.at === '-webkit-keyframes';
+        stack.push({ bad: Boolean(parent?.bad) || (parent !== undefined && parent.at !== 'media' && !keyframe) || (!keyframe && !selectorOk(prelude)) });
+      }
+      from = i + 1;
+    } else if (depth === 0 && t.type === '}') {
+      stack.pop();
+      from = i + 1;
+    } else if (depth === 0 && t.type === ';') from = i + 1;
   }
   return applyEdits(css, edits);
 }
@@ -299,8 +530,8 @@ export function cleanDataUrl(url: string, kind: 'css' | 'document', ctx: Context
   const bytes = base64 ? Buffer.from(m[2]!.replace(/[\t\n\f\r ]/g, ''), 'base64') : percentDecode(m[2]!);
   const encoding = kind === 'css' ? cssEncoding(bytes, charset) : html ? htmlEncoding(bytes, charset) : xmlEncoding(bytes, charset);
   const text = decode(bytes, encoding);
-  const inner = { scripting: ctx.scripting, depth: ctx.depth + 1 };
-  const cleaned = kind === 'css' ? cleanCss(text, inner) : html ? cleanHtml(text, inner) : cleanXml(text, inner);
+  const inner = { ...ctx, depth: ctx.depth + 1 };
+  const cleaned = kind === 'css' ? (ctx.css ? ctx.css(text) : cleanCss(text, inner)) : html ? cleanHtml(text, inner) : cleanXml(text, inner);
   if (cleaned === null) return null;
   if (cleaned === text && !notAscii(bytes)) return url;
   return `data:${mime};charset=utf-8;base64,${Buffer.from(cleaned, 'utf8').toString('base64')}`;
@@ -394,7 +625,7 @@ function cleanAttributes(ns: string, tag: string, attrs: Attr[], ctx: Context): 
     }
   }
   const style = get('style');
-  if (style) set(style, cleanCss(style.value, ctx));
+  if (style) set(style, ctx.css ? ctx.css(style.value) : cleanCss(style.value, ctx));
   return changed ? attrs : null;
 }
 
@@ -422,7 +653,7 @@ export function cleanHtml(html: string, ctx: Context): string {
     }
     if (el.tagName === 'style' && (el.namespaceURI === HTML_NS || el.namespaceURI === SVG_NS)) {
       const css = el.childNodes.map((c) => (c.nodeName === '#text' ? (c as P.TextNode).value : '')).join('');
-      const cleaned = cleanCss(css, ctx);
+      const cleaned = ctx.css ? ctx.css(css) : cleanCss(css, ctx);
       if (cleaned !== css) {
         // In HTML, raw text that must not end the element; in SVG, text.
         const text = el.namespaceURI === SVG_NS ? escapeText(cleaned) : /<\/style[\t\n\f\r />]/i.test(cleaned) ? '' : cleaned;
@@ -486,7 +717,7 @@ export function cleanXml(xml: string, ctx: Context): string | null {
   parser.onclosetag = (name) => {
     const top = open.pop();
     if (top?.style && style !== null) {
-      const cleaned = cleanCss(style, ctx);
+      const cleaned = ctx.css ? ctx.css(style) : cleanCss(style, ctx);
       if (cleaned !== style) changed = true;
       out.push(escapeText(cleaned));
       style = null;
@@ -514,17 +745,25 @@ export interface CleanedDocument {
 // HTML nor XML. Read in the encoding the content type pins, which serveFile
 // gives Chromium even when nothing changes; written again in that encoding
 // when it takes one byte a character, else in UTF-8.
-export function cleanDocument(body: Buffer, contentType: string, scripting: boolean): CleanedDocument | undefined {
+export function cleanDocument(body: Buffer, contentType: string, scripting: boolean, css?: (text: string) => string): CleanedDocument | undefined {
   const [type, ...params] = contentType.split(';');
   const mime = lowerAscii(type!.trim());
   const declared = params.map((p) => /^\s*charset\s*=\s*"?([^";]*)"?/i.exec(p)?.[1]).find((c) => c !== undefined);
-  const ctx = { scripting, depth: 0 };
+  const ctx = { scripting, depth: 0, css };
   if (mime === 'text/html') {
     const encoding = htmlEncoding(body, declared);
     const text = decode(body, encoding);
-    const cleaned = cleanHtml(text, ctx);
+    let cleaned = cleanHtml(text, ctx);
     if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false };
-    const e = encode(cleaned, encoding);
+    let e = encode(cleaned, encoding);
+    if (e.encoding !== encoding && css) {
+      // Written again in UTF-8, a page in Shift_JIS or UTF-16 would lose
+      // its encoding, which its style sheets and scripts may need: only
+      // what must go, its styles rewritten in the page before printing.
+      cleaned = cleanHtml(text, { ...ctx, css: undefined });
+      if (cleaned === text) return { body, contentType: `${mime}; charset=${encoding}`, changed: false };
+      e = encode(cleaned, encoding);
+    }
     return { body: e.body, contentType: `${mime}; charset=${e.encoding}`, changed: true };
   }
   if (isXmlType(mime)) {

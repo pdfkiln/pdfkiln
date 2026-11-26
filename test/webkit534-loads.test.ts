@@ -55,6 +55,58 @@ describe('CSS', () => {
   });
 });
 
+describe('CSS that WebKit 534 did not read, where it loads an address', () => {
+  test('properties it did not load a url() of, functions it did not know, a background it did not parse', () => {
+    assert.equal(cleanCss('div{mask-image:url(m.png);color:red}'), 'div{color:red}');
+    assert.equal(cleanCss('div{-webkit-mask-image:url(m.png)}'), 'div{-webkit-mask-image:url(m.png)}');
+    assert.equal(cleanCss('div{border-image:url(b.png) 10;shape-outside:url(s.png);clip-path:url(c.svg#c)}'), 'div{}');
+    assert.equal(cleanCss('div{clip-path:url(#c)}'), 'div{clip-path:url(#c)}');
+    assert.equal(cleanCss('p{background-image:linear-gradient(red,blue),url(a.png)}'), 'p{}');
+    assert.equal(cleanCss('p{background-image:-webkit-linear-gradient(red,blue),url(a.png)}'), 'p{background-image:-webkit-linear-gradient(red,blue),url(a.png)}');
+    assert.equal(cleanCss('p{background:url(a.png) calc(10px) 0}q{background:url(a.png) min(1px,2px) 0}'), 'p{}q{}');
+    assert.equal(cleanCss('p{background:url(a.png) center/cover}q{background:url(a.png) right 10px top 5px}'), 'p{}q{}');
+    assert.equal(cleanCss('p{background:rgba(0,0,0,.5) url(a.png) no-repeat 0 0}'), 'p{background:rgba(0,0,0,.5) url(a.png) no-repeat 0 0}');
+    assert.equal(cleanCss(':root{--x:url(a.png)}p{background:var(--x)}'), ':root{}p{background:var(--x)}');
+    assert.equal(cleanCss('--x:url(a.png);background-image:var(--x)'), 'background-image:var(--x)');
+  });
+
+  test('an address in data: or within the document stays, whatever holds it', () => {
+    const css = 'div{mask-image:url(data:image/png;base64,AA);fill:url(#g)}@supports (x:y){p{background:url("data:image/svg+xml,%3Csvg/%3E")}}';
+    assert.equal(cleanCss(css), css);
+  });
+
+  test('rules it did not apply: at-rules, nesting, selectors', () => {
+    assert.equal(cleanCss('@supports (display:grid){p{background:url(a.png);color:red}}'), '@supports (display:grid){p{color:red}}');
+    assert.equal(cleanCss('@layer x{p{background:url(a.png)}}@keyframes k{from{background:url(a.png)}}'), '@layer x{p{}}@keyframes k{from{}}');
+    assert.equal(cleanCss('@-webkit-keyframes k{from{background:url(a.png)}}'), '@-webkit-keyframes k{from{background:url(a.png)}}');
+    assert.equal(cleanCss('div{color:red;& p{background:url(a.png)}}'), 'div{color:red;& p{}}');
+    for (const sel of [':is(p)', ':where(p)', 'div:has(span)', 'div:focus-within', '[class="b" i]', 'div:not(.a .b)', 'div:nth-child(1 of .b)', 'div, :is(p)', 'p::marker']) {
+      assert.equal(cleanCss(`${sel}{background:url(a.png)}`), `${sel}{}`, sel);
+    }
+    for (const sel of ['div > p + a ~ b', 'p:first-child', 'a:not(.x)', 'li:nth-child(2n+1)', ':-webkit-any(div,p)', 'p::before', 'p:after', '[href^="http"]', 'svg|rect', '*']) {
+      assert.equal(cleanCss(`${sel}{background:url(a.png)}`), `${sel}{background:url(a.png)}`, sel);
+    }
+  });
+
+  test('media queries: a feature it did not know, or a syntax, made the query false; @import loaded whatever its media', () => {
+    for (const q of ['(width >= 0px)', '(prefers-color-scheme: light)', 'screen or print', '(min-resolution: 2dppx)']) {
+      assert.equal(cleanCss(`@media ${q}{p{background:url(a.png)}}`), `@media ${q}{p{}}`, q);
+    }
+    for (const q of ['screen', 'print', '(min-width: 500px)', 'screen and (max-width: 100px)', '(-webkit-min-device-pixel-ratio: 2)', '(orientation: portrait)']) {
+      assert.equal(cleanCss(`@media ${q}{p{background:url(a.png)}}`), `@media ${q}{p{background:url(a.png)}}`, q);
+    }
+    assert.equal(cleanCss('@import url(s.css) print;@import url(t.css) (width >= 0);@import url(u.css) layer(x);@import "v.css" supports(display:grid);p{}'), '@import url(s.css) print;p{}');
+  });
+
+  test('@font-face: the sources of a format it did not load go, the next one stays; tech() made src invalid', () => {
+    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2"),url(b.woff) format("woff")}'), '@font-face{font-family:x;src:url(b.woff) format("woff")}');
+    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2")}'), '@font-face{font-family:x;}');
+    assert.equal(cleanCss('@font-face{font-family:x;src:local(X),url(a.ttf) format("truetype")}'), '@font-face{font-family:x;src:local(X),url(a.ttf) format("truetype")}');
+    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff2) format("woff2") tech(variations)}'), '@font-face{font-family:x;}');
+    assert.equal(cleanCss('@font-face{font-family:x;src:url(a.woff)}@page{background:url(a.png)}'), '@font-face{font-family:x;src:url(a.woff)}@page{}');
+  });
+});
+
 describe('HTML', () => {
   test('srcset, sizes, imagesrcset and the links that are no style sheet', () => {
     assert.equal(cleanHtml('<img src="a.png" srcset="b.png 2x" sizes="10px">', off), '<img src="a.png">');
@@ -130,6 +182,18 @@ describe('encodings', () => {
     assert.equal(c.changed, true);
     assert.equal(c.contentType, 'text/html; charset=utf-8');
     assert.equal(c.body.toString('utf8'), '<meta charset="shift_jis"><style>p{content:"表"}body{}</style>');
+  });
+
+  test('the rewriting of the styles for the emulations: done in the page in UTF-8 or windows-1252, left to the printing in Shift_JIS', () => {
+    const rewrite = (css: string) => css.replace('display:flex', '');
+    const sjis = Buffer.concat([Buffer.from('<meta charset="shift_jis"><style>p{display:flex}</style><p>'), Buffer.from([0x83, 0xbf]), Buffer.from('</p>')]);
+    const c = cleanDocument(sjis, 'text/html', false, rewrite)!;
+    assert.equal(c.changed, false);
+    assert.equal(c.contentType, 'text/html; charset=shift_jis');
+    assert.equal(c.body, sjis);
+    const utf8 = cleanDocument(Buffer.from('<style>p{display:flex}</style><p>é</p>', 'utf8'), 'text/html', false, rewrite)!;
+    assert.equal(utf8.changed, true);
+    assert.equal(utf8.body.toString('utf8'), '<style>p{}</style><p>é</p>');
   });
 
   test('UTF-16 with its BOM; windows-1252 written again as such', () => {

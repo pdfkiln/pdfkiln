@@ -158,7 +158,7 @@ Each in detail: [docs/compatibility.md](docs/compatibility.md#differences-from-w
 
 ## Security
 
-Called as `wkhtmltopdf`, PDFKiln keeps the defaults of wkhtmltopdf, the compatibility contract: a page reads no local file but itself unless allowed, and loads anything from the network, certificate errors ignored, but nothing that wkhtmltopdf's WebKit could not read, such as `image-set()`, `srcset` or preload links ([docs/compatibility.md](docs/compatibility.md#security)). On top of them:
+Called as `wkhtmltopdf`, PDFKiln keeps the defaults of wkhtmltopdf, the compatibility contract: a page reads no local file but itself unless allowed, and loads anything from the network, certificate errors ignored, but nothing that wkhtmltopdf's WebKit could not read, such as `image-set()`, `srcset`, preload links or CSS it did not parse ([docs/compatibility.md](docs/compatibility.md#security)). On top of them:
 
 - `--kiln-block-private-network`: no loopback, private or link-local address (cloud metadata `169.254.169.254` included), checked after DNS resolution;
 - `--kiln-block-invalid-certificates`: nothing from a server whose certificate does not verify;

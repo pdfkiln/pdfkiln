@@ -339,7 +339,11 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Documents cleaned of what WebKit 534 never loaded, before Chromium
   // reads them: <noscript> is markup without JavaScript.
   const clean = Boolean(spec.emulation?.webkit534Loads);
-  const cleaned = (body: Buffer, contentType: string) => (clean ? cleanDocument(body, contentType, web.enableJavascript) : undefined);
+  // Their style elements and attributes are rewritten for the emulations
+  // there, as a style sheet served is: before Chromium reads them, so that
+  // they load what WebKit 534 loaded (a media query it found false loads
+  // nothing); the emulations in the page before printing find them done.
+  const cleaned = (body: Buffer, contentType: string) => (clean ? cleanDocument(body, contentType, web.enableJavascript, rewrite ? (css) => rewriteCss(css, rewrite) : undefined) : undefined);
   let pageRequested = false;
   let pageNetwork = '';
   const post = postBody(load.post);
@@ -770,13 +774,13 @@ export async function openPage(context: BrowserContext, spec: LoadSpec, out: Rep
   // Chromium loads as any other style sheet, the wait ending once it has
   // loaded or failed. Its text ranks as WebKit ranks a user style sheet, in
   // a cascade layer of its own (userLayer), rewritten for the emulations
-  // as a served style sheet is. A page whose Content-Security-Policy
+  // as a served style sheet is, before the layer, which WebKit 534 did not
+  // know: what it holds is the sheet's. A page whose Content-Security-Policy
   // refuses inline styles leaves the element without its style sheet: it
   // is then adopted, which the policy does not govern, without its @import
   // rules. The policy stays in force for the page.
   if (spec.userStyleSheet || spec.userStyleSheetUrl) {
-    const text = spec.userStyleSheet ? userLayer(spec.userStyleSheet) : '';
-    const css = spec.emulation ? rewriteCss(text, spec.emulation) : text;
+    const css = spec.userStyleSheet ? userLayer(spec.emulation ? rewriteCss(spec.userStyleSheet, spec.emulation) : spec.userStyleSheet) : '';
     await Promise.all(documentFrames(page).map((f) => f.evaluate((css: string, href: string) => new Promise<void>((done) => {
       const at = document.head ?? document.documentElement;
       if (!href) {

@@ -1605,7 +1605,7 @@ describe('security', () => {
     assert.equal(r.code, 0);
   });
 
-  test('nothing loads that wkhtmltopdf 0.12.6 never loaded: image-set(), srcset, preload links, media, SVG 2 href, srcdoc, data: frames', async () => {
+  test('nothing loads that wkhtmltopdf 0.12.6 never loaded: image-set(), srcset, preload links, media, SVG 2 href, srcdoc, data: frames, CSS it did not read', async () => {
     const seen: string[] = [];
     const gif = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
     const s = createServer((req, res) => {
@@ -1625,20 +1625,26 @@ describe('security', () => {
       <svg width="10" height="10"><image href="${u}/${p}-svg2.png" width="10" height="10"/><rect width="10" height="10" fill="url(${u}/${p}-fill.svg#g)"/></svg>
       <iframe srcdoc="&lt;img src=&quot;${u}/${p}-srcdoc.png&quot;&gt;"></iframe>
       <iframe src="data:text/html,${encodeURIComponent(`<img srcset="${u}/${p}-data-frame.png 1x">`)}"></iframe>
+      <style>@supports (display:block){.s{background:url(${u}/${p}-supports.png)}} :is(.i){background:url(${u}/${p}-is.png)}
+        .g{background-image:linear-gradient(red,blue),url(${u}/${p}-gradient.png)} @media (min-width: 500px){.m{background:url(${u}/${p}-media.png)}}
+        @font-face{font-family:k;src:url(${u}/${p}-font.woff2) format("woff2"),url(${u}/${p}-font.woff) format("woff")} .f{font-family:k}</style>
+      <div class="s">s</div><div class="i">i</div><div class="g">g</div><div class="m">m</div><div class="f">f</div>
       ${frame ? `<iframe src="${u}/frame.html"></iframe>` : ''}<img src="${u}/${p}-img.png">`;
     try {
-      // On the standard input, as libraries give it, without and with JavaScript.
+      // On the standard input, as libraries give it, without and with
+      // JavaScript. Of the fonts, the woff one, as WebKit 534 passed over
+      // woff2.
       for (const js of [['--disable-javascript'], []]) {
         seen.length = 0;
         const r = await run(['-q', ...js, '-', join(dir, 'loads.pdf')], { stdin: page('stdin') });
         assert.equal(r.code, 0, r.stderr);
-        assert.deepEqual(seen, ['/stdin-img.png'], js.join(' '));
+        assert.deepEqual(seen.sort(), ['/stdin-font.woff', '/stdin-img.png'], js.join(' '));
       }
       // From the network, with a frame from there too.
       seen.length = 0;
       const r = await run(['-q', '--disable-javascript', `${u}/page.html`, join(dir, 'loads.pdf')]);
       assert.equal(r.code, 0, r.stderr);
-      assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-img.png', '/page.html']);
+      assert.deepEqual(seen.sort(), ['/frame-img.png', '/frame.html', '/page-font.woff', '/page-img.png', '/page.html']);
     } finally {
       s.close();
     }

@@ -68,18 +68,21 @@ export function tokenize(css: string): Token[] {
     return isDigit(c);
   };
 
+  // Runs of plain code points are sliced, not added one by one.
   const name = (k: number): [string, number] => {
     let out = '';
+    let run = k;
     for (;;) {
       const c = at(k);
-      if (c !== -1 && isName(c)) {
-        out += c === 0 ? '�' : css[k];
-        k++;
+      if (c > 0 && isName(c)) k++;
+      else if (c === 0) {
+        out += `${css.slice(run, k)}�`;
+        run = ++k;
       } else if (validEscape(k)) {
         const [s, j] = escape(k + 1);
-        out += s;
-        k = j;
-      } else return [out, k];
+        out += css.slice(run, k) + s;
+        run = k = j;
+      } else return [out + css.slice(run, k), k];
     }
   };
 
@@ -115,25 +118,30 @@ export function tokenize(css: string): Token[] {
   const url = (k: number): [TokenType, string, number] => {
     while (isWhitespace(at(k))) k++;
     let out = '';
+    let run = k;
     for (;;) {
       const c = at(k);
-      if (c === 0x29) return ['url', out, k + 1];
-      if (c === -1) return ['url', out, k];
+      if (c === 0x29) return ['url', out + css.slice(run, k), k + 1];
+      if (c === -1) return ['url', out + css.slice(run, k), k];
       if (isWhitespace(c)) {
+        out += css.slice(run, k);
         while (isWhitespace(at(k))) k++;
         if (at(k) === 0x29) return ['url', out, k + 1];
         if (at(k) === -1) return ['url', out, k];
         return ['bad-url', out, badUrlEnd(k)];
       }
-      if (c === 0x22 || c === 0x27 || c === 0x28 || isNonPrintable(c)) return ['bad-url', out, badUrlEnd(k)];
+      if (c === 0x22 || c === 0x27 || c === 0x28 || isNonPrintable(c)) return ['bad-url', out + css.slice(run, k), badUrlEnd(k)];
       if (c === 0x5c) {
-        if (!validEscape(k)) return ['bad-url', out, badUrlEnd(k)];
+        if (!validEscape(k)) return ['bad-url', out + css.slice(run, k), badUrlEnd(k)];
         const [s, j] = escape(k + 1);
-        out += s;
-        k = j;
+        out += css.slice(run, k) + s;
+        run = k = j;
         continue;
       }
-      out += c === 0 ? '�' : css[k];
+      if (c === 0) {
+        out += `${css.slice(run, k)}�`;
+        run = k + 1;
+      }
       k++;
     }
   };
@@ -141,12 +149,14 @@ export function tokenize(css: string): Token[] {
   // After the opening quote.
   const string = (k: number, quote: number): [TokenType, string, number] => {
     let out = '';
+    let run = k;
     for (;;) {
       const c = at(k);
-      if (c === quote) return ['string', out, k + 1];
-      if (c === -1) return ['string', out, k];
-      if (isNewline(c)) return ['bad-string', out, k];
+      if (c === quote) return ['string', out + css.slice(run, k), k + 1];
+      if (c === -1) return ['string', out + css.slice(run, k), k];
+      if (isNewline(c)) return ['bad-string', out + css.slice(run, k), k];
       if (c === 0x5c) {
+        out += css.slice(run, k);
         const d = at(k + 1);
         if (d === -1) k++;
         else if (isNewline(d)) k += d === 0x0d && at(k + 2) === 0x0a ? 3 : 2;
@@ -155,9 +165,13 @@ export function tokenize(css: string): Token[] {
           out += s;
           k = j;
         }
+        run = k;
         continue;
       }
-      out += c === 0 ? '�' : css[k];
+      if (c === 0) {
+        out += `${css.slice(run, k)}�`;
+        run = k + 1;
+      }
       k++;
     }
   };

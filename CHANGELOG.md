@@ -10,7 +10,7 @@ GitHub release.
 
 Security, called as `wkhtmltopdf`:
 
-- **Addresses wkhtmltopdf never read**: Chromium fetches addresses that wkhtmltopdf's WebKit did not read, which an application that cleans the HTML it converts of `url()`, `src` and `href` leaves in place: `image-set("…")`, `srcset`, `imagesrcset` and preload links, `<video poster>`, `srcdoc`, an SVG `href` without `xlink:`. They are now taken out of the page, its frames and its style sheets before Chromium reads them, as wkhtmltopdf ignored them. A page that declares no charset and is not UTF-8 is read as windows-1252, as by wkhtmltopdf, where Chromium guessed one.
+- **Addresses wkhtmltopdf never read**: Chromium fetches addresses that wkhtmltopdf's WebKit did not read, which an application that cleans the HTML it converts of `url()`, `src` and `href` leaves in place: `image-set("…")`, `srcset`, `imagesrcset` and preload links, `<video poster>`, `srcdoc`, an SVG `href` without `xlink:`. They are now taken out of the page, its frames and its style sheets before Chromium reads them, as wkhtmltopdf ignored them, and so is CSS that WebKit did not read where it loads an address: `mask-image` or `border-image`, `linear-gradient()` or `calc()` beside a `url()`, `@supports` and `@layer`, selectors such as `:is()`, a media query it found false. Of a web font, the `woff2` sources go: the next one loads, `woff` for instance, and a font given in `woff2` alone is not loaded, as in wkhtmltopdf. A page that declares no charset and is not UTF-8 is read as windows-1252, as by wkhtmltopdf, where Chromium guessed one.
 
 Bugs fixed:
 

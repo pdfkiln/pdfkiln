@@ -171,7 +171,22 @@ export function userLayer(css: string): string {
   return `${head.map((s) => `${s}\n`).join('')}@layer ${USER_LAYER} {\n${rest}\n}\n`;
 }
 
+// A conversion serves the same style sheets to its page, its header and
+// its footer: each text is rewritten once.
+const rewritten = new Map<string, string>();
+
 export function rewriteCss(css: string, e: Emulation): string {
+  const key = `${JSON.stringify(e)}
+${css}`;
+  const done = rewritten.get(key);
+  if (done !== undefined) return done;
+  if (rewritten.size >= 64) rewritten.clear();
+  const out = rewriteOnce(css, e);
+  rewritten.set(key, out);
+  return out;
+}
+
+function rewriteOnce(css: string, e: Emulation): string {
   let out = e.webkit534Loads ? cleanCss(css) : css;
   if (e.webkit534Css) out = dropUnknownCss(out);
   if (e.mediaViewport || e.screenTypes) {
