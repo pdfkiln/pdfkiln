@@ -1480,6 +1480,31 @@ print(json.dumps(out))`;
     assert.match(await pageOne('tall', 'overflow: auto', 80), /L1\b/);
   });
 
+  test('a float column split by a page break goes on at its place, beside an empty one', async (t) => {
+    // A Bootstrap 3 row as ERPNext's invoices print their totals: an empty
+    // col-xs-6, then one whose lines run across the first page break.
+    // wkhtmltopdf 0.12.6 (Windows 11): R9 to R12 on page 2 at x 306 pt, as R1
+    // on page 1. Chromium would put them at the left edge, beside nothing.
+    // An empty column with a border is left as it is: stretched, it would
+    // show.
+    const row = (style: string) => '<style>body{margin:0;font:16px/20px sans-serif}p{margin:0 0 10px}.row:after{content:"";display:table;clear:both}'
+      + `.col{float:left;width:50%;min-height:1px;box-sizing:border-box;padding:0 15px}</style><div style="height:1150px">top</div>`
+      + `<div class="row"><div class="col" style="${style}"></div><div class="col">${Array.from({ length: 12 }, (_, i) => `<p>R${i + 1}</p>`).join('')}</div></div>`;
+    const x = async (name: string, style: string) => {
+      const out = join(dir, `float-${name}.pdf`);
+      assert.equal((await run(['-q', '-T', '0', '-B', '0', '-L', '0', '-R', '0', file(`float/${name}.html`, row(style)), out])).code, 0);
+      const script = 'import sys, json, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(json.dumps({w[4]: [p.number, round(w[0])] for p in d for w in p.get_text("words") if w[4].startswith("R")}))';
+      return JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as Record<string, [number, number]>;
+    };
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const plain = await x('plain', '');
+    assert.equal(plain['R1']![0], 0);
+    assert.equal(plain['R12']![0], 1);
+    assert.ok(Math.abs(plain['R12']![1] - plain['R1']![1]) < 2, `R1 at ${plain['R1']![1]}, R12 at ${plain['R12']![1]}`);
+    const bordered = await x('bordered', 'border:1px solid');
+    assert.ok(bordered['R1']![1] - bordered['R12']![1] > 100, `R1 at ${bordered['R1']![1]}, R12 at ${bordered['R12']![1]}`);
+  });
+
   test('breaks and named pages that came after WebKit 534 are ignored, page-break-before is kept, as in wkhtmltopdf', async () => {
     // wkhtmltopdf 0.12.6 (Windows 11): 2 pages, the last paragraph's break
     // only; Chromium would make 5.

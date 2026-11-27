@@ -43,6 +43,15 @@ export interface Emulation {
   // axis) whole to the next page too, as it does an image, when it fits in
   // one (RenderBlock::adjustForUnsplittableChild); Chromium splits it.
   unsplitScrollBoxes?: boolean;
+  // WebKit 534 lays the page out once and cuts it into pages: a float that
+  // a page break splits goes on at its place on the next page. Chromium
+  // places what follows of a float there against the floats that go on
+  // too: a column whose neighbour ended above the break moves to the edge
+  // (a Bootstrap 3 row of an empty col-xs-6 and one of totals: ERPNext's
+  // invoices). The floats of a line get the height of the tallest, so that
+  // they all go on; only those that paint nothing below their content, in
+  // a box that holds them, so that nothing else moves.
+  floatColumns?: boolean;
   // CSS that WebKit 534 does not parse is dropped from the text of the
   // style sheets, so that the page's fallbacks apply as they did there:
   // Odoo writes display: -webkit-box; display: -webkit-flex; display: flex,
@@ -441,5 +450,49 @@ export function emulateInPage(e: Emulation): void {
     if (visible(doc.documentElement) && visible(doc.body)) {
       for (const el of [doc.documentElement, doc.body]) el.style.setProperty('overflow-x', 'clip', 'important');
     }
+  }
+  if (e.floatColumns && doc.body && window === window.top) {
+    // A line of floats: the floats of one parent whose margin boxes start
+    // at the same height, in a parent that holds them (a clearfix, its own
+    // formatting context), so that stretching one to the bottom of the
+    // line moves nothing. Images and other replaced elements, and floats
+    // with a background, a border, a shadow or an outline, are left as
+    // they are. All read before any is set.
+    type Float = { el: HTMLElement; top: number; bottom: number; under: number; extra: number; paints: boolean };
+    const lines = new Map<HTMLElement, Map<number, Float[]>>();
+    const sides = ['top', 'right', 'bottom', 'left'];
+    for (const el of Array.from(doc.body.querySelectorAll('*'))) {
+      if (!(el instanceof HTMLElement) || !el.parentElement) continue;
+      const cs = getComputedStyle(el);
+      if (cs.cssFloat === 'none' || !/^(block|flow-root)$/.test(cs.display)) continue;
+      if (/^(IMG|VIDEO|CANVAS|IFRAME|OBJECT|EMBED|INPUT|TEXTAREA|SELECT|BUTTON)$/.test(el.tagName)) continue;
+      const px = (p: string) => parseFloat(cs.getPropertyValue(p)) || 0;
+      const paints = !/^(transparent|rgba\(.*,\s*0\))$/.test(cs.backgroundColor) || cs.backgroundImage !== 'none'
+        || sides.some((s) => cs.getPropertyValue(`border-${s}-style`) !== 'none' && px(`border-${s}-width`) > 0)
+        || cs.boxShadow !== 'none' || (cs.outlineStyle !== 'none' && px('outline-width') > 0);
+      const r = el.getBoundingClientRect();
+      const top = r.top + scrollY;
+      const extra = cs.boxSizing === 'border-box' ? 0 : px('padding-top') + px('padding-bottom') + px('border-top-width') + px('border-bottom-width');
+      const float: Float = { el, top, bottom: r.bottom + scrollY, under: px('margin-bottom'), extra, paints };
+      const line = lines.get(el.parentElement) ?? new Map<number, Float[]>();
+      lines.set(el.parentElement, line);
+      const key = Math.round(top - px('margin-top'));
+      line.set(key, [...(line.get(key) ?? []), float]);
+    }
+    const stretch: [HTMLElement, number][] = [];
+    for (const [parent, line] of lines) {
+      const ps = getComputedStyle(parent);
+      const holds = parent.getBoundingClientRect().bottom + scrollY - parseFloat(ps.borderBottomWidth) - parseFloat(ps.paddingBottom);
+      for (const floats of line.values()) {
+        if (floats.length < 2) continue;
+        const end = Math.max(...floats.map((f) => f.bottom + f.under));
+        if (holds < end - 0.5) continue;
+        for (const f of floats) {
+          if (f.paints || f.bottom + f.under > end - 0.5) continue;
+          stretch.push([f.el, end - f.under - f.top - f.extra]);
+        }
+      }
+    }
+    for (const [el, h] of stretch) el.style.setProperty('min-height', `${h}px`, 'important');
   }
 }
