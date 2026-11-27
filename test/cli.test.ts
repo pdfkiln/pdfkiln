@@ -479,6 +479,21 @@ describe('interface', () => {
     assert.deepEqual(doc.getPage(0).getSize(), { width: 595, height: 842 });
   });
 
+  test('a page written on the standard input in parts, as Python\'s pdfkit writes a long one', async () => {
+    // Run by Node.js, as the npm package runs it, fd 0 was non-blocking: the
+    // read failed with EAGAIN at the writer's first pause (src/stdin.ts).
+    const page = Buffer.from(`<p>START</p>${'<p>line of text</p>\n'.repeat(8000)}<p>END</p>`);
+    const [exe, argv] = command(process.env.PDFKILN_TEST_WKHTMLTOPDF, cli, ['-q', '-', join(dir, 'parts.pdf')]);
+    const child = spawn(exe, argv, { cwd: dir });
+    let err = '';
+    child.stderr.on('data', (d) => (err += d));
+    const done = new Promise<number | null>((ok) => child.on('close', ok));
+    child.stdin.write(page.subarray(0, 1000));
+    await new Promise((r) => setTimeout(r, 1000));
+    child.stdin.end(page.subarray(1000));
+    assert.equal(await done, 0, err);
+  });
+
   test('phases on stderr, ending with Done', async () => {
     const r = await run([`${base}/ok`, join(dir, 'ok.pdf')]);
     assert.equal(r.code, 0);
@@ -1503,6 +1518,24 @@ print(json.dumps(out))`;
     assert.ok(Math.abs(plain['R12']![1] - plain['R1']![1]) < 2, `R1 at ${plain['R1']![1]}, R12 at ${plain['R12']![1]}`);
     const bordered = await x('bordered', 'border:1px solid');
     assert.ok(bordered['R1']![1] - bordered['R12']![1] > 100, `R1 at ${bordered['R1']![1]}, R12 at ${bordered['R12']![1]}`);
+  });
+
+  test('an @font-face whose font-style is a list of CSS 2 keeps the roman face for plain text', async (t) => {
+    // As wrc writes the WCA Regulations: the roman face, then the italic one
+    // with font-style: italic, oblique. wkhtmltopdf 0.12.6 draws plain text
+    // with the roman face and <i> with the italic one; Chromium took the
+    // list as invalid, the italic face as normal, and drew both in italics.
+    const lato = (f: string) => pathToFileURL(join(root, 'corpus', '_shared', 'odoo17', 'www', 'web', 'static', 'fonts', 'lato', f)).href;
+    const page = file('fontface/page.html', `<style>@font-face { font-family: "L"; src: url("${lato('Lato-Reg-webfont.ttf')}"); font-weight: normal; font-style: normal; }`
+      + `@font-face { font-family: "L"; src: url("${lato('Lato-RegIta-webfont.ttf')}"); font-weight: normal; font-style: italic, oblique; }`
+      + 'body { font: 20px "L" }</style><p>Plain</p><p><i>Slanted</i></p>');
+    const out = join(dir, 'fontface.pdf');
+    assert.equal((await run(['-q', '--enable-local-file-access', page, out])).code, 0);
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const script = 'import sys, json, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(json.dumps({s["text"]: s["font"] for b in d[0].get_text("dict")["blocks"] for l in b.get("lines", []) for s in l["spans"]}))';
+    const fonts = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as Record<string, string>;
+    assert.match(fonts['Plain'] ?? '', /Lato-Regular/, JSON.stringify(fonts));
+    assert.match(fonts['Slanted'] ?? '', /Lato-Italic/, JSON.stringify(fonts));
   });
 
   test('breaks and named pages that came after WebKit 534 are ignored, page-break-before is kept, as in wkhtmltopdf', async () => {

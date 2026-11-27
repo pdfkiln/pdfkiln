@@ -67,6 +67,7 @@ import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import { chromiumVersion, version } from '../version.js';
 import { defaultObject } from '../wk/settings.js';
 import { capture, DEFAULT_HEIGHT, DEFAULT_WIDTH, formatOfTo, imageFormatOf, type ImageFormat } from './image.js';
+import { readStdin } from '../stdin.js';
 
 const HELP = `PDFKiln: HTML and Markdown to PDF and images with Chromium
 
@@ -749,7 +750,7 @@ export async function nativeMain(args: string[]): Promise<number> {
       const mdPath = markdownPath(input);
       const markdown = isMarkdown(input);
       if (input === '-') {
-        stdin ??= readFileSync(0);
+        stdin ??= readStdin();
         const file = join(work, `stdin-${i}.html`);
         writeFileSync(file, stdin);
         url = pathToFileURL(file).href;

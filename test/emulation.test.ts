@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dropUnknownCss, rewriteCss, rewriteMediaPrelude, rewriteMediaTypes, userLayer } from '../src/engine/emulation.js';
+import { dropUnknownCss, fontFaceLists, rewriteCss, rewriteMediaPrelude, rewriteMediaTypes, userLayer } from '../src/engine/emulation.js';
 import { isPrivateAddress } from '../src/engine/relay.js';
 import { hfreplace, withParms } from '../src/wk/headers.js';
 import { sectionCache } from '../src/wk/convert.js';
@@ -111,4 +111,23 @@ test('system-ui is the name of a family no font has, as in WebKit 534, quoted or
   for (const css of ['p{--ui: system-ui; content: "system-ui"}', 'p{font-family: system-ui-light, my-system-ui}', 'p{font-size: 1em} system-ui{color: red}']) {
     assert.equal(dropUnknownCss(css), css);
   }
+});
+
+test('the lists of values of CSS 2 in @font-face: a rule for each value, as WebKit 534 read them', () => {
+  // wrc's WCA Regulations: the italic face declared "italic, oblique".
+  assert.equal(fontFaceLists('@font-face { font-family: "CM"; src: url(i.otf); font-weight: normal; font-style: italic, oblique; }'),
+    '@font-face { font-family: "CM"; src: url(i.otf); font-weight: normal; font-style: italic; }');
+  assert.equal(fontFaceLists('@font-face{font-family:A;src:url(a.ttf);font-style:normal,italic}'),
+    '@font-face{font-family:A;src:url(a.ttf);font-style:normal}\n@font-face{font-family:A;src:url(a.ttf);font-style:italic}');
+  assert.equal(fontFaceLists('@font-face{font-family:A;src:url(a.ttf);font-weight:all}'), '@font-face{font-family:A;src:url(a.ttf);font-weight:1 1000}');
+  assert.equal(fontFaceLists('@FONT-FACE{font-family:A;src:url(a.ttf);font-style:ALL;font-weight:normal, bold}').split('\n').length, 4);
+  // One value, a range, or nothing known in the list: as it is.
+  for (const css of ['@font-face{font-family:A;src:url(a.ttf);font-style:italic;font-weight:bold}', '@font-face{font-family:A;font-weight:100 900}',
+    '@font-face{font-family:A;font-style:slanted, tilted}', 'p{font-style:italic, oblique}']) {
+    assert.equal(fontFaceLists(css), css);
+  }
+  // Through rewriteCss, in the compatible mode only.
+  const css = '@font-face{font-family:A;src:url(a.ttf);font-style:italic,oblique}';
+  assert.equal(rewriteCss(css, { webkit534Css: true }), '@font-face{font-family:A;src:url(a.ttf);font-style:italic}');
+  assert.equal(rewriteCss(css, {}), css);
 });

@@ -15,6 +15,7 @@ Security, called as `wkhtmltopdf`:
 Bugs fixed:
 
 - **php-fpm from packages.sury.org or the ondrej/php PPA** keeps Chromium from its sandbox: PDFKiln now names the unit and the two lines that allow it.
+- **The npm package** failed with EAGAIN on a page sent on the standard input in several writes, as Python's pdfkit sends a long one: it now waits for the rest.
 
 Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 
@@ -23,6 +24,7 @@ Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 - **`--header-font-name` and `--footer-font-name`** take a list of names parted by commas, each out of its quotes. Up to 1.5.0, a quote in the name put the text at the top of each page.
 - **A heading drawn across the foot of a page** has its text once in its bookmark and in the table of contents. Up to 1.5.0, Chromium gave it twice.
 - **A float column that a page break splits**, as the totals of an ERPNext invoice, goes on at its place on the next page. Up to 1.5.0, Chromium moved what follows of it to the left edge.
+- **An `@font-face` whose `font-style` or `font-weight` is a list**, as CSS 2 allowed (`italic, oblique`), applies to each of its values. Up to 1.5.0, Chromium took such a face as the normal one: the WCA Regulations came out in italics.
 
 ## 1.5.0
 

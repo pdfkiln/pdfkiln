@@ -56,7 +56,9 @@ export interface Emulation {
   // style sheets, so that the page's fallbacks apply as they did there:
   // Odoo writes display: -webkit-box; display: -webkit-flex; display: flex,
   // and wkhtmltopdf kept the first. Done on the text: a browser keeps only
-  // the last declaration of a property.
+  // the last declaration of a property. The lists of values of CSS 2 that
+  // it read in @font-face are written as rules Chromium reads
+  // (fontFaceLists).
   webkit534Css?: boolean;
   // Nothing loaded that WebKit 534 never read (webkit534-loads.ts): the
   // page, its frames and its style sheets cleaned before Chromium reads
@@ -148,6 +150,34 @@ export function dropUnknownCss(css: string): string {
   });
 }
 
+// CSS 2 gave the font-style and font-weight of an @font-face a list of
+// values, which WebKit 534 still read (CSSFontSelector::addFontFaceRule):
+// font-style: italic, oblique; font-weight: normal, bold; all for each
+// value. Chromium reads one value and drops a list as invalid: the face
+// then counts as normal, and the italic face of a family declared so takes
+// the place of its roman one (wrc's WCA Regulations, all in italics). Each
+// value gets a rule of its own; oblique is italic, as it was there.
+const FONT_FACE = /@font-face\s*\{[^{}]*\}/gi;
+const FACE_VALUES: Record<string, Record<string, string[]>> = {
+  'font-style': { all: ['normal', 'italic'], normal: ['normal'], italic: ['italic'], oblique: ['italic'] },
+  'font-weight': { all: ['1 1000'], normal: ['400'], bold: ['700'], ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`${n}00`, [`${n}00`]])) },
+};
+
+export function fontFaceLists(css: string): string {
+  return css.replace(FONT_FACE, (rule) => {
+    let rules = [rule];
+    for (const [name, known] of Object.entries(FACE_VALUES)) {
+      const decl = new RegExp(String.raw`((?:^|[{;])\s*${name}\s*:\s*)([^;{}]*?)(\s*(?=[;}]))`, 'i');
+      const value = decl.exec(rule)?.[2];
+      if (!value || !(value.includes(',') || /^all$/i.test(value))) continue;
+      const items = [...new Set(value.split(',').flatMap((v) => known[v.trim().toLowerCase()] ?? []))];
+      if (!items.length) continue;
+      rules = rules.flatMap((r) => items.map((v) => r.replace(decl, `$1${v}$3`)));
+    }
+    return rules.join('\n');
+  });
+}
+
 // --user-style-sheet's rules in a cascade layer of their own, the first of
 // the page when the style sheet comes first: the page's rules outrank them
 // whatever their specificity, and their !important declarations outrank
@@ -197,7 +227,7 @@ ${css}`;
 
 function rewriteOnce(css: string, e: Emulation): string {
   let out = e.webkit534Loads ? cleanCss(css) : css;
-  if (e.webkit534Css) out = dropUnknownCss(out);
+  if (e.webkit534Css) out = fontFaceLists(dropUnknownCss(out));
   if (e.mediaViewport || e.screenTypes) {
     const [w, h] = e.mediaViewport ?? [0, 0];
     out = out.replace(/@media([^{;]+)\{/g, (_m, prelude: string) => {

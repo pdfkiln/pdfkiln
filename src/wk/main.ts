@@ -1,6 +1,6 @@
 // The compatible mode: called as wkhtmltopdf or wkhtmltoimage, or as
 // "pdfkiln wkhtmltopdf" or "pdfkiln wkhtmltoimage".
-import { readFileSync, writeSync } from 'node:fs';
+import { writeSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { convert, type Io } from './convert.js';
 import { Feedback, IMAGE_PHASES } from './feedback.js';
@@ -10,6 +10,7 @@ import { defaultObject } from './settings.js';
 import { defaultTocXsl } from './toc.js';
 import { ActionRequest, parseArguments, splitArgs, UsageError, type Parsed } from './parse.js';
 import { handleError } from './qtnet.js';
+import { readStdin } from '../stdin.js';
 
 const stderr = (s: string) => writeSync(2, s);
 const stdout = (s: string) => writeSync(1, s);
@@ -38,7 +39,7 @@ function writeAll(fd: number, data: Uint8Array): void {
 
 function io(onTimeout: (line: string) => void): Io {
   return {
-    stdin: () => readFileSync(0),
+    stdin: () => readStdin(),
     stdout: (data) => writeAll(1, data),
     onTimeout,
   };
