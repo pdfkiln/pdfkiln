@@ -1520,6 +1520,45 @@ print(json.dumps(out))`;
     assert.ok(bordered['R1']![1] - bordered['R12']![1] > 100, `R1 at ${bordered['R1']![1]}, R12 at ${bordered['R12']![1]}`);
   });
 
+  test('a forced break where nothing is laid out on the page yet does nothing, as in wkhtmltopdf', async (t) => {
+    // EDB's documents begin with an empty anchor, then an h2 with
+    // page-break-before: always: wkhtmltopdf 0.12.6 (Windows 11) starts the
+    // text on page 1, Chromium left it blank. A break below some text still
+    // breaks, and one just after a break does nothing (3 pages there too).
+    const pages = async (name: string, body: string) => {
+      const out = join(dir, `top-break-${name}.pdf`);
+      assert.equal((await run(['-q', file(`top-break/${name}.html`, body), out])).code, 0);
+      return pagesText(out);
+    };
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const top = await pages('top', '<div id="anchor"></div><h2 style="page-break-before: always">First</h2><p>text</p>');
+    assert.equal(top.length, 1);
+    assert.match(top[0]!, /First/);
+    const after = await pages('after', '<p>before</p><div id="anchor"></div><h2 style="page-break-before: always">Second</h2><div style="page-break-after: always">x</div><div></div><h2 style="page-break-before: always">Third</h2>');
+    assert.deepEqual(after.map((p) => p.trim().split(/\s+/)[0]), ['before', 'Second', 'Third']);
+  });
+
+  test('a table of contents by --xsl-style-sheet with indent="yes": no indentation between the elements of an entry', async (t) => {
+    // EDB's style sheet: each entry a div under white-space: pre, its page
+    // number in a span floated right. libxslt indented between them: three
+    // lines an entry, where QtXmlPatterns' output kept one.
+    const xsl = file('toc-indent/toc.xsl', '<?xml version="1.0" encoding="UTF-8"?>\n<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:outline="http://wkhtmltopdf.org/outline" xmlns="http://www.w3.org/1999/xhtml">\n'
+      + '<xsl:output indent="yes"/>\n<xsl:template match="outline:outline"><html><head><style>div { white-space: pre } span { float: right }</style></head>\n'
+      + '<body><xsl:apply-templates select="outline:item/outline:item"/></body></html></xsl:template>\n'
+      + '<xsl:template match="outline:item"><div><a><xsl:value-of select="@title"/></a><span><xsl:value-of select="@page"/></span></div>\n'
+      + '<xsl:apply-templates select="outline:item"/></xsl:template>\n</xsl:stylesheet>\n');
+    const page = file('toc-indent/page.html', '<h1>Alpha</h1><p>a</p><h1 style="page-break-before: always">Beta</h1><p>b</p>');
+    const out = join(dir, 'toc-indent.pdf');
+    const r = await run(['-q', 'toc', '--xsl-style-sheet', xsl, page, out]);
+    assert.equal(r.code, 0, r.stderr);
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    const script = 'import sys, json, pymupdf\nd = pymupdf.open(sys.argv[1])\nprint(json.dumps([[w[4], round(w[1])] for w in d[0].get_text("words")]))';
+    const words = JSON.parse(execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' })) as [string, number][];
+    const y = (s: string) => words.find((w) => w[0] === s)?.[1];
+    assert.ok(y('Alpha') !== undefined && y('Alpha') === y('2'), JSON.stringify(words));
+    assert.ok(y('Beta') !== undefined && y('Beta') === y('3'), JSON.stringify(words));
+  });
+
   test('an @font-face whose font-style is a list of CSS 2 keeps the roman face for plain text', async (t) => {
     // As wrc writes the WCA Regulations: the roman face, then the italic one
     // with font-style: italic, oblique. wkhtmltopdf 0.12.6 draws plain text

@@ -125,13 +125,18 @@ export function defaultTocHtml(roots: WkItem[], s: TableOfContent): string {
 
 // A style sheet of the caller, run by Chromium's XSLT 1.0 processor
 // (wkhtmltopdf had QtXmlPatterns' XSLT 2.0: style sheets that need 2.0
-// features fail).
+// features fail). Without indentation: libxslt honours indent="yes" even
+// between the elements of an entry, and under white-space: pre (EDB's
+// style sheet) each entry took three lines, the table five pages where
+// wkhtmltopdf's took one.
 export async function xsltTocHtml(page: Page, xml: string, xsl: string): Promise<string | null> {
   return page.evaluate((xmlText: string, xslText: string) => {
     if (typeof XSLTProcessor !== 'function') return null;
     const parser = new DOMParser();
     const processor = new XSLTProcessor();
-    processor.importStylesheet(parser.parseFromString(xslText, 'application/xml'));
+    const sheet = parser.parseFromString(xslText, 'application/xml');
+    for (const out of Array.from(sheet.getElementsByTagNameNS('http://www.w3.org/1999/XSL/Transform', 'output'))) out.setAttribute('indent', 'no');
+    processor.importStylesheet(sheet);
     const result = processor.transformToDocument(parser.parseFromString(xmlText, 'application/xml'));
     if (!result?.documentElement) return null;
     return new XMLSerializer().serializeToString(result);

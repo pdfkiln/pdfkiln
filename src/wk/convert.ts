@@ -218,6 +218,7 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       unsplitRows: true,
       unsplitScrollBoxes: true,
       floatColumns: true,
+      pageTopBreaks: true,
       webkit534Css: true,
       webkit534Loads: true,
       noShrinkToFit: !o.web.enableIntelligentShrinking,

@@ -25,6 +25,8 @@ Called as `wkhtmltopdf`, now as in wkhtmltopdf 0.12.6:
 - **A heading drawn across the foot of a page** has its text once in its bookmark and in the table of contents. Up to 1.5.0, Chromium gave it twice.
 - **A float column that a page break splits**, as the totals of an ERPNext invoice, goes on at its place on the next page. Up to 1.5.0, Chromium moved what follows of it to the left edge.
 - **An `@font-face` whose `font-style` or `font-weight` is a list**, as CSS 2 allowed (`italic, oblique`), applies to each of its values. Up to 1.5.0, Chromium took such a face as the normal one: the WCA Regulations came out in italics.
+- **A table of contents made by `--xsl-style-sheet` with `indent="yes"`** keeps each entry on one line. Up to 1.5.0, the indentation went between the parts of an entry: under `white-space: pre`, EDB's table of contents took five pages instead of one.
+- **A forced page break where nothing is laid out on the page yet**, as after an empty anchor at the start of a document, makes no blank page. Up to 1.5.0, EDB's documents began with one.
 
 ## 1.5.0
 

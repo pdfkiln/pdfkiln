@@ -52,6 +52,14 @@ export interface Emulation {
   // they all go on; only those that paint nothing below their content, in
   // a box that holds them, so that nothing else moves.
   floatColumns?: boolean;
+  // A forced break (page-break-before or -after: always) where nothing has
+  // been laid out on the page yet does nothing in WebKit 534, which goes to
+  // the next page top only from below it (RenderBlock::applyBeforeBreak).
+  // Chromium breaks after an empty element too: EDB's documents begin with
+  // an empty anchor, then an h2 that breaks before it, and their first page
+  // came out blank. Known at the start of the page and after another forced
+  // break, from the page as laid out.
+  pageTopBreaks?: boolean;
   // CSS that WebKit 534 does not parse is dropped from the text of the
   // style sheets, so that the page's fallbacks apply as they did there:
   // Odoo writes display: -webkit-box; display: -webkit-flex; display: flex,
@@ -524,5 +532,28 @@ export function emulateInPage(e: Emulation): void {
       }
     }
     for (const [el, h] of stretch) el.style.setProperty('min-height', `${h}px`, 'important');
+  }
+  if (e.pageTopBreaks && doc.body && window === window.top) {
+    // The top of the current page: the body's content, then the margin
+    // box of the last element that broke before, or just after the last
+    // that broke after. Between two forced breaks nothing moves as pages
+    // are cut, so positions as laid out hold. All read before any is set.
+    const forced = (v: string) => /^(page|left|right|recto|verso|always)$/.test(v);
+    const bs = getComputedStyle(doc.body);
+    let top = doc.body.getBoundingClientRect().top + scrollY + parseFloat(bs.borderTopWidth) + parseFloat(bs.paddingTop);
+    const unforce: HTMLElement[] = [];
+    for (const el of Array.from(doc.body.querySelectorAll('*'))) {
+      if (!(el instanceof HTMLElement) || !el.getClientRects().length) continue;
+      const cs = getComputedStyle(el);
+      if (cs.cssFloat !== 'none' || cs.position === 'absolute' || cs.position === 'fixed') continue;
+      const r = el.getBoundingClientRect();
+      if (forced(cs.breakBefore)) {
+        const at = r.top + scrollY - (parseFloat(cs.marginTop) || 0);
+        if (at <= top + 0.5) unforce.push(el);
+        else top = at;
+      }
+      if (forced(cs.breakAfter)) top = r.bottom + scrollY + (parseFloat(cs.marginBottom) || 0);
+    }
+    for (const el of unforce) el.style.setProperty('break-before', 'auto', 'important');
   }
 }
