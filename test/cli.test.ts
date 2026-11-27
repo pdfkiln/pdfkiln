@@ -1520,6 +1520,37 @@ print(json.dumps(out))`;
     assert.ok(bordered['R1']![1] - bordered['R12']![1] > 100, `R1 at ${bordered['R1']![1]}, R12 at ${bordered['R12']![1]}`);
   });
 
+  test('the font of a footer text: a web font the page loaded, by the name in its file, else the one Qt fell back to', async (t) => {
+    // wkhtmltopdf 0.12.6 drew header and footer texts with Qt's fonts. Under
+    // Linux, WebKit had added the web fonts the page loaded, by the family
+    // in their files (Lato), not their @font-face name (PageFont): EDB's
+    // footer came out in Signika. A name no font has: fontconfig's best
+    // match (DejaVu Sans on Ubuntu, where Chromium took Liberation Sans).
+    // Under Windows, Tahoma in both cases (measured).
+    if (!hasPyMuPDF) return t.skip('PyMuPDF missing');
+    if (process.platform !== 'linux' && process.platform !== 'win32') return t.skip('Linux and Windows');
+    const footerFont = async (name: string, args: string[], body: string) => {
+      const out = join(dir, `footer-font-${name}.pdf`);
+      const r = await run(['-q', '--enable-local-file-access', '--footer-center', 'FOOT', ...args, file(`footer-font/${name}.html`, body), out]);
+      assert.equal(r.code, 0, r.stderr);
+      const script = 'import sys, pymupdf\np = pymupdf.open(sys.argv[1])[0]\nprint([s["font"] for b in p.get_text("dict")["blocks"] for l in b.get("lines", []) for s in l["spans"] if s["text"] == "FOOT"][0])';
+      return execFileSync(python, ['-I', '-c', script, out], { encoding: 'utf8' }).trim();
+    };
+    const lato = pathToFileURL(join(root, 'corpus', '_shared', 'odoo17', 'www', 'web', 'static', 'fonts', 'lato', 'Lato-RegIta-webfont.ttf')).href;
+    const page = `<style>@font-face { font-family: PageFont; src: url("${lato}") } p { font-family: PageFont }</style><p>Text</p>`;
+    const inFile = await footerFont('in-file', ['--footer-font-name', 'Lato'], page);
+    const cssName = await footerFont('css-name', ['--footer-font-name', 'PageFont'], page);
+    const missing = await footerFont('missing', ['--footer-font-name', 'No Such Font'], '<p>Text</p>');
+    if (process.platform === 'win32') {
+      for (const f of [inFile, cssName, missing]) assert.match(f, /Tahoma/);
+      return;
+    }
+    const fc = (n: string) => execFileSync('fc-match', ['-f', '%{family[0]}', n], { encoding: 'utf8' }).replace(/\s+/g, '');
+    assert.match(inFile, /Lato-Italic/);
+    assert.match(cssName, new RegExp(fc('PageFont')));
+    assert.match(missing, new RegExp(fc('No Such Font')));
+  });
+
   test('a forced break where nothing is laid out on the page yet does nothing, as in wkhtmltopdf', async (t) => {
     // EDB's documents begin with an empty anchor, then an h2 with
     // page-break-before: always: wkhtmltopdf 0.12.6 (Windows 11) starts the

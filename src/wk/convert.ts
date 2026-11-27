@@ -16,7 +16,7 @@ import { version } from '../version.js';
 import { Chromium, grayJpegs, loadJar, saveJar } from './chromium.js';
 import { QtJar } from './cookiejar.js';
 import type { Feedback } from './feedback.js';
-import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, textDocument, withParms, type Geometry, type Layer, type Parms } from './headers.js';
+import { hasText, measure, printDocument, qtDateTime, renderHtml, stamp, pageFontRules, textDocument, textFonts, withParms, type Geometry, type Layer, type Parms } from './headers.js';
 import { anchorsOf, fragmentOf, linkHeadings, markTargets, pageKey, tocAnchorNames, type Anchor } from './links.js';
 import { Anchors, buildOutline, outlineXml, sameTree, type WkDoc, type WkItem } from './outline.js';
 import type { Parsed } from './parse.js';
@@ -382,9 +382,14 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
     // is needed from then on. The first stays, for the XSL of a table of
     // contents.
     const firstBody = live.findIndex(({ o }) => !isToc(o));
+    // The web fonts the header and footer texts may name, read from each
+    // page before it is closed (pageFontRules).
+    const textFontNames = live.flatMap(({ o }) => [o.header, o.footer]).filter(hasText).map((h) => h.fontName);
+    const textFontRules: string[] = [];
     const printed: ({ doc: PDFDocument; outline: OutlineItem[]; pages: number } | undefined)[] = await pooled(live, async ({ l, o }, k) => {
       if (isToc(o)) return undefined;
       const r = await printOne(l, o, needOutline, k);
+      textFontRules.push(...await pageFontRules(l, textFontNames));
       if (k !== firstBody) await l.page.close().catch(() => {});
       fb.progressChanged((++done * 100) / toPrint.length, `Object ${done} of ${toPrint.length}`);
       return r;
@@ -499,7 +504,8 @@ export async function convert(p: Parsed, fb: Feedback, io: Io): Promise<Result> 
       }
     });
     if (textPages.length) {
-      layerJobs.push(() => printDocument(context, textDocument(geometry, textPages), work, geometry, specOf(objects[0]!, false), fb)
+      const fonts = await textFonts(textFontNames, textFontRules);
+      layerJobs.push(() => printDocument(context, textDocument(geometry, textPages, fonts), work, geometry, specOf(objects[0]!, false), fb)
         .then((pdf) => ({ pdf, targets: textTargets, place: { left: 0, top: 0, width, height } })));
     }
     const hfErrors: number[] = [];

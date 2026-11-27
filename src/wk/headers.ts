@@ -5,13 +5,14 @@
 // - header-html and footer-html are loaded with wkhtmltopdf's URL
 //   parameters, one <iframe> per page in one document printed at once.
 // Each result is stamped on the body page.
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PDFDocument, PDFPage } from '@cantoo/pdf-lib';
 import type { BrowserContext } from 'puppeteer-core';
 import { markFrames, printApart, printer } from '../engine/frames.js';
-import { emulate, openPage, type LoadSpec, type Reporter } from '../engine/loader.js';
+import { qtFallbackFamily, sfntFamilies } from '../engine/fonts.js';
+import { emulate, openPage, type LoadedPage, type LoadSpec, type Reporter } from '../engine/loader.js';
 import { pdfModules, READ, WRITE } from '../pdf/modules.js';
 import type { HeaderFooter } from './settings.js';
 
@@ -92,10 +93,139 @@ const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 // (qfontdatabase.cpp familyList): names split at the commas, each trimmed
 // and taken out of one pair of quotes, then the default family. Each name
 // goes in as a CSS string.
-export function fontFamily(name: string): string {
+export function qtFamilyList(name: string): string[] {
   const unquote = (s: string) => ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")) ? s.slice(1, -1) : s);
+  return name.split(',').map((s) => unquote(s.trim())).filter(Boolean);
+}
+
+// fallback: the family Qt falls back to when none of the names is a font
+// it has (qtFallbackFamily), before CSS's own.
+export function fontFamily(name: string, fallback?: string): string {
   const css = (s: string) => `'${s.replace(/[\\'\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}'`;
-  return [...name.split(',').map((s) => unquote(s.trim())).filter(Boolean).map(css), 'sans-serif'].join(', ');
+  const names = qtFamilyList(name);
+  if (fallback && !names.some((n) => n.toLowerCase() === fallback.toLowerCase())) names.push(fallback);
+  return [...names.map(css), 'sans-serif'].join(', ');
+}
+
+export interface TextFonts {
+  // @font-face rules: the web fonts of the pages that a text names.
+  css: string;
+  // By font name (--header-font-name, --footer-font-name): the family Qt
+  // falls back to.
+  fallbacks: Map<string, string>;
+}
+
+// The fonts of the header and footer texts, as Qt 4.8 drew them. Under
+// Linux, its font database held the web fonts the pages had loaded, by the
+// family names written in their files (WebKit 534 added them to
+// fontconfig): a text named after one of them was drawn with it (EDB's
+// Signika), whatever the @font-face called it (measured on 0.12.6). The
+// text document loads nothing: each such face goes in as data:, read
+// without a new request. Under Windows, those fonts were the page's alone.
+// A name that matches none falls back as Qt did (qtFallbackFamily).
+// pageFontRules runs on each page once printed, before it is closed.
+export async function textFonts(fontNames: string[], rules: string[]): Promise<TextFonts> {
+  const fallbacks = new Map<string, string>();
+  for (const n of new Set(fontNames)) {
+    const f = await qtFallbackFamily(qtFamilyList(n));
+    if (f) fallbacks.set(n, f);
+  }
+  return { css: [...new Set(rules)].join('\n'), fallbacks };
+}
+
+// The @font-face rules, data: sources, of the faces a page loaded whose
+// file names one of the texts' fonts (Linux only).
+export async function pageFontRules(lp: LoadedPage, fontNames: string[]): Promise<string[]> {
+  if (process.platform !== 'linux' || !fontNames.length) return [];
+  const wanted = new Map(fontNames.flatMap(qtFamilyList).map((n) => [n.toLowerCase(), n]));
+  const q = (s: string) => `'${s.replace(/[\'\n\r\f]/g, (c) => `\${c.charCodeAt(0).toString(16)} `)}'`;
+  // The @font-face rules of the families the page loaded, their sources
+  // made absolute.
+  const faces = await lp.page.evaluate(() => {
+    const out: { style: string; weight: string; stretch: string; urls: string[] }[] = [];
+    const plain = (v: string) => v.trim().replace(/^(["'])(.*)\1$/, '$2').toLowerCase();
+    const loaded = new Set(Array.from(document.fonts).filter((f) => f.status === 'loaded').map((f) => plain(f.family)));
+    const visit = (list: CSSRuleList, base: string) => {
+      for (const r of Array.from(list)) {
+        if (r instanceof CSSFontFaceRule) {
+          if (!loaded.has(plain(r.style.getPropertyValue('font-family')))) continue;
+          const urls = Array.from(r.style.getPropertyValue('src').matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/g), (m) => {
+            try {
+              return new URL(m[2]!, base).href;
+            } catch {
+              return '';
+            }
+          }).filter(Boolean);
+          const d = (p: string, v: string) => r.style.getPropertyValue(p).trim() || v;
+          out.push({ style: d('font-style', 'normal'), weight: d('font-weight', 'normal'), stretch: d('font-stretch', 'normal'), urls });
+        } else if (r instanceof CSSImportRule) {
+          try {
+            if (r.styleSheet) visit(r.styleSheet.cssRules, r.styleSheet.href ?? base);
+          } catch {
+            // Another origin.
+          }
+        } else if ('cssRules' in r && (r as CSSGroupingRule).cssRules) visit((r as CSSGroupingRule).cssRules, base);
+      }
+    };
+    for (const s of Array.from(document.styleSheets)) {
+      try {
+        visit(s.cssRules, s.href ?? document.baseURI);
+      } catch {
+        // Another origin: its rules cannot be read here.
+      }
+    }
+    return out;
+  }).catch(() => []);
+  const rules: string[] = [];
+  for (const f of faces) {
+    // The first source that can be had without a request (faceData).
+    for (const url of f.urls) {
+      const data = await faceData(lp, url);
+      if (!data) continue;
+      for (const family of sfntFamilies(data)) {
+        const name = wanted.get(family.toLowerCase());
+        if (name) rules.push(`@font-face { font-family: ${q(name)}; src: url(data:application/octet-stream;base64,${data.toString('base64')}); font-style: ${f.style}; font-weight: ${f.weight}; font-stretch: ${f.stretch} }`);
+      }
+      break;
+    }
+  }
+  return rules;
+}
+
+// A face's bytes, read without a new request: a data: source as it is, a
+// file as the page read it, one of the page's own origin from the browser's
+// cache only. One of another origin is left out.
+async function faceData(lp: LoadedPage, url: string): Promise<Buffer | null> {
+  if (url.startsWith('data:')) {
+    const comma = url.indexOf(',');
+    if (comma < 0) return null;
+    const payload = url.slice(comma + 1);
+    try {
+      return /;base64$/i.test(url.slice(0, comma)) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'latin1');
+    } catch {
+      return null;
+    }
+  }
+  if (url.startsWith('file:')) {
+    try {
+      return readFileSync(fileURLToPath(url));
+    } catch {
+      return null;
+    }
+  }
+  const b64 = await lp.page.evaluate(async (u: string) => {
+    try {
+      const r = await fetch(u, { cache: 'only-if-cached', mode: 'same-origin' });
+      if (!r.ok) return null;
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    } catch {
+      return null;
+    }
+  }, url).catch(() => null);
+  return b64 ? Buffer.from(b64, 'base64') : null;
 }
 
 export function hasText(h: HeaderFooter): boolean {
@@ -105,10 +235,10 @@ export function hasText(h: HeaderFooter): boolean {
 // One page per body page with that page's header and footer text. The
 // header text sits `spacing` above the content, its line there too; the
 // footer text starts `spacing` below the content (endPage).
-export function textDocument(g: Geometry, pages: { header: HeaderFooter; footer: HeaderFooter; parms: Parms }[]): string {
+export function textDocument(g: Geometry, pages: { header: HeaderFooter; footer: HeaderFooter; parms: Parms }[], fonts?: TextFonts): string {
   const cw = g.width - g.left - g.right;
   const box = (h: HeaderFooter, parms: Parms, header: boolean) => {
-    const font = `font-family: ${fontFamily(h.fontName)}; font-size: ${h.fontSize}pt;`;
+    const font = `font-family: ${fontFamily(h.fontName, fonts?.fallbacks.get(h.fontName))}; font-size: ${h.fontSize}pt;`;
     const pos = header
       ? `top: calc(${g.top - h.spacing}mm - 1lh)`
       : `bottom: calc(${g.bottom - h.spacing}mm - 1lh)`;
@@ -130,7 +260,7 @@ export function textDocument(g: Geometry, pages: { header: HeaderFooter; footer:
     .p:last-child { break-after: auto }
     .t { position: absolute; left: ${g.left}mm; width: ${cw}mm; line-height: normal; white-space: pre; color: black }
     .l { position: absolute; left: ${g.left}mm; width: ${cw}mm; height: 0; border-top: 1px solid black }
-  </style>${body}`;
+  ${fonts?.css ?? ''}</style>${body}`;
 }
 
 export async function printDocument(context: BrowserContext, html: string, dir: string, g: Geometry, spec: Omit<LoadSpec, 'url' | 'viewport'>, out: Reporter): Promise<Uint8Array> {

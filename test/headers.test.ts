@@ -37,4 +37,7 @@ test('the font of the header and footer text: the names of the list, each out of
   assert.equal(fontFamily('"Luxi'), `'"Luxi', sans-serif`);
   assert.equal(fontFamily("Bob's\\Font"), "'Bob\\27 s\\5c Font', sans-serif");
   assert.equal(fontFamily(''), 'sans-serif');
+  // Qt's fallback, when none of the names is a font it has, before CSS's own.
+  assert.equal(fontFamily('"Luxi Sans"', 'DejaVu Sans'), "'Luxi Sans', 'DejaVu Sans', sans-serif");
+  assert.equal(fontFamily('Arial, dejavu sans', 'DejaVu Sans'), "'Arial', 'dejavu sans', sans-serif");
 });

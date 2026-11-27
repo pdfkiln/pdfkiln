@@ -10,6 +10,7 @@ import { execFile, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { inflateSync } from 'node:zlib';
 
 // The family of each generic one, as Page.setFontFamilies takes them.
 export interface GenericFamilies {
@@ -61,6 +62,71 @@ function command(file: string, args: string[]): { started: Promise<boolean>; out
     child.once('error', () => resolve(false));
   });
   return { started, out };
+}
+
+// The family Qt 4.8 draws a header or footer text in when none of its
+// names is a font of the system: under fontconfig (Linux), the best match
+// for the list, as fc-match gives it (DejaVu Sans on Debian and Ubuntu,
+// where sans-serif, Qt's default, is Liberation Sans); under Windows, the
+// face GDI falls back to, Tahoma (measured on 0.12.6). None elsewhere.
+const fallbacks = new Map<string, Promise<string | undefined>>();
+export function qtFallbackFamily(names: string[]): Promise<string | undefined> {
+  if (process.platform === 'win32') return Promise.resolve('Tahoma');
+  if (process.platform !== 'linux' || !names.length) return Promise.resolve(undefined);
+  // A fontconfig pattern: families parted by commas, the specials escaped.
+  const pattern = names.map((n) => n.replace(/[\\:,-]/g, '\\$&')).join(',');
+  let f = fallbacks.get(pattern);
+  if (!f) {
+    f = command('fc-match', ['-f', '%{family[0]}', pattern]).out.then((o) => o?.trim() || undefined);
+    fallbacks.set(pattern, f);
+  }
+  return f;
+}
+
+// The family names written in a font file (name table, IDs 1 and 16, every
+// language), as fontconfig knows the font: TrueType, OpenType, a
+// collection's first font, WOFF. None for what cannot be read (WOFF2).
+export function sfntFamilies(data: Buffer): string[] {
+  try {
+    const tag = data.toString('latin1', 0, 4);
+    let tables: { tag: string; body: Buffer }[];
+    if (tag === 'wOFF') {
+      const n = data.readUInt16BE(12);
+      tables = Array.from({ length: n }, (_, i) => {
+        const at = 44 + 20 * i;
+        const offset = data.readUInt32BE(at + 4);
+        const comp = data.readUInt32BE(at + 8);
+        const orig = data.readUInt32BE(at + 12);
+        const raw = data.subarray(offset, offset + comp);
+        return { tag: data.toString('latin1', at, at + 4), body: comp < orig ? inflateSync(raw) : raw };
+      });
+    } else {
+      const base = tag === 'ttcf' ? data.readUInt32BE(12) : 0;
+      const n = data.readUInt16BE(base + 4);
+      tables = Array.from({ length: n }, (_, i) => {
+        const at = base + 12 + 16 * i;
+        const offset = data.readUInt32BE(at + 8);
+        return { tag: data.toString('latin1', at, at + 4), body: data.subarray(offset, offset + data.readUInt32BE(at + 12)) };
+      });
+    }
+    const name = tables.find((t) => t.tag === 'name')?.body;
+    if (!name) return [];
+    const count = name.readUInt16BE(2);
+    const strings = name.readUInt16BE(4);
+    const out = new Set<string>();
+    for (let i = 0; i < count; i++) {
+      const at = 6 + 12 * i;
+      const platform = name.readUInt16BE(at);
+      const id = name.readUInt16BE(at + 6);
+      if (id !== 1 && id !== 16) continue;
+      const s = name.subarray(strings + name.readUInt16BE(at + 10), strings + name.readUInt16BE(at + 10) + name.readUInt16BE(at + 8));
+      const text = platform === 1 ? s.toString('latin1') : Buffer.from(s.subarray(0, s.length & ~1)).swap16().toString('utf16le');
+      if (text.trim()) out.add(text.trim());
+    }
+    return [...out];
+  } catch {
+    return [];
+  }
 }
 
 let qt: QtFonts | undefined;
